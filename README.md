@@ -80,3 +80,14 @@ D:/Program/python/python.exe -m app.cli convert `
 
 See [docs/production-tts.md](docs/production-tts.md) for model selection,
 licensing, configuration, lifecycle, retries, caching, and deployment notes.
+
+Spanish pronunciation preprocessing preserves reader-facing source text while
+expanding common numbers, times, units, abbreviations, symbols, and configured
+technical terms for TTS. See
+[docs/spanish-text-normalization.md](docs/spanish-text-normalization.md), or
+inspect source/TTS pairs with:
+
+```powershell
+python -m app.cli inspect-text `
+  --input ejemplo_inicial/ejemplo.xml
+```

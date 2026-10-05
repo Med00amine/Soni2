@@ -19,6 +19,7 @@ class Metadata(BaseModel):
 class Sentence(BaseModel):
     id: str
     text: str
+    source_text: str | None = None
     original_text: str | None = None
     tts_text: str | None = None
     paragraph_id: str

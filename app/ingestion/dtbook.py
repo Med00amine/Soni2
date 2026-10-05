@@ -128,6 +128,7 @@ class DTBookParser:
                 Sentence(
                     id=self._stable_id(sentence, "sentence", sentence_order),
                     text=_text_content(sentence),
+                    source_text=_text_content(sentence),
                     original_text=_text_content(sentence),
                     paragraph_id=paragraph_id,
                     chapter_id=chapter_id,
@@ -140,6 +141,7 @@ class DTBookParser:
                 Sentence(
                     id=f"{paragraph_id}-sentence-1",
                     text=text,
+                    source_text=text,
                     original_text=text,
                     paragraph_id=paragraph_id,
                     chapter_id=chapter_id,

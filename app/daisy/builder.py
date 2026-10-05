@@ -98,4 +98,4 @@ def _append_paragraphs(parent: etree._Element, paragraphs) -> None:
             if index:
                 node.text = (node.text or "") + " "
             sent = etree.SubElement(node, f"{{{DTBOOK_NS}}}sent", id=sentence.id)
-            sent.text = sentence.original_text or sentence.text
+            sent.text = sentence.source_text or sentence.original_text or sentence.text

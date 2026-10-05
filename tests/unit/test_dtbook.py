@@ -20,6 +20,8 @@ def test_parser_extracts_metadata_and_reading_order() -> None:
     assert "prologo" in chapter_ids
     prologue = next(chapter for chapter in book.chapters if chapter.id == "prologo")
     assert prologue.paragraphs[1].sentences[1].id == "id_8"
+    sentence = prologue.paragraphs[1].sentences[0]
+    assert sentence.source_text == sentence.original_text == sentence.text
 
 
 def test_parser_preserves_nested_sections_and_fallback_sentences() -> None:
