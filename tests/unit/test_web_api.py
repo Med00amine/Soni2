@@ -63,3 +63,18 @@ def test_mock_generation_job_completes_and_validates(tmp_path: Path) -> None:
         assert status["status"] == "completed"
         assert status["stage"] == "Completed"
         assert client.get(f"/api/audiobooks/{book_id}/daisy").status_code == 200
+
+
+def test_generation_failure_is_terminal_and_safe(tmp_path: Path) -> None:
+    source = Path(__file__).parents[2] / "ejemplo_inicial" / "ejemplo.xml"
+    service = BackendApplication(BookStorage(tmp_path))
+    book = service.upload(source.read_bytes(), "ejemplo.xml")
+    job = service.start_generation(book.id, "invalid", "ES")
+    for _ in range(500):
+        status = service.job(job.id)
+        if status.status in {"completed", "failed"}:
+            break
+        time.sleep(0.02)
+    assert status.status == "failed"
+    assert status.error == "Unable to generate the audiobook."
+    service.shutdown()

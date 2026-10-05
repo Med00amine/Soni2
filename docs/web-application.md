@@ -1,14 +1,16 @@
 # Accessible web application
 
 The Phase 5 demonstration adds a local React/TypeScript frontend and a
-FastAPI HTTP layer without replacing the existing CLI pipeline.
+FastAPI HTTP layer without replacing the existing CLI pipeline. Phase 6 adds a
+durable local job repository and a bounded worker queue for long-running
+generation.
 
 ```text
 React + TypeScript
         ↓ HTTP/JSON
 FastAPI (app.backend.api)
         ↓
-BackendApplication
+Job repository → bounded in-process queue → worker
         ↓
 DTBook parser → Spanish pronunciation → MeloTTS/MockTTS
         ↓
@@ -69,6 +71,28 @@ The API never accepts a client filesystem path. Uploaded files and generated
 packages are stored beneath `data/books/{book_id}` with generated identifiers.
 User-facing errors omit tracebacks and internal paths.
 
+## Job lifecycle
+
+`POST /api/books/{book_id}/generate` creates a durable JSON record under
+`data/jobs/{job_id}.json`, queues the ID, and returns immediately. A bounded
+in-process worker claims the record exactly once and transitions it through:
+
+```text
+queued → running → completed
+                 ↘ failed
+```
+
+Stages and sentence counters reflect actual work. `completed` is the number
+of synthesized sentences and `total` is the parsed sentence count; progress is
+reported as a normalized value from `0` to `1`. Failures are logged with the
+job ID but the API exposes only a safe user-facing message. The result contains
+relative resource references, never local filesystem paths.
+
+The worker limit defaults to one MeloTTS job and is configurable with
+`DAISY_JOB_MAX_CONCURRENCY`. The repository and queue are interfaces in
+practice: they can later be replaced with a database and external queue
+without changing the audiobook pipeline.
+
 ## Accessibility
 
 The frontend uses semantic landmarks, labelled native controls, visible focus
@@ -79,7 +103,8 @@ reader-facing `source_text`, never the pronunciation-expanded TTS text.
 
 ## Known limitations
 
-- Jobs are in-process and are lost when the API process stops.
+- Workers are in-process; durable job records remain on disk, but queued work
+  is not automatically recovered after an ungraceful process termination yet.
 - Filesystem storage is intended for a local demonstration, not multi-user
   production.
 - Browser playback is sentence-segment based; a future service can add a

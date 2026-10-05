@@ -53,7 +53,9 @@ class JobResponse(BaseModel):
     completed: int | None = None
     total: int | None = None
     error: str | None = None
+    result: dict[str, str] | None = None
     created_at: datetime
+    started_at: datetime | None = None
     completed_at: datetime | None = None
 
 

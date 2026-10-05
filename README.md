@@ -115,3 +115,7 @@ npm run dev
 
 See [docs/web-application.md](docs/web-application.md) for the API, demo
 workflow, and accessibility notes.
+
+Generation jobs are persisted under `data/jobs` and run through a bounded
+local worker queue. Set `DAISY_JOB_MAX_CONCURRENCY=1` (the default) to limit
+CPU/memory-intensive MeloTTS jobs.

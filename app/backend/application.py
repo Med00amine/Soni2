@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import uuid
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,15 +21,22 @@ from app.tts.config import ProductionTTSConfig
 from app.tts.factory import create_tts_engine
 
 from .schemas import JobResponse
+from .jobs import ExecutorJobQueue, InProcessJobQueue, JobQueue, JobRecord, JobRepository, JobResult
 from .storage import BookStorage
+
+logger = logging.getLogger(__name__)
 
 
 class BackendApplication:
-    def __init__(self, storage: BookStorage, *, executor: ThreadPoolExecutor | None = None) -> None:
+    def __init__(self, storage: BookStorage, *, executor: ThreadPoolExecutor | None = None,
+                 queue: JobQueue | None = None, max_concurrency: int = 1) -> None:
         self.storage = storage
-        self.executor = executor or ThreadPoolExecutor(max_workers=2, thread_name_prefix="audiobook")
-        self.jobs: dict[str, JobResponse] = {}
+        self.job_repository = JobRepository(storage.root)
+        self._queue = queue
         self._lock = threading.Lock()
+        if self._queue is None:
+            self._queue = (ExecutorJobQueue(executor, self._run) if executor else
+                           InProcessJobQueue(self._run, max_concurrency))
 
     def upload(self, source: bytes, filename: str) -> Book:
         source_path = self.storage.root / f".upload-{uuid.uuid4().hex}.xml"
@@ -42,26 +50,28 @@ class BackendApplication:
 
     def start_generation(self, book_id: str, engine: str, voice_id: str | None) -> JobResponse:
         self.storage.get(book_id)
-        job = JobResponse(
-            id=uuid.uuid4().hex, book_id=book_id, status="queued", progress=0,
-            stage="Queued",
-            created_at=datetime.now(timezone.utc),
-        )
-        with self._lock:
-            self.jobs[job.id] = job
-        self.executor.submit(self._run, job.id, engine, voice_id)
-        return job
+        job = self.job_repository.create(book_id, engine, voice_id)
+        self._queue.submit(job.id)
+        return self._response(job)
 
     def job(self, job_id: str) -> JobResponse:
         try:
-            return self.jobs[job_id]
-        except KeyError as exc:
-            raise KeyError("Job was not found.") from exc
+            return self._response(self.job_repository.get(job_id))
+        except KeyError:
+            raise
 
-    def _run(self, job_id: str, engine: str, voice_id: str | None) -> None:
-        job = self.jobs[job_id]
+    @property
+    def jobs(self) -> dict[str, JobResponse]:
+        """Compatibility view for the Phase 5 API and existing integrations."""
+        return {job.id: self._response(job) for job in self.job_repository.list()}
+
+    def _run(self, job_id: str) -> None:
+        claimed = self.job_repository.claim(job_id)
+        if claimed is None:
+            return
+        job = claimed
         try:
-            self._update(job, status="running", stage="Parsing book", progress=0.05)
+            self._update(job, stage="Parsing book", progress=0.05)
             book = self.storage.get(job.book_id)
             sentences = list(_book_sentences(book))
             self._update(job, stage="Normalizing text", progress=0.1, total=len(sentences), completed=0)
@@ -70,13 +80,13 @@ class BackendApplication:
                 source = sentence.source_text or sentence.original_text or sentence.text
                 sentence.source_text = sentence.original_text = source
                 sentence.tts_text = " ".join(segmenter.segment(processor.process(source)))
-            tts = create_tts_engine(engine, production_config=ProductionTTSConfig(voice=voice_id or "ES"))
+            tts = create_tts_engine(job.engine, production_config=ProductionTTSConfig(voice=job.voice_id or "ES"))
             staging = self.storage.directory(book.id) / ".audio"
             audio: dict[str, AudioMetadata] = {}
             self._update(job, stage="Generating audio", progress=0.15)
             for index, sentence in enumerate(sentences, 1):
                 path = staging / f"{sentence.id}.wav"
-                tts.synthesize(sentence.tts_text or sentence.text, path, voice_id)
+                tts.synthesize(sentence.tts_text or sentence.text, path, job.voice_id)
                 audio[sentence.id] = AudioProcessor().inspect(path)
                 self._update(
                     job,
@@ -99,9 +109,14 @@ class BackendApplication:
                 stage="Completed",
                 progress=1,
                 completed=len(sentences),
+                result=JobResult(
+                    package=f"books/{book.id}/package",
+                    synchronization=f"books/{book.id}/synchronization.json",
+                ),
                 completed_at=datetime.now(timezone.utc),
             )
         except Exception as exc:
+            logger.exception("Audiobook job %s failed", job_id)
             self._update(
                 job,
                 status="failed",
@@ -111,10 +126,16 @@ class BackendApplication:
             )
 
     def _update(self, job: JobResponse, **changes: object) -> None:
-        with self._lock:
-            for name, value in changes.items():
-                setattr(job, name, value)
-            self.jobs[job.id] = job
+        record = self.job_repository.update(job.id, **changes)
+        if isinstance(job, JobResponse):
+            job.__dict__.update(self._response(record).__dict__)
+
+    def shutdown(self) -> None:
+        self._queue.shutdown()
+
+    @staticmethod
+    def _response(job: JobRecord) -> JobResponse:
+        return JobResponse(**job.model_dump(mode="json"))
 
 
 def _book_sentences(book: Book):

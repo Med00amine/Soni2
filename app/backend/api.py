@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import zipfile
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -22,15 +23,21 @@ MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 
 def create_app(application: BackendApplication | None = None) -> FastAPI:
-    service = application or BackendApplication(BookStorage(settings.data_root))
-    app = FastAPI(title="DAISY Audiobook API", version="1.0")
+    service = application or BackendApplication(
+        BookStorage(settings.data_root), max_concurrency=settings.job_max_concurrency
+    )
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        yield
+        service.shutdown()
+
+    app = FastAPI(title="DAISY Audiobook API", version="1.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?$",
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
     @app.post("/api/books", response_model=BookResponse, status_code=201)
     async def upload_book(file: UploadFile = File(...)):
         if not file.filename or not file.filename.lower().endswith((".xml", ".dtbook")):

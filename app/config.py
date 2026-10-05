@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     tts_timeout: float | None = None
     tts_cache_enabled: bool = True
     tts_force_regenerate: bool = False
+    job_max_concurrency: int = 1
     model_config = SettingsConfigDict(env_prefix="DAISY_", env_file=".env", extra="ignore")
 
 

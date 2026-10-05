@@ -17,6 +17,7 @@ data/output/
 data/intermediate/
 data/tts_test/
 data/books/
+data/jobs/
 ejemplo_inicial/*.wav
 ejemplo_inicial/*.smil
 ejemplo_inicial/navigation.ncx
