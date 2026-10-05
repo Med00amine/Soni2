@@ -91,3 +91,27 @@ inspect source/TTS pairs with:
 python -m app.cli inspect-text `
   --input ejemplo_inicial/ejemplo.xml
 ```
+
+## Web application
+
+Phase 5 provides an accessible local demonstration built with FastAPI and
+React/TypeScript. It accepts DTBook XML, generates the existing pipeline's
+validated audiobook, exposes synchronized source text and audio, and offers a
+DAISY download.
+
+Start the backend:
+
+```powershell
+D:/Program/anaconda3/envs/machinelearning/python.exe -m uvicorn app.backend.main:app --reload
+```
+
+Start the frontend in another terminal:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+See [docs/web-application.md](docs/web-application.md) for the API, demo
+workflow, and accessibility notes.

@@ -10,9 +10,13 @@ __pycache__/
 venv/
 env/
 .vscode/
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
 data/output/
 data/intermediate/
 data/tts_test/
+data/books/
 ejemplo_inicial/*.wav
 ejemplo_inicial/*.smil
 ejemplo_inicial/navigation.ncx
