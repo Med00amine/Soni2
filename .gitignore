@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+*.egg-info/
+.env
+.env.*
+.venv/
+venv/
+env/
+.vscode/
+data/output/
+data/intermediate/
+ejemplo_inicial/*.wav
+ejemplo_inicial/*.smil
+ejemplo_inicial/navigation.ncx
+ejemplo_inicial/resources.res
