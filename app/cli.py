@@ -12,7 +12,9 @@ from .ingestion.dtbook import DTBookParser
 from .synchronization.synchronizer import SynchronizationEngine
 from .text.normalizer import TextNormalizer
 from .text.segmenter import SentenceSegmenter
-from .tts.mock import MockTTS
+from .tts.config import ProductionTTSConfig
+from .tts.factory import create_tts_engine
+from .config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
@@ -21,9 +23,10 @@ logger = logging.getLogger(__name__)
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="daisy-audiobook")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    convert = subparsers.add_parser("convert", help="Build a validated DAISY package with MockTTS.")
+    convert = subparsers.add_parser("convert", help="Build a validated DAISY package.")
     convert.add_argument("--input", type=Path, required=True)
     convert.add_argument("--output", type=Path, required=True)
+    convert.add_argument("--tts", choices=["mock", "production"], default=settings.tts_engine)
     subparsers.add_parser("validate", help="Validate a DAISY package.").add_argument("--input", type=Path, required=True)
     return parser
 
@@ -39,7 +42,21 @@ def main(argv: list[str] | None = None) -> int:
     book = DTBookParser().parse(args.input)
     normalizer = TextNormalizer()
     segmenter = SentenceSegmenter()
-    tts = MockTTS()
+    tts = create_tts_engine(
+        args.tts,
+        production_config=ProductionTTSConfig(
+            model_path=settings.tts_model_path,
+            device=settings.tts_device,
+            language=settings.tts_language,
+            voice=settings.tts_voice,
+            sample_rate=settings.tts_sample_rate,
+            max_retries=settings.tts_max_retries,
+            retry_delay=settings.tts_retry_delay,
+            timeout=settings.tts_timeout,
+            cache_enabled=settings.tts_cache_enabled,
+            force_regenerate=settings.tts_force_regenerate,
+        ),
+    )
     sentences = list(_book_sentences(book))
     logger.info("[2/8] Normalizing %d sentences...", len(sentences))
     logger.info("[3/8] Segmenting...")
@@ -50,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
 
     staging_audio = args.output / ".audio"
     staging_audio.mkdir(parents=True, exist_ok=True)
-    logger.info("[4/8] Generating mock audio...")
+    logger.info("[4/8] Generating %s audio...", args.tts)
     audio_metadata = {}
     for sentence in sentences:
         path = staging_audio / f"{sentence.id}.wav"
@@ -64,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     DaisyBuilder().build(book, points, audio_metadata, args.output)
     logger.info("[8/8] Validating...")
     report = DaisyValidator().validate(args.output)
-    if staging_audio.exists():
+    if args.tts == "mock" and staging_audio.exists():
         for path in staging_audio.glob("*"):
             path.unlink()
         staging_audio.rmdir()

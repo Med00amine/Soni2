@@ -55,3 +55,28 @@ The package uses WAV as the Phase 2 lossless intermediate/final audio format.
 It has been structurally validated by the project validator, but has not yet
 been tested with every commercial DAISY player. MP3 encoding, richer DAISY
 resource metadata, and external player certification remain future work.
+
+## Production TTS
+
+Phase 3 adds an optional [MeloTTS](https://github.com/myshell-ai/MeloTTS)
+Spanish adapter. It is lazy-loaded, keeps one model per engine process, retries
+failed sentences, records RTF metrics, and reuses valid cached WAV files.
+Install it separately. On Windows/Python 3.12, follow the compatible
+dependency steps in [docs/production-tts.md](docs/production-tts.md) rather
+than relying on the upstream source-only pins:
+
+```powershell
+python -m pip install -e ".[production-tts]"
+```
+
+Use production TTS explicitly:
+
+```powershell
+D:/Program/python/python.exe -m app.cli convert `
+  --input ejemplo_inicial/ejemplo.xml `
+  --output data/output/example-daisy `
+  --tts production
+```
+
+See [docs/production-tts.md](docs/production-tts.md) for model selection,
+licensing, configuration, lifecycle, retries, caching, and deployment notes.

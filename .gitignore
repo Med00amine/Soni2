@@ -5,12 +5,14 @@ __pycache__/
 *.egg-info/
 .env
 .env.*
+!.env.example
 .venv/
 venv/
 env/
 .vscode/
 data/output/
 data/intermediate/
+data/tts_test/
 ejemplo_inicial/*.wav
 ejemplo_inicial/*.smil
 ejemplo_inicial/navigation.ncx
