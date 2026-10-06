@@ -45,7 +45,7 @@ URL.
 
 ## Demonstration workflow
 
-1. Upload a `.xml` or `.dtbook` DTBook file.
+1. Upload a DTBook XML, EPUB, HTML, or text-based PDF file.
 2. Review the parsed title, author, language, chapters, and sentence count.
 3. Select a voice reported by `GET /api/voices`.
 4. Start generation and monitor `GET /api/jobs/{job_id}`.
@@ -53,12 +53,13 @@ URL.
 6. Navigate chapters, control playback speed, and download the validated DAISY
    ZIP package.
 
-Only DTBook XML is accepted. PDF and EPUB are intentionally not advertised
-until parsers for those formats exist.
+All supported formats are converted into the shared `Book` model before
+generation. PDF ingestion is text-only; scanned PDFs require future OCR
+support.
 
 ## API surface
 
-- `POST /api/books` — upload and parse a DTBook.
+- `POST /api/books` — upload and parse a DTBook, EPUB, HTML, or PDF document.
 - `GET /api/books/{book_id}` and `/chapters` — book metadata.
 - `GET /api/voices` — available TTS voice identifiers.
 - `POST /api/jobs` — queue generation without blocking the request.

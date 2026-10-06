@@ -12,7 +12,7 @@ from pathlib import Path
 from app.audio.processor import AudioProcessor
 from app.daisy.builder import DaisyBuilder
 from app.daisy.validator import DaisyValidator
-from app.ingestion.dtbook import DTBookParser
+from app.ingestion.detection import parser_for
 from app.ingestion.models import AudioMetadata, Book
 from app.synchronization.synchronizer import SynchronizationEngine
 from app.text.pronunciation import SpanishPronunciationProcessor
@@ -39,14 +39,15 @@ class BackendApplication:
                            InProcessJobQueue(self._run, max_concurrency))
 
     def upload(self, source: bytes, filename: str) -> Book:
-        source_path = self.storage.root / f".upload-{uuid.uuid4().hex}.xml"
+        safe_filename = Path(filename).name
+        source_path = self.storage.root / f".upload-{uuid.uuid4().hex}-{safe_filename}"
         try:
             source_path.write_bytes(source)
-            book = DTBookParser().parse(source_path)
+            book = parser_for(source_path).parse(source_path)
         finally:
             source_path.unlink(missing_ok=True)
         book.id = uuid.uuid4().hex
-        return self.storage.create(book, source, filename)
+        return self.storage.create(book, source, safe_filename)
 
     def start_generation(self, book_id: str, engine: str, voice_id: str | None) -> JobResponse:
         self.storage.get(book_id)

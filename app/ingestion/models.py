@@ -55,6 +55,9 @@ class Book(BaseModel):
     title: str | None = None
     language: str | None = None
     author: str | None = None
+    source_format: str = "dtbook"
+    source_filename: str | None = None
+    content_fingerprint: str | None = None
     metadata: Metadata = Field(default_factory=Metadata)
     chapters: list[Chapter] = Field(default_factory=list)
 

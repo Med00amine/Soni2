@@ -25,8 +25,8 @@ class BookStorage:
         book.id = book_id
         directory = self._directory(book_id)
         directory.mkdir(parents=True, exist_ok=False)
-        (directory / "source.xml").write_bytes(source)
-        (directory / "filename").write_text(filename, encoding="utf-8")
+        (directory / "source.bin").write_bytes(source)
+        (directory / "filename").write_text(Path(filename).name, encoding="utf-8")
         self.save_book(book)
         return book
 

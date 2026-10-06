@@ -5,6 +5,7 @@ from pathlib import Path
 from lxml import etree
 
 from .models import Book, Chapter, Metadata, Paragraph, Section, Sentence
+from .parsers import content_fingerprint
 
 DTBOOK_NS = "http://www.daisy.org/z3986/2005/dtbook/"
 XML_NS = "http://www.w3.org/XML/1998/namespace"
@@ -51,6 +52,9 @@ class DTBookParser:
             title=metadata.title,
             language=language,
             author=metadata.author,
+            source_format="dtbook",
+            source_filename=path.name,
+            content_fingerprint=content_fingerprint(path),
             metadata=metadata,
             chapters=chapters,
         )

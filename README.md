@@ -119,3 +119,8 @@ workflow, and accessibility notes.
 Generation jobs are persisted under `data/jobs` and run through a bounded
 local worker queue. Set `DAISY_JOB_MAX_CONCURRENCY=1` (the default) to limit
 CPU/memory-intensive MeloTTS jobs.
+
+Supported uploads are DTBook XML, EPUB, HTML, and text-based PDF. All formats
+are converted into the common `Book` model before entering the existing
+normalization and audiobook pipeline. See
+[docs/multi-format-ingestion.md](docs/multi-format-ingestion.md).

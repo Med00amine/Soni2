@@ -14,6 +14,8 @@ class BookSummary(BaseModel):
     chapter_count: int
     sentence_count: int = 0
     processing_state: str | None = None
+    source_format: str = "dtbook"
+    source_filename: str | None = None
 
 
 class ChapterResponse(BaseModel):

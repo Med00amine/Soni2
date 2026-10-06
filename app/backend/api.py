@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
+from app.ingestion.parsers import BookParseError
 from .application import BackendApplication
 from .schemas import (
     BookResponse, BookSummary, ChapterResponse, CreateJobRequest, GenerationRequest, JobResponse,
@@ -40,13 +41,15 @@ def create_app(application: BackendApplication | None = None) -> FastAPI:
     )
     @app.post("/api/books", response_model=BookResponse, status_code=201)
     async def upload_book(file: UploadFile = File(...)):
-        if not file.filename or not file.filename.lower().endswith((".xml", ".dtbook")):
-            raise HTTPException(415, "Upload a DTBook XML file.")
+        if not file.filename or not file.filename.lower().endswith((".xml", ".dtbook", ".epub", ".html", ".htm", ".pdf")):
+            raise HTTPException(415, "Unsupported document format. Supported formats: DTBook XML, EPUB, HTML, PDF.")
         try:
             content = await file.read(MAX_UPLOAD_BYTES + 1)
             if len(content) > MAX_UPLOAD_BYTES:
                 raise HTTPException(413, "The DTBook file is too large.")
             return _book_response(service.upload(content, file.filename))
+        except BookParseError as exc:
+            raise HTTPException(415, str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 
@@ -176,7 +179,8 @@ def _package_file(service, book_id: str, folder: str, filename: str) -> Path:
 def _summary(book):
     sentence_count = sum(1 for _ in _book_sentences(book))
     return BookSummary(id=book.id, title=book.title, language=book.language, author=book.author,
-                       chapter_count=len(book.chapters), sentence_count=sentence_count)
+                       chapter_count=len(book.chapters), sentence_count=sentence_count,
+                       source_format=book.source_format, source_filename=book.source_filename)
 
 
 def _book_response(book):
