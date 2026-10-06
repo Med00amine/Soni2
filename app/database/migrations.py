@@ -6,6 +6,7 @@ from .models import Base
 
 
 INITIAL_SCHEMA_VERSION = "1"
+PHASE_9_SCHEMA_VERSION = "2"
 
 
 def run_initial_migration(engine: Engine) -> None:
@@ -19,4 +20,8 @@ def run_initial_migration(engine: Engine) -> None:
         connection.execute(
             text("INSERT OR IGNORE INTO schema_migrations(version) VALUES (:version)"),
             {"version": INITIAL_SCHEMA_VERSION},
+        )
+        connection.execute(
+            text("INSERT OR IGNORE INTO schema_migrations(version) VALUES (:version)"),
+            {"version": PHASE_9_SCHEMA_VERSION},
         )

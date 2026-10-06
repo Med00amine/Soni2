@@ -19,10 +19,11 @@ from app.text.pronunciation import SpanishPronunciationProcessor
 from app.text.segmenter import SentenceSegmenter
 from app.tts.config import ProductionTTSConfig
 from app.tts.factory import create_tts_engine
+from app.auth import create_access_token, hash_password, normalize_email, verify_password
 from app.database.repositories import CatalogService
 from app.database.session import create_session_factory
 
-from .schemas import AudiobookResponse, JobResponse
+from .schemas import AudiobookResponse, JobResponse, ProgressResponse, UserResponse
 from .jobs import ExecutorJobQueue, InProcessJobQueue, JobQueue, JobRecord, JobRepository, JobResult
 from .storage import BookStorage
 
@@ -157,7 +158,59 @@ class BackendApplication:
         self._queue.shutdown()
 
     def audiobooks(self) -> list[AudiobookResponse]:
-        return [self._audiobook_response(item) for item in self.catalog.list_audiobooks()]
+        records, _ = self.catalog.list_audiobooks()
+        return [self._audiobook_response(item) for item in records]
+
+    def catalog_page(self, **filters):
+        records, total = self.catalog.list_audiobooks(**filters)
+        return [self._audiobook_response(item) for item in records], total
+
+    def recommendations(self, audiobook_id: str | None = None):
+        reason = "Metadata match" if audiobook_id else "Recently added"
+        return [(self._audiobook_response(item), reason) for item in self.catalog.public_recommendations(audiobook_id)]
+
+    def register_user(self, email: str, password: str, display_name: str):
+        record = self.catalog.create_user(normalize_email(email), hash_password(password), display_name.strip() or "Reader")
+        return self._user_response(record)
+
+    def login_user(self, email: str, password: str):
+        record = self.catalog.authenticate_user(normalize_email(email), password)
+        if not record or not record.is_active or not verify_password(password, record.password_hash):
+            raise ValueError("Invalid email or password.")
+        return self._user_response(record)
+
+    def user(self, user_id: str):
+        record = self.catalog.get_user(user_id)
+        if not record or not record.is_active:
+            raise ValueError("User was not found.")
+        return self._user_response(record)
+
+    def membership(self, user_id: str, audiobook_id: str, favorite: bool, add: bool):
+        (self.catalog.add_membership if add else self.catalog.remove_membership)(user_id, audiobook_id, favorite)
+
+    def user_library(self, user_id: str, favorite: bool = False):
+        return [self._audiobook_response(item) for item in self.catalog.library(user_id, favorite)]
+
+    def progress(self, user_id: str, audiobook_id: str):
+        record = self.catalog.get_progress(user_id, audiobook_id)
+        if not record:
+            return None
+        return ProgressResponse(
+            audiobook_id=record.audiobook_id, current_sentence_id=record.current_sentence_id,
+            position_seconds=record.position_seconds, completed=record.completed, updated_at=record.updated_at,
+        )
+
+    def save_progress(self, user_id: str, audiobook_id: str, sentence_id: str | None, position: float, completed: bool):
+        audiobook = self.catalog.get(audiobook_id)
+        if not audiobook:
+            raise KeyError("Audiobook was not found.")
+        if sentence_id and sentence_id not in {sentence.id for sentence in _book_sentences(self.storage.get(audiobook.book_id))}:
+            raise ValueError("Sentence does not belong to this audiobook.")
+        record = self.catalog.save_progress(user_id, audiobook_id, sentence_id, position, completed)
+        return ProgressResponse(
+            audiobook_id=record.audiobook_id, current_sentence_id=record.current_sentence_id,
+            position_seconds=record.position_seconds, completed=record.completed, updated_at=record.updated_at,
+        )
 
     @staticmethod
     def _response(job: JobRecord) -> JobResponse:
@@ -171,6 +224,10 @@ class BackendApplication:
             normalization_version=item.normalization_version, generation_key=item.generation_key,
             status=item.status, created_at=item.created_at,
         )
+
+    @staticmethod
+    def _user_response(item) -> UserResponse:
+        return UserResponse(id=item.id, email=item.email, display_name=item.display_name, created_at=item.created_at)
 
 
 def _book_sentences(book: Book):

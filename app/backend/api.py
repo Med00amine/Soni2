@@ -7,15 +7,19 @@ import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.auth import create_access_token, decode_access_token
 from app.config import settings
 from app.ingestion.parsers import BookParseError
 from .application import BackendApplication
 from .schemas import (
-    AudiobookResponse, BookResponse, BookSummary, ChapterResponse, CreateJobRequest, GenerationRequest, JobResponse,
+    AuthRequest, AuthResponse, AudiobookResponse, BookResponse, BookSummary, CatalogPage, ChapterResponse,
+    CreateJobRequest, GenerationRequest, JobResponse, ProgressRequest, ProgressResponse, RecommendationResponse,
+    UserResponse,
     SynchronizedSentence, SynchronizedTextResponse, VoiceResponse,
 )
 from .storage import BookStorage, StorageError
@@ -40,6 +44,35 @@ def create_app(application: BackendApplication | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    bearer = HTTPBearer(auto_error=False)
+
+    def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> UserResponse:
+        if not credentials:
+            raise HTTPException(401, "Authentication required.", headers={"WWW-Authenticate": "Bearer"})
+        try:
+            return service.user(decode_access_token(credentials.credentials, settings.auth_secret))
+        except ValueError as exc:
+            raise HTTPException(401, str(exc), headers={"WWW-Authenticate": "Bearer"}) from exc
+
+    @app.post("/api/auth/register", response_model=AuthResponse, status_code=201)
+    def register(request: AuthRequest):
+        try:
+            user = service.register_user(request.email, request.password, request.display_name)
+            return AuthResponse(access_token=create_access_token(user.id, settings.auth_secret, settings.auth_token_ttl_minutes), user=user)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/auth/login", response_model=AuthResponse)
+    def login(request: AuthRequest):
+        try:
+            user = service.login_user(request.email, request.password)
+            return AuthResponse(access_token=create_access_token(user.id, settings.auth_secret, settings.auth_token_ttl_minutes), user=user)
+        except ValueError as exc:
+            raise HTTPException(401, str(exc)) from exc
+
+    @app.get("/api/auth/me", response_model=UserResponse)
+    def me(user: UserResponse = Depends(current_user)):
+        return user
     @app.post("/api/books", response_model=BookResponse, status_code=201)
     async def upload_book(file: UploadFile = File(...)):
         if not file.filename or not file.filename.lower().endswith((".xml", ".dtbook", ".epub", ".html", ".htm", ".pdf")):
@@ -73,9 +106,58 @@ def create_app(application: BackendApplication | None = None) -> FastAPI:
     def get_audiobook(book_id: str):
         return _book_response(_get_book(service, book_id))
 
-    @app.get("/api/catalog/audiobooks", response_model=list[AudiobookResponse])
-    def catalog_audiobooks():
-        return service.audiobooks()
+    @app.get("/api/catalog/audiobooks", response_model=CatalogPage)
+    def catalog_audiobooks(search: str | None = None, language: str | None = None,
+                           source_format: str | None = None, voice: str | None = None,
+                           page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=50)):
+        items, total = service.catalog_page(search=search, language=language, source_format=source_format,
+                                            voice=voice, page=page, page_size=page_size)
+        return CatalogPage(items=items, page=page, page_size=page_size, total=total)
+
+    @app.get("/api/recommendations", response_model=list[RecommendationResponse])
+    def recommendations(audiobook_id: str | None = None):
+        return [RecommendationResponse(**item.model_dump(), reason=reason) for item, reason in service.recommendations(audiobook_id)]
+
+    @app.get("/api/library", response_model=list[AudiobookResponse])
+    def library(user: UserResponse = Depends(current_user)):
+        return service.user_library(user.id)
+
+    @app.post("/api/library/{audiobook_id}", status_code=204)
+    def add_library(audiobook_id: str, user: UserResponse = Depends(current_user)):
+        try:
+            service.membership(user.id, audiobook_id, False, True)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.delete("/api/library/{audiobook_id}", status_code=204)
+    def remove_library(audiobook_id: str, user: UserResponse = Depends(current_user)):
+        service.membership(user.id, audiobook_id, False, False)
+
+    @app.get("/api/favorites", response_model=list[AudiobookResponse])
+    def favorites(user: UserResponse = Depends(current_user)):
+        return service.user_library(user.id, True)
+
+    @app.post("/api/favorites/{audiobook_id}", status_code=204)
+    def add_favorite(audiobook_id: str, user: UserResponse = Depends(current_user)):
+        try:
+            service.membership(user.id, audiobook_id, True, True)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.delete("/api/favorites/{audiobook_id}", status_code=204)
+    def remove_favorite(audiobook_id: str, user: UserResponse = Depends(current_user)):
+        service.membership(user.id, audiobook_id, True, False)
+
+    @app.get("/api/audiobooks/{audiobook_id}/progress", response_model=ProgressResponse | None)
+    def get_progress(audiobook_id: str, user: UserResponse = Depends(current_user)):
+        return service.progress(user.id, audiobook_id)
+
+    @app.put("/api/audiobooks/{audiobook_id}/progress", response_model=ProgressResponse)
+    def put_progress(audiobook_id: str, request: ProgressRequest, user: UserResponse = Depends(current_user)):
+        try:
+            return service.save_progress(user.id, audiobook_id, request.current_sentence_id, request.position_seconds, request.completed)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @app.get("/api/books/{book_id}/chapters", response_model=list[ChapterResponse])
     def chapters(book_id: str):

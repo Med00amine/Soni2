@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     tts_force_regenerate: bool = False
     job_max_concurrency: int = 1
     database_url: str = "sqlite:///data/vocality.db"
+    auth_secret: str = "development-only-change-me-change-this-secret"
+    auth_token_ttl_minutes: int = 60
     model_config = SettingsConfigDict(env_prefix="DAISY_", env_file=".env", extra="ignore")
 
 

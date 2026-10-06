@@ -129,3 +129,26 @@ The SQLite catalog is stored at `data/vocality.db` by default. It records
 logical books and generated audiobook variants, and reuses a ready audiobook
 when the source fingerprint and deterministic generation identity match. See
 [docs/catalog-and-deduplication.md](docs/catalog-and-deduplication.md).
+
+## Accounts, library, and discovery
+
+Phase 9 adds optional local accounts with Argon2 password hashing and short-lived
+JWT bearer tokens. Configure `DAISY_AUTH_SECRET` to a random secret of at least
+32 characters before exposing the API beyond local development. The API provides
+registration, login, a ready-audiobook catalog with search and pagination,
+private library and favorites, and per-user listening progress:
+
+```text
+POST /api/auth/register
+POST /api/auth/login
+GET  /api/catalog/audiobooks?search=...
+GET  /api/recommendations
+GET  /api/library
+GET  /api/favorites
+PUT  /api/audiobooks/{audiobook_id}/progress
+```
+
+Recommendations are deterministic metadata matches (same author or language,
+then creation time), not machine-learning recommendations. User records are
+created by the SQLite schema migration runner; existing Phase 8 databases are
+upgraded to schema version 2 without changing stored audiobook files.

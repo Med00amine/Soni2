@@ -75,6 +75,47 @@ class AudiobookResponse(BaseModel):
     created_at: datetime
 
 
+class UserResponse(BaseModel):
+    id: str
+    email: str
+    display_name: str
+    created_at: datetime
+
+
+class AuthRequest(BaseModel):
+    email: str
+    password: str
+    display_name: str = ""
+
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse
+
+
+class CatalogPage(BaseModel):
+    items: list[AudiobookResponse]
+    page: int
+    page_size: int
+    total: int
+
+
+class ProgressRequest(BaseModel):
+    current_sentence_id: str | None = None
+    position_seconds: float = Field(ge=0)
+    completed: bool = False
+
+
+class ProgressResponse(ProgressRequest):
+    audiobook_id: str
+    updated_at: datetime
+
+
+class RecommendationResponse(AudiobookResponse):
+    reason: str
+
+
 class SynchronizedSentence(BaseModel):
     id: str
     chapter_id: str
