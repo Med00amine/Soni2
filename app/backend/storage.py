@@ -24,6 +24,8 @@ class BookStorage:
         book_id = _safe_id(book.id)
         book.id = book_id
         directory = self._directory(book_id)
+        if directory.is_dir():
+            return self.get(book_id)
         directory.mkdir(parents=True, exist_ok=False)
         (directory / "source.bin").write_bytes(source)
         (directory / "filename").write_text(Path(filename).name, encoding="utf-8")

@@ -124,3 +124,8 @@ Supported uploads are DTBook XML, EPUB, HTML, and text-based PDF. All formats
 are converted into the common `Book` model before entering the existing
 normalization and audiobook pipeline. See
 [docs/multi-format-ingestion.md](docs/multi-format-ingestion.md).
+
+The SQLite catalog is stored at `data/vocality.db` by default. It records
+logical books and generated audiobook variants, and reuses a ready audiobook
+when the source fingerprint and deterministic generation identity match. See
+[docs/catalog-and-deduplication.md](docs/catalog-and-deduplication.md).

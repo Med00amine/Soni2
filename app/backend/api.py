@@ -15,7 +15,7 @@ from app.config import settings
 from app.ingestion.parsers import BookParseError
 from .application import BackendApplication
 from .schemas import (
-    BookResponse, BookSummary, ChapterResponse, CreateJobRequest, GenerationRequest, JobResponse,
+    AudiobookResponse, BookResponse, BookSummary, ChapterResponse, CreateJobRequest, GenerationRequest, JobResponse,
     SynchronizedSentence, SynchronizedTextResponse, VoiceResponse,
 )
 from .storage import BookStorage, StorageError
@@ -25,7 +25,8 @@ MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 def create_app(application: BackendApplication | None = None) -> FastAPI:
     service = application or BackendApplication(
-        BookStorage(settings.data_root), max_concurrency=settings.job_max_concurrency
+        BookStorage(settings.data_root), max_concurrency=settings.job_max_concurrency,
+        database_url=settings.database_url,
     )
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -71,6 +72,10 @@ def create_app(application: BackendApplication | None = None) -> FastAPI:
     @app.get("/api/audiobooks/{book_id}", response_model=BookResponse)
     def get_audiobook(book_id: str):
         return _book_response(_get_book(service, book_id))
+
+    @app.get("/api/catalog/audiobooks", response_model=list[AudiobookResponse])
+    def catalog_audiobooks():
+        return service.audiobooks()
 
     @app.get("/api/books/{book_id}/chapters", response_model=list[ChapterResponse])
     def chapters(book_id: str):

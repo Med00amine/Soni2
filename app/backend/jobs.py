@@ -28,6 +28,7 @@ class JobResult(BaseModel):
 class JobRecord(BaseModel):
     id: str
     book_id: str
+    audiobook_id: str | None = None
     engine: str
     voice_id: str | None = None
     status: str = "queued"
@@ -50,9 +51,11 @@ class JobRepository:
         self.root.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
 
-    def create(self, book_id: str, engine: str, voice_id: str | None) -> JobRecord:
+    def create(self, book_id: str, engine: str, voice_id: str | None, job_id: str | None = None,
+               audiobook_id: str | None = None) -> JobRecord:
         job = JobRecord(
-            id=uuid.uuid4().hex, book_id=book_id, engine=engine, voice_id=voice_id,
+            id=job_id or uuid.uuid4().hex, book_id=book_id, engine=engine, voice_id=voice_id,
+            audiobook_id=audiobook_id,
             created_at=datetime.now(timezone.utc),
         )
         self.save(job)
@@ -60,10 +63,11 @@ class JobRepository:
 
     def get(self, job_id: str) -> JobRecord:
         path = self._path(job_id)
-        try:
-            return JobRecord.model_validate_json(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
-            raise KeyError("Job was not found.") from exc
+        with self._lock:
+            try:
+                return JobRecord.model_validate_json(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise KeyError("Job was not found.") from exc
 
     def list(self, book_id: str | None = None) -> list[JobRecord]:
         records = []

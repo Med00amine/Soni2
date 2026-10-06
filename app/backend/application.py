@@ -19,8 +19,10 @@ from app.text.pronunciation import SpanishPronunciationProcessor
 from app.text.segmenter import SentenceSegmenter
 from app.tts.config import ProductionTTSConfig
 from app.tts.factory import create_tts_engine
+from app.database.repositories import CatalogService
+from app.database.session import create_session_factory
 
-from .schemas import JobResponse
+from .schemas import AudiobookResponse, JobResponse
 from .jobs import ExecutorJobQueue, InProcessJobQueue, JobQueue, JobRecord, JobRepository, JobResult
 from .storage import BookStorage
 
@@ -29,8 +31,10 @@ logger = logging.getLogger(__name__)
 
 class BackendApplication:
     def __init__(self, storage: BookStorage, *, executor: ThreadPoolExecutor | None = None,
-                 queue: JobQueue | None = None, max_concurrency: int = 1) -> None:
+                 queue: JobQueue | None = None, max_concurrency: int = 1,
+                 database_url: str | None = None) -> None:
         self.storage = storage
+        self.catalog = CatalogService(create_session_factory(database_url or "sqlite:///data/vocality.db", storage.root))
         self.job_repository = JobRepository(storage.root)
         self._queue = queue
         self._lock = threading.Lock()
@@ -46,12 +50,25 @@ class BackendApplication:
             book = parser_for(source_path).parse(source_path)
         finally:
             source_path.unlink(missing_ok=True)
-        book.id = uuid.uuid4().hex
+        book.id = book.content_fingerprint or uuid.uuid4().hex
         return self.storage.create(book, source, safe_filename)
 
     def start_generation(self, book_id: str, engine: str, voice_id: str | None) -> JobResponse:
-        self.storage.get(book_id)
-        job = self.job_repository.create(book_id, engine, voice_id)
+        book = self.storage.get(book_id)
+        self.catalog.register_book(book)
+        job_id = uuid.uuid4().hex
+        reservation = self.catalog.reserve_audiobook(book, engine, voice_id, job_id)
+        if not reservation.created:
+            existing = reservation.audiobook
+            if existing.job_id:
+                try:
+                    return self.job(existing.job_id)
+                except KeyError:
+                    pass
+            raise ValueError("Audiobook generation is already in progress.")
+        job = self.job_repository.create(
+            book_id, engine, voice_id, job_id=job_id, audiobook_id=reservation.audiobook.id
+        )
         self._queue.submit(job.id)
         return self._response(job)
 
@@ -89,6 +106,9 @@ class BackendApplication:
                 path = staging / f"{sentence.id}.wav"
                 tts.synthesize(sentence.tts_text or sentence.text, path, job.voice_id)
                 audio[sentence.id] = AudioProcessor().inspect(path)
+                if not job.audiobook_id:
+                    raise ValueError("Generation job is missing its audiobook catalog record.")
+                self.catalog.mark_ready(job.audiobook_id, f"books/{book.id}/package")
                 self._update(
                     job,
                     progress=0.15 + 0.6 * index / max(1, len(sentences)),
@@ -125,6 +145,8 @@ class BackendApplication:
                 error="Unable to generate the audiobook.",
                 completed_at=datetime.now(timezone.utc),
             )
+            if job.audiobook_id:
+                self.catalog.mark_failed(job.audiobook_id)
 
     def _update(self, job: JobResponse, **changes: object) -> None:
         record = self.job_repository.update(job.id, **changes)
@@ -134,9 +156,21 @@ class BackendApplication:
     def shutdown(self) -> None:
         self._queue.shutdown()
 
+    def audiobooks(self) -> list[AudiobookResponse]:
+        return [self._audiobook_response(item) for item in self.catalog.list_audiobooks()]
+
     @staticmethod
     def _response(job: JobRecord) -> JobResponse:
         return JobResponse(**job.model_dump(mode="json"))
+
+    @staticmethod
+    def _audiobook_response(item) -> AudiobookResponse:
+        return AudiobookResponse(
+            id=item.id, book_id=item.book_id, engine=item.tts_engine, voice_id=item.voice_id,
+            language=item.language, model_version=item.model_version,
+            normalization_version=item.normalization_version, generation_key=item.generation_key,
+            status=item.status, created_at=item.created_at,
+        )
 
 
 def _book_sentences(book: Book):

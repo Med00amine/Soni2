@@ -49,6 +49,7 @@ class CreateJobRequest(GenerationRequest):
 class JobResponse(BaseModel):
     id: str
     book_id: str
+    audiobook_id: str | None = None
     status: Literal["queued", "running", "completed", "failed"]
     progress: float = Field(ge=0, le=1)
     stage: str = "Queued"
@@ -59,6 +60,19 @@ class JobResponse(BaseModel):
     created_at: datetime
     started_at: datetime | None = None
     completed_at: datetime | None = None
+
+
+class AudiobookResponse(BaseModel):
+    id: str
+    book_id: str
+    engine: str
+    voice_id: str
+    language: str
+    model_version: str
+    normalization_version: str
+    generation_key: str
+    status: str
+    created_at: datetime
 
 
 class SynchronizedSentence(BaseModel):
