@@ -5,6 +5,8 @@ import io
 import logging
 import re
 import tempfile
+import shutil
+import zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -16,8 +18,12 @@ from docx import Document
 from ebooklib import epub
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from starlette.background import BackgroundTask
+
+from app.daisy_export import build_daisy_package, make_paragraphs
 
 
 class Settings(BaseSettings):
@@ -69,7 +75,16 @@ def extract_text(filename: str, content: bytes) -> str:
             return content.decode("utf-8-sig")
         if suffix == ".xml":
             root = ET.fromstring(content)
-            return "\n".join(part.strip() for part in root.itertext() if part.strip())
+            block_names = {"p", "para", "paragraph", "h1", "h2", "h3", "h4", "h5", "h6", "title", "li", "blockquote"}
+            blocks = [
+                " ".join("".join(node.itertext()).split())
+                for node in root.iter()
+                if node.tag.rsplit("}", 1)[-1].lower() in block_names
+            ]
+            blocks = [block for block in blocks if block]
+            if blocks:
+                return "\n\n".join(blocks)
+            return " ".join(part.strip() for part in root.itertext() if part.strip())
         if suffix == ".docx":
             doc = Document(io.BytesIO(content))
             return "\n\n".join(p.text for p in doc.paragraphs if p.text.strip())
@@ -95,7 +110,13 @@ def extract_text(filename: str, content: bytes) -> str:
                 soup = BeautifulSoup(item.get_content(), "html.parser")
                 for unwanted in soup(["script", "style", "nav", "header", "footer"]):
                     unwanted.decompose()
-                chapter = soup.get_text("\n", strip=True)
+                blocks = [
+                    " ".join(element.get_text(" ", strip=True).split())
+                    for element in soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "blockquote"])
+                ]
+                chapter = "\n\n".join(block for block in blocks if block)
+                if not chapter:
+                    chapter = soup.get_text("\n\n", strip=True)
                 if chapter:
                     chapters.append(chapter)
             return "\n\n".join(chapters)
@@ -107,13 +128,24 @@ def extract_text(filename: str, content: bytes) -> str:
 def clean_text(text: str) -> str:
     text = text.replace("\u00ad", "").replace("\ufeff", "")
     text = re.sub(r"(?<=\w)-\s*\n\s*(?=\w)", "", text)
-    text = re.sub(r"[\t\r\f\v ]+", " ", text)
-    lines = [line.strip() for line in text.splitlines()]
-    compact: list[str] = []
-    for line in lines:
-        if line and (not compact or line != compact[-1]):
-            compact.append(line)
-    return re.sub(r"\n{3,}", "\n\n", "\n".join(compact)).strip()
+    blocks: list[str] = []
+    current: list[str] = []
+    previous_line = ""
+    for raw_line in text.replace("\r", "\n").split("\n"):
+        line = re.sub(r"[\t\f\v ]+", " ", raw_line).strip()
+        if not line:
+            if current:
+                blocks.append(" ".join(current))
+                current = []
+            previous_line = ""
+            continue
+        if line == previous_line:
+            continue
+        current.append(line)
+        previous_line = line
+    if current:
+        blocks.append(" ".join(current))
+    return "\n\n".join(blocks).strip()
 
 
 async def synthesize(text: str) -> bytes:
@@ -217,3 +249,55 @@ async def create_preview(file: UploadFile = File(...)) -> PreviewResult:
         audio_base64=base64.b64encode(audio).decode("ascii"),
         transcript=preview_text,
     )
+
+
+@app.post("/api/books/package")
+async def create_book_package(file: UploadFile = File(...)) -> FileResponse:
+    filename = file.filename or "document"
+    if Path(filename).suffix.lower() not in ALLOWED:
+        raise HTTPException(status_code=415, detail="Elige un archivo PDF, EPUB, DOCX, XML o TXT.")
+    content = await file.read(settings.max_upload_size_mb * 1024 * 1024 + 1)
+    if len(content) > settings.max_upload_size_mb * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="El archivo supera el tamaño máximo permitido.")
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="soni2-package-"))
+    try:
+        text = clean_text(extract_text(filename, content))
+        if len(text) < 20:
+            raise ValueError("No hemos encontrado suficiente texto legible en este documento.")
+        paragraphs = make_paragraphs(text)
+        if not paragraphs:
+            raise ValueError("No hemos encontrado párrafos que se puedan narrar en este documento.")
+
+        audio_segments: list[bytes] = []
+        for paragraph in paragraphs:
+            audio_segments.append(await synthesize(paragraph))
+
+        package_dir = build_daisy_package(
+            Path(filename).stem or "Libro",
+            paragraphs,
+            audio_segments,
+            temp_dir / "book",
+        )
+        archive_path = temp_dir / "soni2-daisy.zip"
+        with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for path in package_dir.rglob("*"):
+                if path.is_file():
+                    archive.write(path, path.relative_to(package_dir).as_posix())
+        safe_name = re.sub(r"[^\w.-]+", "_", Path(filename).stem, flags=re.UNICODE).strip("._") or "libro"
+        return FileResponse(
+            archive_path,
+            media_type="application/zip",
+            filename=f"{safe_name}-daisy.zip",
+            background=BackgroundTask(shutil.rmtree, temp_dir, ignore_errors=True),
+        )
+    except ValueError as exc:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        logger.exception("Full DAISY package generation failed")
+        raise HTTPException(
+            status_code=503,
+            detail="No hemos podido crear el libro completo. Comprueba la conexión de narración e inténtalo de nuevo.",
+        ) from exc
