@@ -1,0 +1,21 @@
+services:
+  backend:
+    build: ./backend
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      TTS_PROVIDER: ${TTS_PROVIDER:-deepgram}
+      TTS_API_KEY: ${TTS_API_KEY:-}
+      TTS_REGION: ${TTS_REGION:-}
+      TTS_VOICE: ${TTS_VOICE:-es-ES-ElviraNeural}
+      TTS_LANGUAGE: ${TTS_LANGUAGE:-es-ES}
+      DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
+      DEEPGRAM_BASE_URL: ${DEEPGRAM_BASE_URL:-https://api.eu.deepgram.com}
+      DEEPGRAM_MODEL: ${DEEPGRAM_MODEL:-aura-2-nestor-es}
+      MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-200}
+      PREVIEW_CHARACTERS: ${PREVIEW_CHARACTERS:-5000}
+    ports: ["8000:8000"]
+    volumes: ["./backend/app:/app/app"]
+  frontend:
+    build: ./frontend
+    ports: ["5173:5173"]
+    depends_on: [backend]

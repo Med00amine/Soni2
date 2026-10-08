@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<dtbook xmlns="http://www.daisy.org/z3986/2005/dtbook/" xml:lang="es" version="2005-3">
+  <head>
+    <meta name="dc:Title" content="El tiempo que nos queda"/>
+    <meta name="dc:Creator" content="Ana Martínez Ruiz"/>
+    <meta name="dc:Language" content="es"/>
+    <meta name="dtb:uid" content="horizonte-2026-001-packaged"/>
+  </head>
+  <book>
+    <frontmatter>
+      <level1 id="dedicatoria">
+        <p id="p-dedicatoria"><sent id="s-dedicatoria">Para mi madre.</sent></p>
+      </level1>
+    </frontmatter>
+    <bodymatter>
+      <level1 id="prologo">
+        <h1 id="h-prologo"><sent id="s-prologo">Prólogo</sent></h1>
+        <p id="p-prologo"><sent id="s-1">Hay lugares que guardan secretos.</sent><sent id="s-2">Casas que recuerdan voces.</sent></p>
+        <level2 id="seccion-1">
+          <h2 id="h-seccion"><sent id="s-seccion">El regreso</sent></h2>
+          <p id="p-seccion">Texto sin una unidad sent explícita.</p>
+        </level2>
+      </level1>
+    </bodymatter>
+  </book>
+</dtbook>

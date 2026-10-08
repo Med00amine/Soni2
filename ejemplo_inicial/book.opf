@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE package
+  PUBLIC "+//ISBN 0-9673008-1-9//DTD OEB 1.2 Package//EN" "http://openebook.org/dtds/oeb-1.2/oebpkg12.dtd">
+<package xmlns="http://openebook.org/namespaces/oeb-package/1.0/"
+         unique-identifier="uid">
+   <metadata>
+      <dc-metadata>
+         <dc:Format xmlns:dc="http://purl.org/dc/elements/1.1/">ANSI/NISO Z39.86-2005</dc:Format>
+         <dc:Language xmlns:dc="http://purl.org/dc/elements/1.1/">es</dc:Language>
+         <dc:Date xmlns:dc="http://purl.org/dc/elements/1.1/">2026-01-15</dc:Date>
+         <dc:Publisher xmlns:dc="http://purl.org/dc/elements/1.1/">Editorial Horizonte</dc:Publisher>
+         <dc:Title xmlns:dc="http://purl.org/dc/elements/1.1/">El tiempo que nos queda</dc:Title>
+         <dc:Identifier xmlns:dc="http://purl.org/dc/elements/1.1/" id="uid">horizonte-2026-001-packaged</dc:Identifier>
+         <dc:Creator xmlns:dc="http://purl.org/dc/elements/1.1/">Ana Martínez Ruiz</dc:Creator>
+         <dc:Rights xmlns:dc="http://purl.org/dc/elements/1.1/">Creative Commons BY-NC-SA 4.0</dc:Rights>
+         <dc:Description xmlns:dc="http://purl.org/dc/elements/1.1/">Una novela sobre la memoria, el tiempo y las decisiones que nos definen.</dc:Description>
+      </dc-metadata>
+      <x-metadata>
+         <meta name="dtb:multimediaType" content="textNCX"/>
+         <meta name="dtb:totalTime" content="0:00:00"/>
+         <meta name="dtb:multimediaContent" content="text"/>
+      </x-metadata>
+   </metadata>
+   <manifest>
+      <item href="book.opf" id="opf" media-type="text/xml"/>
+      <item href="ejemplo.xml" id="opf-1" media-type="application/x-dtbook+xml"/>
+      <item href="mo0.smil" id="mo0" media-type="application/smil"/>
+      <item href="mo1.smil" id="mo1" media-type="application/smil"/>
+      <item href="mo2.smil" id="mo2" media-type="application/smil"/>
+      <item href="mo3.smil" id="mo3" media-type="application/smil"/>
+      <item href="mo5.smil" id="mo5" media-type="application/smil"/>
+      <item href="mo6.smil" id="mo6" media-type="application/smil"/>
+      <item href="mo7.smil" id="mo7" media-type="application/smil"/>
+      <item href="mo9.smil" id="mo9" media-type="application/smil"/>
+      <item href="mo10.smil" id="mo10" media-type="application/smil"/>
+      <item href="mo11.smil" id="mo11" media-type="application/smil"/>
+      <item href="mo12.smil" id="mo12" media-type="application/smil"/>
+      <item href="navigation.ncx"
+            id="ncx"
+            media-type="application/x-dtbncx+xml"/>
+      <item href="resources.res"
+            id="resource"
+            media-type="application/x-dtbresource+xml"/>
+   </manifest>
+   <spine>
+      <itemref idref="mo0"/>
+      <itemref idref="mo1"/>
+      <itemref idref="mo2"/>
+      <itemref idref="mo3"/>
+      <itemref idref="mo5"/>
+      <itemref idref="mo6"/>
+      <itemref idref="mo7"/>
+      <itemref idref="mo9"/>
+      <itemref idref="mo10"/>
+      <itemref idref="mo11"/>
+      <itemref idref="mo12"/>
+   </spine>
+</package>
