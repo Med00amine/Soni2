@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { BookOpen, Headphones, Upload, Volume2, CheckCircle2 } from 'lucide-react'
+import { BookOpen, Upload, Volume2, CheckCircle2 } from 'lucide-react'
 
 const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
@@ -67,7 +67,7 @@ export default function App() {
 
   return <main className="shell">
     <a className="skip" href="#main">Saltar al contenido principal</a>
-    <header className="top"><a className="brand" href="/" aria-label="Inicio de Soni2"><span className="brand-icon"><Headphones size={22}/></span><span>Soni2</span></a><span className="top-note">Una forma más tranquila de disfrutar los libros</span></header>
+    <header className="top"><a className="brand" href="/" aria-label="Inicio de Soni2"><img className="brand-logo" src="/soni2-logo.svg" alt="Soni2" width="200" height="42"/></a><span className="top-note">Una forma más tranquila de disfrutar los libros</span></header>
     <section id="main" className="hero" aria-labelledby="title">
       <div className="eyebrow"><span className="eyebrow-dot"/>TU LIBRO, EN VOZ ALTA</div>
       <h1 id="title">Convierte tu libro<br/>en <em>una voz que te acompaña.</em></h1>

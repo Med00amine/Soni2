@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none" role="img" aria-labelledby="title">
+  <title id="title">Soni2</title>
+  <rect width="64" height="64" rx="14" fill="#fff"/>
+  <g stroke="#F44868" stroke-linecap="round" stroke-linejoin="round" stroke-width="7">
+    <path d="M14 22v20c0 5 8 5 8 0V15c0-7 11-7 11 0v34c0 7 11 7 11 0V34"/>
+  </g>
+  <circle cx="14" cy="14" r="3.5" fill="#F44868"/>
+  <circle cx="44" cy="51" r="3.5" fill="#F44868"/>
+</svg>
