@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     deepgram_model: str = "aura-2-nestor-es"
     tts_voice: str = "es-ES-ElviraNeural"
     tts_language: str = "es-ES"
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     max_upload_size_mb: int = 200
     preview_characters: int = 5000
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -41,7 +42,7 @@ logger = logging.getLogger("soni2")
 app = FastAPI(title="Soni2", version="0.1.0", description="Servicio accesible para convertir documentos en audio")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()],
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )

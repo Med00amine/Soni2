@@ -3,6 +3,7 @@ services:
     build: ./backend
     environment:
       APP_ENV: ${APP_ENV:-development}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
       TTS_PROVIDER: ${TTS_PROVIDER:-deepgram}
       TTS_API_KEY: ${TTS_API_KEY:-}
       TTS_REGION: ${TTS_REGION:-}
@@ -17,5 +18,8 @@ services:
     volumes: ["./backend/app:/app/app"]
   frontend:
     build: ./frontend
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-}
+      VITE_BACKEND_PROXY_TARGET: ${VITE_BACKEND_PROXY_TARGET:-http://backend:8000}
     ports: ["5173:5173"]
     depends_on: [backend]
