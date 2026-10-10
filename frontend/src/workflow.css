@@ -1,0 +1,75 @@
+.workspace {
+  width: min(100%, 1040px);
+  max-width: none;
+  margin: 46px auto 56px;
+  text-align: left;
+}
+
+.workspace .welcome { max-width: 760px; }
+.workspace .eyebrow { margin-bottom: 8px; }
+.workspace h1 { margin: 4px 0 10px; font-size: clamp(2.35rem, 5vw, 3.5rem); line-height: 1.12; }
+.workspace .intro { max-width: 65ch; text-align: left; }
+
+.workflow-nav { margin: 28px 0 24px; }
+.workflow-nav ol { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 0; padding: 0; list-style: none; }
+.workflow-nav li { min-width: 0; }
+.workflow-nav a, .workflow-nav li > span { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 9px 12px; border: 1px solid #e1e7e2; border-radius: 9px; background: #fff; color: #526579; font-size: .9rem; font-weight: 600; text-decoration: none; }
+.workflow-nav a:hover { border-color: #789b83; background: #f7faf7; }
+.workflow-nav a:focus-visible { outline: 3px solid #c17e36; outline-offset: 3px; }
+.workflow-nav li > span { color: #89948c; background: #f2f3f0; }
+.workflow-nav li > a > span:first-child, .workflow-nav li > span > span:first-child { display: grid; width: 27px; height: 27px; flex: none; place-items: center; border-radius: 50%; background: #eaf1eb; color: #285c4a; }
+
+.workflow-card { border-color: #dfe6e0; border-radius: 13px; box-shadow: 0 5px 20px #203b5209; text-align: left; }
+.upload-card.workflow-card { width: 100%; max-width: none; margin: 0 auto 18px; padding: 22px 24px; }
+.upload-card .card-heading { margin-bottom: 16px; }
+.upload-card .choose { max-width: 340px; }
+.upload-card .privacy { text-align: left; }
+.upload-card .supported { justify-content: flex-start; }
+.voice-controls.workflow-card { width: 100%; max-width: none; margin: 0 auto 18px; padding: 18px 24px; }
+
+.reader-grid { display: grid; grid-template-columns: minmax(280px, .83fr) minmax(0, 1.4fr); align-items: start; gap: 18px; margin: 18px 0; }
+.reader-grid > .player, .reader-grid > .transcript { width: 100%; max-width: none; margin: 0; padding: 22px; }
+.reader-grid .player-heading { align-items: flex-start; }
+.reader-grid .transcript h2 { margin-bottom: 6px; }
+.reader-grid .transcript .sync-note { margin: 0 0 14px; }
+.reader-grid .transcript > p:not(.sync-note) { margin: 0 0 12px; }
+
+.section-heading { display: flex; align-items: flex-start; gap: 13px; margin: 0 0 18px; }
+.section-heading h2 { margin: 0 0 4px; color: #172a46; font-size: 1.15rem; }
+.section-heading p { margin: 0; color: #687b8e; font-size: .88rem; line-height: 1.5; }
+.step-number, .section-icon { display: grid; width: 34px; height: 34px; flex: none; place-items: center; border-radius: 50%; background: #e8f2ed; color: #285c4a; font-weight: 700; }
+.selected-file { display: flex; align-items: center; gap: 8px; margin: 14px 0 0; color: #285c4a; font-size: .9rem; overflow-wrap: anywhere; }
+
+.book-helper.workflow-card { width: 100%; max-width: none; margin: 22px auto 0; padding: 24px; }
+.book-helper > h2 { font-size: 1.15rem; }
+.book-summary { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 20px; margin: 6px 0 18px; padding: 13px 15px; border-radius: 8px; background: #fff; }
+.book-summary strong { color: #172a46; overflow-wrap: anywhere; }
+.book-summary span { color: #687b8e; font-size: .85rem; }
+.book-helper .book-outline { width: 100%; max-width: none; margin: 16px 0; }
+.book-helper .book-search { margin-top: 16px; }
+.export-card { display: grid; grid-template-columns: minmax(0, 1fr) minmax(230px, .55fr); align-items: center; gap: 18px; margin-top: 22px; padding: 19px; border: 1px solid #cbdccf; border-radius: 10px; background: #f5f9f5; }
+.export-card h2 { margin: 0 0 6px; color: #172a46; font-size: 1.1rem; }
+.export-card p { margin: 0 0 5px; color: #405970; font-size: .9rem; line-height: 1.5; }
+.export-card small, .review-note { color: #687b8e; font-size: .8rem; line-height: 1.5; }
+.export-card .export-button { margin: 0; }
+.review-controls { padding: 12px 14px; border: 1px solid #e1e9ef; border-radius: 8px; background: #f8faf8; }
+.review-controls summary { color: #24567d; cursor: pointer; font-weight: 700; }
+.review-controls p { margin: 9px 0; color: #526579; font-size: .85rem; line-height: 1.5; }
+.review-results { overflow-wrap: anywhere; }
+.page-status { max-width: none; }
+.workspace .promise { text-align: center; }
+
+@media (max-width: 760px) {
+  .workspace { margin: 32px auto 40px; }
+  .workflow-nav ol { gap: 7px; }
+  .workflow-nav a, .workflow-nav li > span { align-items: flex-start; flex-direction: column; gap: 7px; font-size: .78rem; }
+  .reader-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 520px) {
+  .workflow-nav ol { grid-template-columns: 1fr; gap: 7px; }
+  .workflow-nav a, .workflow-nav li > span { flex-direction: row; align-items: center; min-height: 42px; }
+  .upload-card.workflow-card, .voice-controls.workflow-card, .book-helper.workflow-card { padding: 18px; }
+  .export-card { grid-template-columns: 1fr; }
+  .export-card .export-button { max-width: none; }
+}
