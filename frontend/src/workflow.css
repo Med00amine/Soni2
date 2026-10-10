@@ -31,7 +31,8 @@
 .reader-grid > .player, .reader-grid > .transcript { width: 100%; max-width: none; margin: 0; padding: 22px; }
 .reader-grid .player-heading { align-items: flex-start; }
 .reader-grid .transcript h2 { margin-bottom: 6px; }
-.reader-grid .transcript .sync-note { margin: 0 0 14px; }
+.reader-grid .transcript .sync-note { display: grid; gap: 3px; margin: 0 0 18px; padding: 11px 13px; border-left: 3px solid #789b83; border-radius: 5px; background: #f3f7f3; color: #526579; font-family: 'DM Sans', sans-serif; font-size: .82rem; line-height: 1.5; }
+.reader-grid .transcript .sync-note::before { content: 'Seguimiento de lectura'; color: #285c4a; font-weight: 700; }
 .reader-grid .transcript > p:not(.sync-note) { margin: 0 0 12px; }
 
 .section-heading { display: flex; align-items: flex-start; gap: 13px; margin: 0 0 18px; }
