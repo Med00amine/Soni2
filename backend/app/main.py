@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import asyncio
 import difflib
 import json
 import logging
@@ -35,6 +36,7 @@ class Settings(BaseSettings):
     deepgram_model: str = "aura-2-nestor-es"
     elevenlabs_api_key: str = ""
     elevenlabs_voice_id: str = ""
+    elevenlabs_extra_voice_ids: str = ""
     elevenlabs_model_id: str = "eleven_multilingual_v2"
     tts_voice: str = "es-ES-ElviraNeural"
     tts_language: str = "es-ES"
@@ -62,6 +64,29 @@ app.add_middleware(
 )
 
 ALLOWED = {".pdf", ".txt", ".xml", ".docx", ".epub"}
+
+
+async def _synthesize_deepgram(text: str, max_chars: int = 1500) -> bytes:
+    if not settings.deepgram_api_key:
+        raise RuntimeError("Deepgram is not configured as a fallback provider.")
+    if len(text) > max_chars:
+        parts = [_synthesize_deepgram(chunk, max_chars) for chunk in _tts_chunks(text, max_chars)]
+        return b"".join(await asyncio.gather(*parts))
+    async with httpx.AsyncClient(timeout=90) as client:
+        response = await client.post(
+            f"{settings.deepgram_base_url.rstrip('/')}/v1/speak",
+            params={"model": settings.deepgram_model, "encoding": "mp3"},
+            json={"text": text},
+            headers={"Authorization": f"Token {settings.deepgram_api_key}"},
+        )
+    if response.status_code == 413 and max_chars > 250:
+        logger.info("Deepgram rejected a %s-character request; retrying in smaller pieces", len(text))
+        parts = [_synthesize_deepgram(chunk, max_chars // 2) for chunk in _tts_chunks(text, max_chars // 2)]
+        return b"".join(await asyncio.gather(*parts))
+    response.raise_for_status()
+    if not response.content or not response.headers.get("content-type", "").startswith("audio/"):
+        raise RuntimeError("Deepgram returned an invalid audio file.")
+    return response.content
 
 
 class PreviewResult(BaseModel):
@@ -222,19 +247,7 @@ async def synthesize(text: str, voice_speed: float = 1.0, voice_id: str = "") ->
         # keeps playback continuous without loading the whole book in memory.
         return b"".join(audio_parts)
     if provider == "deepgram":
-        if not settings.deepgram_api_key:
-            raise RuntimeError("Deepgram is selected but its API key is missing.")
-        async with httpx.AsyncClient(timeout=90) as client:
-            response = await client.post(
-                f"{settings.deepgram_base_url.rstrip('/')}/v1/speak",
-                params={"model": settings.deepgram_model, "encoding": "mp3"},
-                json={"text": text},
-                headers={"Authorization": f"Token {settings.deepgram_api_key}"},
-            )
-        response.raise_for_status()
-        if not response.content or not response.headers.get("content-type", "").startswith("audio/"):
-            raise RuntimeError("Narration service returned an invalid audio file.")
-        return response.content
+        return await _synthesize_deepgram(text)
     if provider == "elevenlabs":
         selected_voice_id = voice_id or settings.elevenlabs_voice_id
         if not settings.elevenlabs_api_key or not selected_voice_id:
@@ -381,7 +394,7 @@ async def capabilities() -> dict[str, object]:
         "daisy_profile": "DAISY 3 (provisional)",
         "tts_provider": provider,
         "tts_configured": tts_configured,
-        "voice": settings.deepgram_model if provider == "deepgram" else settings.tts_voice,
+        "voice": settings.deepgram_model if provider == "deepgram" else settings.elevenlabs_voice_id if provider == "elevenlabs" else settings.tts_voice,
         "elevenlabs_available": provider == "elevenlabs" and bool(settings.elevenlabs_api_key),
         "voice_speed_control": provider == "elevenlabs" and bool(settings.elevenlabs_api_key),
         "voice_id_configurable": provider == "elevenlabs" and bool(settings.elevenlabs_api_key),
@@ -400,6 +413,24 @@ async def capabilities() -> dict[str, object]:
 
 @app.get("/api/voices")
 async def list_elevenlabs_voices() -> dict[str, object]:
+    selected_ids = [settings.elevenlabs_voice_id.strip()]
+    selected_ids.extend(
+        voice_id.strip() for voice_id in settings.elevenlabs_extra_voice_ids.split(",") if voice_id.strip()
+    )
+    known_voice_names = {
+        "syjZiIvIUSwKREBfMpKZ": "Jacobo Montoro - Full and Gentle",
+        "SbxCN6LQhBInYaeKjhhW": "Lourdes - Warm and Soothing",
+    }
+    selected_voices = [
+        {
+            "voice_id": voice_id,
+            "name": known_voice_names.get(voice_id, f"Voz de ElevenLabs {index}"),
+            "labels": {"language": "Spanish", "accent": "Spain"},
+        }
+        for index, voice_id in enumerate(dict.fromkeys(selected_ids), start=1) if voice_id
+    ]
+    if selected_voices:
+        return {"voices": selected_voices}
     if not settings.elevenlabs_api_key:
         raise HTTPException(status_code=503, detail="Configura ElevenLabs en el servidor para consultar las voces disponibles.")
     try:
@@ -410,10 +441,13 @@ async def list_elevenlabs_voices() -> dict[str, object]:
             )
         response.raise_for_status()
         data = response.json()
-        return {"voices": [
+        account_voices = [
             {"voice_id": voice.get("voice_id", ""), "name": voice.get("name", "Voz"), "labels": voice.get("labels", {})}
             for voice in data.get("voices", []) if voice.get("voice_id")
-        ]}
+        ]
+        account_ids = {voice["voice_id"] for voice in account_voices}
+        account_voices.extend(voice for voice in selected_voices if voice["voice_id"] not in account_ids)
+        return {"voices": account_voices}
     except Exception as exc:
         logger.warning("ElevenLabs voice listing failed: %s", type(exc).__name__)
         raise HTTPException(status_code=503, detail="No se han podido cargar las voces de ElevenLabs.") from exc
@@ -529,9 +563,25 @@ async def create_preview(
     else:
         try:
             audio, alignment = await synthesize_with_alignment(preview_text, voice_speed, voice_id)
+        except httpx.HTTPStatusError as exc:
+            logger.exception("Preview narration provider returned HTTP %s", exc.response.status_code)
+            status = exc.response.status_code
+            try:
+                provider_error = exc.response.json().get("detail", {})
+                provider_error_code = provider_error.get("code", "") if isinstance(provider_error, dict) else ""
+            except ValueError:
+                provider_error_code = ""
+            if provider_error_code == "paid_plan_required":
+                audio_error = "ElevenLabs rechazó esta voz para la API. Comprueba que tu plan de pago esté activo, que la clave pertenezca a esa cuenta y que la voz esté disponible para uso mediante API."
+            elif status == 402 and "elevenlabs" in str(exc.request.url):
+                audio_error = "ElevenLabs rechazó la generación porque la cuenta no tiene créditos suficientes o necesita un pago (HTTP 402). Revisa Billing/Usage en ElevenLabs y vuelve a generar después de añadir créditos. No se generó audio en una voz diferente."
+            elif "deepgram" in str(exc.request.url):
+                audio_error = f"Deepgram respondió HTTP {status}. Comprueba la clave, cuota o límites de Deepgram."
+            else:
+                audio_error = f"El proveedor de voz respondió HTTP {status}. Revisa su configuración y cuota."
         except Exception:
             logger.exception("Preview narration failed")
-            audio_error = "El texto se ha extraido, pero no se pudo generar el audio. Revisa la configuracion de voz."
+            audio_error = "No se pudo generar el audio con ElevenLabs. Comprueba la configuración e inténtalo de nuevo."
 
     return PreviewResult(
         audio_base64=base64.b64encode(audio).decode("ascii"),

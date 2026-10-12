@@ -7,6 +7,10 @@
   background: #fff;
   text-align: left;
 }
+.upload-card .voice-controls { width: 100%; margin: 20px 0 0; padding: 16px 0 0; border: 0; border-top: 1px solid #eae9e1; border-radius: 0; background: transparent; }
+.upload-card .voice-controls label { display: block; color: #253330; font-weight: 700; }
+.upload-card .voice-controls small { display: block; margin-top: 7px; color: #687b8e; font-size: .78rem; font-weight: 400; line-height: 1.5; }
+.generate-preview { margin-top: 14px; }
 .player { max-width: 670px; margin: 24px auto 0; padding: 24px 26px; border-color: #d8e3ec; box-shadow: 0 8px 24px #203b520c; }
 .player-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .player-icon { display: grid; width: 42px; height: 42px; flex: none; place-items: center; border-radius: 11px; background: #e8f2ed; color: #285c4a; }

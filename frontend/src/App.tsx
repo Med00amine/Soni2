@@ -30,6 +30,11 @@ type BookMetadata = { title: string; author: string; edition: string; publicatio
 type VoiceOption = { voice_id: string; name: string; labels?: Record<string, string> }
 type AudioReview = { recognized_text: string; issues: { kind: string; expected: string; recognized: string }[]; review_note: string }
 
+function isSpanishFromSpain(voice: VoiceOption) {
+  const details = [voice.name, ...Object.values(voice.labels ?? {})].join(' ').toLocaleLowerCase()
+  return /\b(spain|españa|castilian|castellano|madrid)\b/.test(details)
+}
+
 export default function App() {
   const input = useRef<HTMLInputElement>(null)
   const playerRef = useRef<HTMLAudioElement>(null)
@@ -74,7 +79,14 @@ export default function App() {
           const voiceResponse = await fetch(`${API}/api/voices`, { cache: 'no-store' })
           const voiceData = await voiceResponse.json().catch(() => ({})) as { voices?: VoiceOption[]; detail?: string }
           if (!voiceResponse.ok) throw new Error(voiceData.detail || `HTTP ${voiceResponse.status}`)
-          setVoices(voiceData.voices ?? [])
+          const availableVoices = voiceData.voices ?? []
+          const regionalVoices = availableVoices.filter(isSpanishFromSpain).sort((left, right) => {
+            const leftFemale = Object.entries(left.labels ?? {}).some(([key, value]) => key.toLowerCase() === 'gender' && value.toLowerCase() === 'female')
+            const rightFemale = Object.entries(right.labels ?? {}).some(([key, value]) => key.toLowerCase() === 'gender' && value.toLowerCase() === 'female')
+            return Number(rightFemale) - Number(leftFemale)
+          })
+          const orderedVoices = [...regionalVoices, ...availableVoices.filter(voice => !isSpanishFromSpain(voice))]
+          setVoices(orderedVoices)
         } catch (error) {
           setVoiceLoadError(error instanceof Error ? error.message : 'No se pudo consultar la lista de voces.')
         } finally {
@@ -96,10 +108,16 @@ export default function App() {
     if (playerRef.current) playerRef.current.playbackRate = playbackRate
   }, [audio, playbackRate])
 
-  async function choose(file?: File) {
+  function selectBook(file?: File) {
     if (!file) return
     setSelectedFile(file)
-    setAudio(''); setTranscript(''); setBookChapters([]); setSourceBookChapters([]); setOriginalBookChapters([]); setHasManualSections(false); setSearchQuery(''); setAlignment([]); setCurrentPhrase(-1); setReview(undefined); setBookMetadata({ title: '', author: '', edition: '', publication_year: '', publisher: '' }); setBook(file.name); setBusy(true); setMessage('Estamos leyendo tu libro. Puede tardar un momento.')
+    setAudio(''); setTranscript(''); setBookChapters([]); setSourceBookChapters([]); setOriginalBookChapters([]); setHasManualSections(false); setSearchQuery(''); setAlignment([]); setCurrentPhrase(-1); setReview(undefined); setBookMetadata({ title: '', author: '', edition: '', publication_year: '', publisher: '' }); setBook(file.name); setMessage('Libro cargado. Elige una voz y pulsa «Generar vista previa».')
+  }
+
+  async function generatePreview() {
+    const file = selectedFile
+    if (!file || busy) return
+    setAudio(''); setTranscript(''); setAlignment([]); setCurrentPhrase(-1); setReview(undefined); setBusy(true); setMessage('Estamos preparando una muestra de tu libro.')
     const form = new FormData(); form.append('file', file); form.append('voice_id', voiceId)
     try {
       const response = await fetch(`${API}/api/books/preview`, { method: 'POST', body: form })
@@ -107,13 +125,13 @@ export default function App() {
         const body = await response.json().catch(() => ({}))
         throw new Error(body.detail || 'No hemos podido leer este documento. Prueba con otro archivo.')
       }
-      const result: { audio_base64: string; audio_mime_type: string; transcript: string; alignment?: TimedPhrase[] | null; audio_error?: string | null; chapters?: BookChapter[]; title?: string; author?: string; edition?: string; publication_year?: string; publisher?: string } = await response.json()
+      const result: { audio_base64: string; audio_mime_type: string; transcript: string; alignment?: TimedPhrase[] | null; audio_error?: string | null; audio_notice?: string | null; chapters?: BookChapter[]; title?: string; author?: string; edition?: string; publication_year?: string; publisher?: string } = await response.json()
       const binary = atob(result.audio_base64)
       const bytes = Uint8Array.from(binary, character => character.charCodeAt(0))
       const blob = new Blob([bytes], { type: result.audio_mime_type })
       if (result.audio_base64) {
         setAudio(URL.createObjectURL(blob))
-        setMessage('La narracion esta lista. Pulsa reproducir para escucharla.')
+        setMessage(result.audio_notice || 'La narracion esta lista. Pulsa reproducir para escucharla.')
       } else {
         setAudio('')
         setMessage(result.audio_error || 'El texto se ha extraido, pero no hay una voz configurada.')
@@ -345,17 +363,22 @@ export default function App() {
           {busy ? <span className="spinner" aria-hidden="true"/> : <Upload size={19} aria-hidden="true"/>}
           {busy ? 'Preparando la narración…' : 'Elegir un libro'}
         </button>
-        <input ref={input} className="visually-hidden" type="file" accept=".pdf,.epub,.docx,.txt,.xml" aria-label="Elige un libro en formato PDF, EPUB, Word, texto o XML" onChange={e => { const file = e.target.files?.[0]; e.currentTarget.value = ''; void choose(file) }}/>
+        <input ref={input} className="visually-hidden" type="file" accept=".pdf,.epub,.docx,.txt,.xml" aria-label="Elige un libro en formato PDF, EPUB, Word, texto o XML" onChange={e => { const file = e.target.files?.[0]; e.currentTarget.value = ''; selectBook(file) }}/>
         {selectedFile && <p className="selected-file"><BookOpen size={17} aria-hidden="true"/><span>{book}</span></p>}
-        {selectedFile && !canGenerateAudio && <p className="audio-setup-note" role="status">El texto ya está listo, pero el servidor aún no tiene un proveedor de voz y una voz configurados.</p>}
+        {selectedFile && !canGenerateAudio && <p className="audio-setup-note" role="status">No hay una voz configurada para generar la vista previa. Revisa la configuración del servicio de narración.</p>}
         {capabilityError && <div className="audio-setup-note" role="alert">No se pudo conectar con el servicio ({capabilityError}). <button type="button" onClick={() => void refreshCapabilities()}>Reintentar</button></div>}
         <p className="privacy"><span aria-hidden="true">⌑</span> Tu libro se trata con cuidado y privacidad.</p>
         <div className="supported"><span>PDF</span><span>EPUB</span><span>DOCX</span><span>TXT</span><span>XML</span></div>
-      </section>
-      {(capabilities?.voice_id_configurable || voiceLoadError) && <section className="voice-controls" aria-label="Configuración de la voz">
-        {capabilities?.voice_id_configurable && <label htmlFor="voice-id">Voz de ElevenLabs<select id="voice-id" className="voice-id-input" value={voiceId} onChange={event => setVoiceId(event.target.value)} disabled={voicesLoading}><option value="">{voicesLoading ? 'Cargando voces…' : 'Usar la voz configurada'}</option>{voices.map(voice => <option key={voice.voice_id} value={voice.voice_id}>{voice.name}{voice.labels?.accent ? ` · ${voice.labels.accent}` : ''}</option>)}</select></label>}
+        {capabilities?.tts_configured && <p className="sync-note">Voz activa: {capabilities.tts_provider === 'deepgram' && capabilities.voice === 'aura-2-celeste-es' ? 'Celeste · Deepgram (español)' : capabilities.tts_provider === 'elevenlabs' ? voices.find(voice => voice.voice_id === capabilities.voice)?.name ?? capabilities.voice : capabilities.voice}</p>}
+        {(capabilities?.voice_id_configurable || voiceLoadError) && <div className="voice-controls" role="group" aria-label="Configuración de voz e idioma">
+        {capabilities?.voice_id_configurable && <label htmlFor="voice-id">Voz de narración · Español (España)<select id="voice-id" className="voice-id-input" value={voiceId} onChange={event => setVoiceId(event.target.value)} disabled={voicesLoading}><option value="">{voicesLoading ? 'Cargando voces…' : 'Usar la voz configurada'}</option>{voices.map(voice => <option key={voice.voice_id} value={voice.voice_id}>{voice.name}{voice.labels?.accent ? ` · ${voice.labels.accent}` : ''}</option>)}</select><small>El idioma del texto será español. El acento regional depende de la voz: el andaluz es un acento; el catalán y el euskera son idiomas distintos y necesitan voces específicas.</small></label>}
         {voiceLoadError && <p className="audio-setup-note" role="alert">No se pudo cargar la lista de voces: {voiceLoadError}. Se usará la voz predeterminada del servidor si está configurada.</p>}
-      </section>}
+        </div>}
+        {selectedFile && <button className="choose generate-preview" type="button" onClick={() => void generatePreview()} disabled={busy || !canGenerateAudio}>
+          {busy ? <span className="spinner" aria-hidden="true"/> : <Volume2 size={19} aria-hidden="true"/>}
+          {busy ? 'Generando la vista previa…' : 'Generar vista previa'}
+        </button>}
+      </section>
       {!audio && <div className="live" role="status" aria-live="polite" aria-atomic="true">{message && <><span className="status-icon" aria-hidden="true"><Volume2 size={18}/></span><span>{message}</span></>}</div>}
       {(audio || transcript) && <div className="reader-grid">
       {audio && <section id="listen-section" className="player workflow-card" aria-labelledby="player-title">
@@ -367,7 +390,7 @@ export default function App() {
       </section>}
       {transcript && <section className="transcript workflow-card" aria-labelledby="transcript-title">
         <h2 id="transcript-title">Texto de la narración</h2>
-        {alignment.length > 0 ? <div className="timed-transcript" aria-live="off">{alignedParagraphs.map((paragraph, paragraphIndex) => <p key={"paragraph-" + paragraphIndex}>{paragraph.map(phrase => { const index = alignment.indexOf(phrase); const active = index === currentPhrase; return <span key={phrase.text_start + "-" + index} className={active ? "timed-phrase is-speaking" : "timed-phrase"} aria-current={active ? "true" : undefined}>{phrase.text} </span> })}</p>)}</div> : <><p className="sync-note">El seguimiento sincronizado está disponible cuando se genera el audio con ElevenLabs.</p>{transcript.split(/\n{2,}/).map((paragraph, index) => <p key={`${index}-${paragraph.slice(0, 24)}`}>{paragraph}</p>)}</>}
+        {alignment.length > 0 ? <div className="timed-transcript" aria-live="off">{alignedParagraphs.map((paragraph, paragraphIndex) => <p key={"paragraph-" + paragraphIndex}>{paragraph.map(phrase => { const index = alignment.indexOf(phrase); const active = index === currentPhrase; return <span key={phrase.text_start + "-" + index} className={active ? "timed-phrase is-speaking" : "timed-phrase"} aria-current={active ? "true" : undefined}>{phrase.text} </span> })}</p>)}</div> : <><p className="sync-note">{capabilities?.tts_provider === 'deepgram' ? 'La voz Celeste no proporciona tiempos palabra por palabra. El texto se muestra organizado por párrafos.' : 'El seguimiento sincronizado está disponible cuando se genera el audio con ElevenLabs.'}</p>{transcript.split(/\n{2,}/).map((paragraph, index) => <p key={`${index}-${paragraph.slice(0, 24)}`}>{paragraph}</p>)}</>}
         {capabilities?.audio_review_configured && <div className="review-controls"><button type="button" className="package-download" onClick={reviewPreview} disabled={reviewBusy || !audio}>{reviewBusy ? 'Revisando el audio…' : 'Comparar audio con ElevenLabs Scribe'}</button><small>Esta comprobación usa ElevenLabs Scribe, aunque la narración se haya creado con otro proveedor. Si falla, la narración y el MP3 siguen disponibles; el mensaje indicará si es un problema de clave, permisos, cuota o conexión. Las diferencias son avisos que debe revisar una persona.</small></div>}
         {review && <section className="review-results" aria-labelledby="review-title"><h3 id="review-title">Diferencias detectadas: {review.issues.length}</h3><p>{review.review_note}</p>{review.issues.length > 0 && <ul>{review.issues.map((issue, index) => <li key={`${issue.kind}-${index}`}><strong>{issue.kind === 'insert' ? 'Posible palabra añadida' : issue.kind === 'delete' ? 'Posible palabra omitida' : 'Posible sustitución'}:</strong> {issue.expected ? `Texto: “${issue.expected}”. ` : ''}{issue.recognized ? `Audio: “${issue.recognized}”.` : ''}</li>)}</ul>}<label htmlFor="retake-text">Edita el texto de esta vista previa<textarea id="retake-text" value={transcript} onChange={event => setTranscript(event.target.value)} rows={6}/></label><button type="button" className="package-download" onClick={regenerateRetake} disabled={retakeBusy}>{retakeBusy ? 'Generando…' : 'Generar vista previa corregida'}</button></section>}
       </section>}
@@ -382,7 +405,7 @@ export default function App() {
         {normalizedSearch && <div className="helper-results" aria-label="Resultados de búsqueda">{helperSearchResults.length ? helperSearchResults.map(result => <button type="button" key={`${result.chapterIndex}-${result.paragraphIndex}`} onClick={() => openParagraphForEditing(result.chapterIndex, result.paragraphIndex)}><strong>{result.chapterTitle} · párrafo {result.paragraphIndex + 1}</strong><span>{result.text}</span></button>) : <p>No he encontrado esa palabra en el texto del libro.</p>}</div>}
         <details className="book-outline" ref={outlineRef}><summary>Revisar y corregir capítulos y párrafos</summary>{chapterSearchResults.length === 0 && <p>No hay coincidencias en el texto del libro.</p>}{chapterSearchResults.map(chapter => <section key={`${chapter.chapterIndex}-${chapter.title}`} aria-labelledby={`book-chapter-${chapter.chapterIndex}`}><h3 id={`book-chapter-${chapter.chapterIndex}`}>{chapter.title}</h3>{chapter.matchingParagraphs.map(({ text, paragraphIndex }) => <label className="book-paragraph" key={`${chapter.chapterIndex}-${paragraphIndex}`} htmlFor={`book-paragraph-${chapter.chapterIndex}-${paragraphIndex}`}><span>Párrafo {paragraphIndex + 1}</span><textarea id={`book-paragraph-${chapter.chapterIndex}-${paragraphIndex}`} rows={Math.min(8, Math.max(3, Math.ceil(text.length / 90)))} value={text} onChange={event => setBookChapters(current => current.map((item, index) => index !== chapter.chapterIndex ? item : { ...item, paragraphs: item.paragraphs.map((value, part) => part === paragraphIndex ? event.target.value : value) }))}/></label>)}</section>)}</details>
       </section>}
-      {bookChapters.length > 0 && <section className="export-card" aria-labelledby="export-title"><div><h2 id="export-title">Crear y descargar audiolibro</h2><p>El ZIP incluirá audio y archivos de navegación, con las correcciones de este asistente.</p><small>Las correcciones de la muestra solo afectan a esa muestra.</small></div><button className="choose export-button" type="button" onClick={downloadFullBook} disabled={busy || packageBusy || !canGenerateAudio}>{packageBusy ? <span className="spinner" aria-hidden="true"/> : <Download size={18} aria-hidden="true"/>}{packageBusy ? 'Creando el audiolibro…' : 'Descargar audiolibro (ZIP)'}</button></section>}
+      {selectedFile && transcript && <section className="export-card" aria-labelledby="export-title"><div><h2 id="export-title">Crear y descargar audiolibro completo</h2><p>Genera la narración completa y descarga un ZIP con el audio y los archivos de navegación.</p><small>Las correcciones que hayas hecho se incluirán en el libro.</small></div><button className="choose export-button" type="button" onClick={downloadFullBook} disabled={busy || packageBusy || !canGenerateAudio}>{packageBusy ? <span className="spinner" aria-hidden="true"/> : <Download size={18} aria-hidden="true"/>}{packageBusy ? 'Generando el audiolibro…' : 'Generar y descargar audiolibro (ZIP)'}</button></section>}
       <p className="promise">Escucha a tu ritmo.</p>
     </section>
     <footer><span>Creado con cuidado para cada lector.</span><span>Accesible desde el principio <span aria-hidden="true">·</span> Siempre a tu alcance</span></footer>
