@@ -371,18 +371,6 @@ export default function App() {
     return form
   }
 
-  function saveBlob(blob: Blob, filename: string) {
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = filename
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    // Give the browser a moment to start the save before releasing the blob.
-    window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
-  }
-
   function bookFilename(sourceName: string) {
     return `${(sourceName || book).replace(/\.[^.]+$/, '') || 'libro'}-daisy.zip`
   }
@@ -411,12 +399,12 @@ export default function App() {
       if (activePackageTaskId.current !== taskId) return
       if (status.state !== 'completed') throw new Error(status.detail || 'No se ha podido generar el audiolibro.')
       setMessage('Audio listo. Descargando el ZIP…')
-      const archive = await fetch(`${API}/api/books/package-tasks/${encodeURIComponent(taskId)}/download`)
-      if (!archive.ok) {
-        const body = await archive.json().catch(() => ({})) as { detail?: string }
-        throw new Error(body.detail || `No se ha podido descargar el audiolibro (HTTP ${archive.status}).`)
-      }
-      saveBlob(await archive.blob(), filename)
+      // Streamed to disk by the browser rather than buffered in a blob: an
+      // audiobook package is far too large to hold in the tab's memory, which
+      // is why pressing the button used to appear to do nothing.
+      await streamDownload(
+        `${API}/api/books/package-tasks/${encodeURIComponent(taskId)}/download`, filename,
+      )
       setMessage(status.reused
         ? `El audiolibro se ha descargado. ${status.reused} de ${status.total} párrafos ya estaban narrados y no se han vuelto a pagar.`
         : 'El audiolibro se ha descargado. Incluye el audio por capítulos y la estructura DAISY.')
@@ -529,24 +517,39 @@ export default function App() {
     }
   }
 
+  // Hand a URL to the browser so it streams the file to disk with its own
+  // progress, instead of buffering it in the tab. A one-byte range request
+  // first costs nothing and still surfaces the real error when the file is not
+  // ready, rather than navigating away to a JSON error page.
+  async function streamDownload(url: string, filename: string) {
+    const probe = await fetch(url, { headers: { Range: 'bytes=0-0' } })
+    if (!probe.ok && probe.status !== 206) {
+      const body = await probe.json().catch(() => ({})) as { detail?: string }
+      throw new Error(body.detail || `No se ha podido descargar el archivo (HTTP ${probe.status}).`)
+    }
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+  }
+
   async function downloadJobArtifact(jobId: string, sourceName: string) {
-    // Fetch it rather than clicking a link: the package is only available once
-    // every sentence is verified or accepted, and a bare link turned that
-    // refusal into a download that silently never happened.
-    setMessage('Preparando la descarga del paquete DAISY…')
+    // An audiobook package is hundreds of megabytes. Reading it into a blob
+    // first filled the tab's memory and the download appeared to do nothing,
+    // so the browser is handed the URL and streams it straight to disk.
+    // A one-byte range request first, which costs nothing, still surfaces the
+    // real reason when the package is not ready instead of navigating away.
+    setMessage('Comprobando que el paquete esté listo…')
     try {
-      const response = await fetch(`${API}/api/jobs/${encodeURIComponent(jobId)}/artifacts`)
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({})) as { detail?: string }
-        const detail = body.detail || `No se ha podido descargar el paquete (HTTP ${response.status}).`
-        throw new Error(response.status === 409
-          ? `${detail} Resuelve las frases pendientes de revisión, o usa «Descargar audiolibro ahora» para generarlo sin revisión.`
-          : detail)
-      }
-      saveBlob(await response.blob(), bookFilename(sourceName))
-      setMessage('El paquete DAISY se ha descargado.')
+      await streamDownload(`${API}/api/jobs/${encodeURIComponent(jobId)}/artifacts`, bookFilename(sourceName))
+      setMessage('La descarga del paquete DAISY ha comenzado. Puede tardar según el tamaño del libro.')
     } catch (error) {
-      setMessage(error instanceof Error ? publicCopy(error.message) : 'No se ha podido descargar el paquete DAISY.')
+      const detail = error instanceof Error ? error.message : 'No se ha podido descargar el paquete DAISY.'
+      setMessage(publicCopy(detail.includes('todavía no está disponible')
+        ? `${detail} Resuelve las frases pendientes de revisión, o usa «Descargar audiolibro ahora» para generarlo sin revisión.`
+        : detail))
     }
   }
 

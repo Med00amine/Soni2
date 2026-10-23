@@ -93,9 +93,9 @@ it was in before this upgrade.
 
 | Suite | Result |
 |---|---|
-| Backend `pytest`, with ffmpeg | **172 passed** |
-| Backend `pytest`, without ffmpeg | 170 passed, 2 skipped (the two ffmpeg tests) |
-| Frontend `vitest` | **24 passed** (3 files) |
+| Backend `pytest`, with ffmpeg | **263 passed** |
+| Backend `pytest`, without ffmpeg | 249 passed, 14 skipped (the ffmpeg-dependent tests) |
+| Frontend `vitest` | **37 passed** (3 files) |
 | Frontend `tsc -b && vite build` | **passed** |
 | Live Deepgram TTS + ASR check | **passed**; numeric sweep **14/15 verified** |
 

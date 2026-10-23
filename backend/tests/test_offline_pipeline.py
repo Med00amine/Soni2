@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 
 from app import jobs as job_store
 from app import main
+from app import providers
 from app.audio_cache import AudioCache
 
 BOOK = """Capítulo 1
@@ -543,7 +544,11 @@ def slow_voice(offline, monkeypatch):
     return state
 
 
-def test_a_direct_download_narrates_several_paragraphs_at_once_in_order(slow_voice) -> None:
+def test_a_direct_download_narrates_several_paragraphs_at_once_in_order(slow_voice, monkeypatch) -> None:
+    # This is about ordering, not about audio processing. Without ffmpeg the
+    # chapter is a plain byte join, so each paragraph's text is still findable
+    # in it; the mastered path re-encodes and deliberately discards those tags.
+    monkeypatch.setattr(main.filesystem, "which", lambda _name: None)
     response = TestClient(main.app).post("/api/books/package", files=_long_book())
     assert response.status_code == 200, response.text
     # Several requests overlapped, and never more than the provider's limit.
