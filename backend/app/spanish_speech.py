@@ -112,4 +112,52 @@ def _unit(match: re.Match[str]) -> str:
 
 def spell_numbers_for_speech(text: str) -> str:
     """Rewrite the number formats the voice misreads, leaving the rest alone."""
-    return _DECIMAL.sub(_decimal, _GROUPED.sub(_grouped, _UNIT.sub(_unit, text)))
+    spelled = _DECIMAL.sub(_decimal, _GROUPED.sub(_grouped, _UNIT.sub(_unit, text)))
+    return spell_structural_romans(spelled)
+
+
+# A Roman numeral after a structural word. Scoped deliberately: a bare "I" or
+# "XX" in prose is far more often a letter, a name or a date than a number, and
+# rewriting those would introduce mistakes rather than remove them.
+_ROMAN_AFTER = re.compile(
+    r"(?i)\b(cap[ií]tulos?|partes?|libros?|secci[oó]n|secciones|tomos?|actos?|escenas?|"
+    r"vol[uú]menes|volumen|anexos?|ap[eé]ndices?)(\s+)([IVXLCDM]{1,15})(?=[\s.,:;)\]]|$)"
+)
+_ROMAN_VALUES = (("M", 1000), ("CM", 900), ("D", 500), ("CD", 400), ("C", 100), ("XC", 90),
+                 ("L", 50), ("XL", 40), ("X", 10), ("IX", 9), ("V", 5), ("IV", 4), ("I", 1))
+
+
+def roman_to_int(value: str) -> int | None:
+    """Parse a well-formed Roman numeral; None if it is not one."""
+    text = value.upper()
+    total = 0
+    index = 0
+    for symbol, amount in _ROMAN_VALUES:
+        while text.startswith(symbol, index):
+            total += amount
+            index += len(symbol)
+    if index != len(text) or not 1 <= total <= 3999:
+        return None
+    # Reject spellings Roman numerals do not use, such as "IIII" or "XXXX".
+    return total if _int_to_roman(total) == text else None
+
+
+def _int_to_roman(value: int) -> str:
+    parts: list[str] = []
+    for symbol, amount in _ROMAN_VALUES:
+        while value >= amount:
+            parts.append(symbol)
+            value -= amount
+    return "".join(parts)
+
+
+def _spell_roman(match: re.Match[str]) -> str:
+    number = roman_to_int(match.group(3))
+    if number is None:
+        return match.group(0)
+    return f"{match.group(1)}{match.group(2)}{spanish_cardinal(number)}"
+
+
+def spell_structural_romans(text: str) -> str:
+    """"Capítulo XIV" -> "Capítulo catorce", so it is not read letter by letter."""
+    return _ROMAN_AFTER.sub(_spell_roman, text)

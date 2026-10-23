@@ -549,3 +549,61 @@ describe('narrating part of a PDF', () => {
     expect(bodies[bodies.length - 1]?.get('pages')).toBe('20-114')
   })
 })
+
+describe('large downloads', () => {
+  const completedJob = {
+    job_id: 'job-1', state: 'completed', source_name: 'libro.txt', total_sentences: 1,
+    voice_id: 'aura-2-diana-es', voice_name: 'Diana', voice_language: 'es-ES',
+    progress: { verified: 1 }, sentences: [],
+  }
+
+  it('streams the package to disk instead of buffering it in the tab', async () => {
+    // An audiobook package is far larger than a tab can hold in memory, so
+    // reading it into a blob made the button appear to do nothing.
+    const probes: string[] = []
+    const blob = vi.fn(async () => new Blob(['zip']))
+    const createObjectURL = vi.fn(() => 'blob:never')
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL: () => {} }))
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/api/capabilities')) return ok(capabilities)
+      if (url.endsWith('/api/voices')) return ok(voices)
+      if (url.endsWith('/api/books/structure')) return ok(structure)
+      if (url.includes('/artifacts')) {
+        probes.push((init?.headers as Record<string, string> | undefined)?.Range ?? '')
+        return { ok: true, status: 206, json: async () => ({}), text: async () => '', blob }
+      }
+      if (url.endsWith('/api/books/jobs')) return ok({ job_id: 'job-1', state: 'queued', total_sentences: 1 })
+      if (url.includes('/api/jobs/job-1')) return ok(completedJob)
+      return ok({})
+    }))
+    await render()
+    await startJob()
+    const button = buttonLabelled('Descargar paquete revisado')
+    expect(button).toBeTruthy()
+    await act(async () => { button!.click() })
+    // Only a one-byte probe, then the browser is handed the URL.
+    expect(probes).toEqual(['bytes=0-0'])
+    expect(blob).not.toHaveBeenCalled()
+    expect(createObjectURL).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('La descarga del paquete DAISY ha comenzado')
+  })
+
+  it('still explains a package that is not ready yet', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/api/capabilities')) return ok(capabilities)
+      if (url.endsWith('/api/voices')) return ok(voices)
+      if (url.endsWith('/api/books/structure')) return ok(structure)
+      if (url.includes('/artifacts')) return fail(409, 'El paquete completo todavía no está disponible.')
+      if (url.endsWith('/api/books/jobs')) return ok({ job_id: 'job-1', state: 'queued', total_sentences: 1 })
+      if (url.includes('/api/jobs/job-1')) return ok(completedJob)
+      return ok({})
+    }))
+    await render()
+    await startJob()
+    await act(async () => { buttonLabelled('Descargar paquete revisado')!.click() })
+    expect(document.body.textContent).toContain('todavía no está disponible')
+    expect(document.body.textContent).toContain('Descargar audiolibro ahora')
+  })
+})

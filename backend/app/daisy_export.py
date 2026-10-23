@@ -10,6 +10,8 @@ import zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path, PurePosixPath
 
+from app import audio_master
+
 
 DTBOOK_NS = "http://www.daisy.org/z3986/2005/dtbook/"
 SMIL_NS = "http://www.w3.org/2001/SMIL20/"
@@ -182,7 +184,7 @@ def _clock(seconds: float) -> str:
     return f"{hours}:{minutes:02d}:{rest // 1000:02d}.{rest % 1000:03d}"
 
 
-def _segment_clips(segments: list[bytes], chapter_audio: bytes) -> list[tuple[float, float]]:
+def measure_segment_clips(segments: list[bytes], chapter_audio: bytes) -> list[tuple[float, float]]:
     """Where each segment sits inside its chapter's joined audio.
 
     Durations are measured per segment, then scaled to the joined file's real
@@ -258,8 +260,10 @@ def build_daisy_package(
     publisher: str = "",
     front_matter: list[tuple[str, str, bytes, str]] | None = None,
     chapter_audio: list[bytes] | None = None,
+    chapter_clips: list[list[tuple[float, float]]] | None = None,
     use_ffmpeg: bool = False,
     clips_out: list[tuple[str, float, float]] | None = None,
+    mastering: audio_master.MasteringOptions | None = None,
 ) -> Path:
     """Write a DAISY 3 package whose files carry the book's own name.
 
@@ -306,19 +310,36 @@ def build_daisy_package(
     ):
         count = len(chapter_body)
         chapter_segments = audio_segments[segment_offset:segment_offset + count]
-        audio_content = chapter_audio[chapter_index] if chapter_audio is not None else _join_mp3(chapter_segments, use_ffmpeg=use_ffmpeg)
+        if chapter_audio is not None:
+            # Already-built chapter audio: its clips come with it.
+            audio_content = chapter_audio[chapter_index]
+            clips = (chapter_clips[chapter_index] if chapter_clips is not None
+                     else measure_segment_clips(chapter_segments, audio_content))
+        elif mastering is not None and mastering.active:
+            # Trimmed, paced and levelled, with the real position of every
+            # paragraph measured rather than estimated.
+            mastered = audio_master.master_chapter(chapter_segments, mastering)
+            audio_content = mastered.audio
+            clips = mastered.clips or measure_segment_clips(chapter_segments, audio_content)
+        else:
+            audio_content = _join_mp3(chapter_segments, use_ffmpeg=use_ffmpeg)
+            clips = measure_segment_clips(chapter_segments, audio_content)
         chapter_audio_contents.append(audio_content)
         chapter_file = output_dir / "audio" / relative_path
         chapter_file.parent.mkdir(parents=True, exist_ok=True)
         chapter_file.write_bytes(audio_content)
-        segment_clips.extend((relative_path, begin, end)
-                             for begin, end in _segment_clips(chapter_segments, audio_content))
+        segment_clips.extend((relative_path, begin, end) for begin, end in clips)
         segment_offset += count
     for filename, (_label, _text, audio, _configured_name) in zip(front_names, front_matter, strict=True):
         (output_dir / "audio" / filename).write_bytes(audio)
     front_audio = [item[2] for item in front_matter]
     ordered_audio = front_audio + chapter_audio_contents
-    full_audio = _join_mp3(ordered_audio, use_ffmpeg=use_ffmpeg)
+    if mastering is not None and mastering.active:
+        # The chapters are already levelled; the book only needs the longer
+        # pause between them so a listener hears where one ends.
+        full_audio = audio_master.master_book(ordered_audio, mastering).audio
+    else:
+        full_audio = _join_mp3(ordered_audio, use_ffmpeg=use_ffmpeg)
     (output_dir / full_audio_name).write_bytes(full_audio)
     if clips_out is not None:
         clips_out.extend(segment_clips)

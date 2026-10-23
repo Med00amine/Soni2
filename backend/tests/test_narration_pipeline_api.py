@@ -5,6 +5,7 @@ import zipfile
 from fastapi.testclient import TestClient
 
 from app import main as api
+from app import providers
 
 
 def test_preview_and_package_use_the_same_selected_narration_plan(monkeypatch):
@@ -24,7 +25,7 @@ def test_preview_and_package_use_the_same_selected_narration_plan(monkeypatch):
     assert "Indice" not in preview.json()["transcript"]
 
     async def fake_synthesize(text, voice_speed=1.0, voice_id="", **_kwargs):
-        return f"audio:{text}".encode()
+        return providers.mock_audio(text)
 
     async def fake_preview_synthesis(text, voice_speed=1.0, voice_id=""):
         return b"preview-audio", None

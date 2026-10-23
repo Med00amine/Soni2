@@ -1,0 +1,28 @@
+# Local development overlay: the Vite development server with hot reload, and
+# the backend running the working copy instead of the code baked into the image.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+#
+# Not for a public server: Vite's development server is unminified, slower, and
+# refuses requests whose Host header it does not recognise.
+services:
+  backend:
+    environment:
+      APP_ENV: development
+    volumes:
+      - "./backend/app:/app/app"
+      - "soni2-data:/data"
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    ports: ["8000:8000"]
+
+  frontend:
+    build:
+      context: ./frontend
+      target: build
+    command: ["npm", "run", "dev"]
+    environment:
+      VITE_BACKEND_PROXY_TARGET: http://backend:8000
+    volumes:
+      - "./frontend/src:/app/src"
+      - "./frontend/index.html:/app/index.html"
+    ports: ["5173:5173"]

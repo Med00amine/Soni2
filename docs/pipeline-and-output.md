@@ -321,6 +321,54 @@ review. The browser fetches it and shows that reason, and points at the direct
 download as the alternative; it previously clicked a plain link, so the refusal
 turned into a download that silently never happened.
 
+## 4c. Mastering: why the book sounds like one reading
+
+A provider returns every passage as an independent clip. Pasted together the
+seams show: each clip carries a different amount of dead air, levels drift
+between clips, and the joins click because an MP3 frame boundary is not a zero
+crossing. `app/audio_master.py` fixes all three, and each one is measured.
+
+| Step | What it does | Measured on real narration |
+|---|---|---|
+| Trim | Removes silence from both ends of every passage | 11.59s chapter → 10.08s; 1.5s of dead air gone |
+| Pace | Puts a chosen pause back: `AUDIO_PARAGRAPH_GAP_MS` between paragraphs, `AUDIO_CHAPTER_GAP_MS` between chapters | paragraph clips end 4.90s and the next starts 5.25s — exactly 350 ms |
+| Level | One two-pass EBU R128 correction per chapter to `AUDIO_TARGET_LUFS` | two chapters at −17.8 and −18.0 LUFS against a −18 target |
+
+Levelling matters most for a listener who cannot see a volume slider: passages
+normalised separately came back within **0.10 dB** of each other, where they had
+started more than 3 dB apart.
+
+Two passes, not one: a single streaming `loudnorm` adapts as it goes, which
+makes a long narration breathe up and down. Measuring first and applying one
+constant correction keeps the reading's own dynamics.
+
+### Synchronisation is measured, never estimated
+
+This is the part a DAISY player depends on, and the part mastering could most
+easily have broken. Clip positions used to be the raw passage durations scaled
+to the joined length — fine for a near-lossless join, wrong once each passage
+is trimmed by a different amount and padded with a pause.
+
+So every passage is trimmed and padded **on its own**, its real length is
+measured, and the resulting `(start, end)` pairs are what the SMIL files carry.
+The pause belongs to the gap after a passage rather than to its speech, so the
+text stops being highlighted when the reading stops. A chapter's positions are
+stored next to its audio (`chapter-NNN.clips.json`) and travel with it when the
+chapter is reused, because recomputing them against mastered audio would drift.
+If those stored positions are missing or unusable the chapter is rebuilt rather
+than guessed at.
+
+Verified end to end against the live provider: every clip inside its chapter,
+in order, the last one ending at the chapter's end.
+
+### When it does not run
+
+Mastering needs ffmpeg. Without it, or with `AUDIO_MASTERING=false`, the audio
+is joined as before and the job log and `daisy-validation.json` say so, so a
+degraded build is visible rather than silent. A passage that is quiet all the
+way through would be trimmed to nothing, so it is kept whole instead and only
+its pause is added — a paragraph of the book is never dropped.
+
 ## 5. Output layout
 
 ### Delivery ZIP — `{job_id}-once-delivery.zip`

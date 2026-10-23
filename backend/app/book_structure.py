@@ -276,7 +276,20 @@ def _epub_metadata(book, name: str) -> str:
 
 
 def _paragraphs(text: str) -> list[str]:
-    return [re.sub(r"\s+", " ", block).strip() for block in re.split(r"\n\s*\n", text) if block.strip()]
+    """Split into paragraphs, rejoining words a line break split in two.
+
+    Books hyphenate a word that does not fit on a line. Collapsing the
+    whitespace on its own left "distribui- dores", which a voice reads as two
+    broken pieces and a listener hears as a stutter. Every format goes through
+    here, so EPUB, DOCX, XML and plain text get the same repair the
+    layout-aware PDF reader already did.
+
+    The soft hyphen (U+00AD) is an invisible "you may break here" mark and is
+    simply removed.
+    """
+    blocks = re.split(r"\n\s*\n", text.replace("­", ""))
+    return [joined for block in blocks if block.strip()
+            if (joined := _join_lines(block.splitlines()))]
 
 
 _EXPLICIT_CHAPTER_HEADING = re.compile(

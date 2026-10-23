@@ -9,6 +9,8 @@ from app.daisy_export import build_daisy_package
 from app.book_structure import extract_book_structure
 from app.daisy_validation import validate_daisy_package
 from app import main as api
+from app import providers
+from app import sentences as sentences_module
 from app import book_structure
 
 
@@ -219,13 +221,13 @@ def test_epub_skips_cover_and_navigation_and_keeps_real_chapters(monkeypatch):
 
 def test_sentence_segmentation_assigns_stable_ids_and_keeps_source_text(tmp_path):
     source = "Dra. López llegó a las 9:30. ¡Sí! La cifra 3,14 importa."
-    sentences = api.segment_sentences(source, "book-hash", 2)
+    sentences = sentences_module.segment_sentences(source, "book-hash", 2)
 
     assert [sentence["text"] for sentence in sentences] == [
         "Dra. López llegó a las 9:30.", "¡Sí!", "La cifra 3,14 importa.",
     ]
     assert all(sentence["sentence_id"] for sentence in sentences)
-    assert sentences == api.segment_sentences(source, "book-hash", 2)
+    assert sentences == sentences_module.segment_sentences(source, "book-hash", 2)
     assert "Dra. López" in source
 
 
@@ -305,8 +307,11 @@ def test_legacy_text_extractor_uses_same_canonical_chapter_parser():
 
 
 def test_package_api_creates_full_multichapter_zip_without_external_tts(monkeypatch):
+    # Checks the package's structure and text, not its audio processing: the
+    # plain byte join keeps each paragraph's tag findable in the chapter audio.
+    monkeypatch.setattr(api.filesystem, "which", lambda _name: None)
     async def fake_synthesize(text, voice_speed=1.0, voice_id="", **_kwargs):
-        return f"mp3:{text}".encode("utf-8")
+        return providers.mock_audio(text)
 
     monkeypatch.setattr(api, "synthesize", fake_synthesize)
     # The endpoint validates credentials and the voice before parsing the book;
@@ -342,7 +347,9 @@ def test_package_api_creates_full_multichapter_zip_without_external_tts(monkeypa
         assert all(text in book_text for text in ("Texto uno.", "Texto dos corregido.", "Texto tres.", "ONCE approved identification", "ONCE approved legal text"))
         assert "Texto dos." not in book_text
         # The corrected paragraph's audio is part of its chapter file.
-        assert b"mp3:Texto dos corregido." in archive.read("DAISY 3/audio/chapter-001/chapter-001.mp3")
+        # The corrected paragraph is in the chapter audio: its text travels in
+        # the mock provider's tag, which a plain byte join preserves.
+        assert b"Texto dos corregido." in archive.read("DAISY 3/audio/chapter-001/chapter-001.mp3")
 
 
 def test_one_voices_clips_are_joined_by_copying_and_anything_else_is_re_encoded(monkeypatch):

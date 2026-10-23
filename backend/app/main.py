@@ -32,9 +32,9 @@ from app.daisy_export import (add_to_archive, build_daisy_package, join_mp3 as d
                               make_paragraphs)
 from app.book_structure import extract_book_structure
 from app.daisy_validation import validate_daisy_package
-from app.sentences import build_synthesis_text, segment_paragraphs, segment_sentences
+from app.sentences import build_synthesis_text, segment_paragraphs
 from app import jobs as job_store
-from app import providers, qa_review, quality_report
+from app import audio_master, providers, qa_review, quality_report
 from app.audio_cache import AudioCache, write_atomic, write_atomic_text
 from app.job_logging import JobLogger
 from app.narration_plan import build_narration_plan, apply_narration_selection
@@ -80,6 +80,12 @@ class Settings(BaseSettings):
     # How many narration requests run at once. 0 picks a safe default for the
     # active provider (see narration_concurrency).
     tts_concurrency: int = 0
+    # Mastering: trim each passage's dead air, put deliberate pauses back, and
+    # level the whole book so it plays at one comfortable volume.
+    audio_mastering: bool = True
+    audio_target_lufs: float = -18.0
+    audio_paragraph_gap_ms: int = 350
+    audio_chapter_gap_ms: int = 900
     # Resolve the repository .env by path, not relative to the working
     # directory: running `uvicorn app.main:app` from backend/ previously found
     # no .env and silently fell back to the defaults. Real environment
@@ -114,6 +120,49 @@ def active_tts_provider() -> str:
 _DEFAULT_TTS_CONCURRENCY = {"deepgram": 8, "fishaudio": 4, "elevenlabs": 2, "mock": 8}
 
 T = TypeVar("T")
+
+
+def _read_chapter_clips(path: Path, expected: int) -> list[tuple[float, float]] | None:
+    """Clip positions stored beside a chapter's audio, or None if unusable.
+
+    Returning None makes the caller rebuild the chapter. That is the safe
+    choice: guessing positions for mastered audio would drift the text/audio
+    synchronisation a DAISY player depends on.
+    """
+    if not path.is_file():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(value, list) or len(value) != expected:
+        return None
+    clips: list[tuple[float, float]] = []
+    for item in value:
+        if not isinstance(item, list) or len(item) != 2:
+            return None
+        try:
+            clips.append((float(item[0]), float(item[1])))
+        except (TypeError, ValueError):
+            return None
+    return clips
+
+
+def _measure_fallback_clips(segments: list[bytes], joined: bytes) -> list[tuple[float, float]]:
+    """Positions for audio that was not mastered, scaled to the joined length."""
+    from app.daisy_export import measure_segment_clips
+
+    return measure_segment_clips(segments, joined)
+
+
+def mastering_options() -> audio_master.MasteringOptions:
+    """How the finished audio should be paced and levelled."""
+    return audio_master.MasteringOptions(
+        enabled=settings.audio_mastering,
+        target_lufs=settings.audio_target_lufs,
+        paragraph_gap_ms=settings.audio_paragraph_gap_ms,
+        chapter_gap_ms=settings.audio_chapter_gap_ms,
+    )
 
 
 def narration_concurrency() -> int:
@@ -213,15 +262,37 @@ def tts_voices(provider: str | None = None) -> tuple[providers.Voice, ...]:
     provider = (provider or active_tts_provider()).casefold()
     if provider != "elevenlabs":
         return providers.voices_for(provider)
-    primary = settings.elevenlabs_voice_id.strip()
-    ids = [primary, *(value.strip() for value in settings.elevenlabs_extra_voice_ids.split(","))]
+    primary = _elevenlabs_entry(settings.elevenlabs_voice_id)[0]
+    entries = [settings.elevenlabs_voice_id,
+               *(value for value in settings.elevenlabs_extra_voice_ids.split(","))]
     voices = []
-    for index, voice_id in enumerate(dict.fromkeys(value for value in ids if value)):
+    seen: set[str] = set()
+    for index, entry in enumerate(entries):
+        voice_id, declared_name, declared_language = _elevenlabs_entry(entry)
+        if not voice_id or voice_id in seen:
+            continue
+        seen.add(voice_id)
         is_primary = voice_id == primary
-        name = (settings.elevenlabs_voice_name.strip() if is_primary else "") or f"Voz de ElevenLabs {index + 1}"
-        language = settings.elevenlabs_voice_language if is_primary else ""
+        name = (declared_name
+                or (settings.elevenlabs_voice_name.strip() if is_primary else "")
+                or f"Voz de ElevenLabs {index + 1}")
+        language = declared_language or (settings.elevenlabs_voice_language if is_primary else "")
         voices.append(providers.elevenlabs_voice(voice_id, name, language, settings.elevenlabs_model_id))
     return tuple(voices)
+
+
+def _elevenlabs_entry(value: str) -> tuple[str, str, str]:
+    """Parse one configured voice: ``id``, ``id|es-ES`` or ``id|es-ES|Lucía``.
+
+    Every voice can state its own accent. Only the first could before, so a
+    second Spain-Spanish voice counted as "accent unknown" and a deployment
+    that requires Spain Spanish refused to narrate with it.
+    """
+    parts = [part.strip() for part in value.split("|")]
+    voice_id = parts[0] if parts else ""
+    language = parts[1] if len(parts) > 1 else ""
+    name = parts[2] if len(parts) > 2 else ""
+    return voice_id, name, language
 
 
 def find_tts_voice(voice_id: str, provider: str | None = None) -> providers.Voice | None:
@@ -1073,6 +1144,8 @@ async def _assemble_job_delivery(job_id: str) -> None:
     chapters: list[tuple[str, list[str]]] = []
     segments: list[bytes] = []
     chapter_audio: list[bytes] = []
+    chapter_clips: list[list[tuple[float, float]]] = []
+    mastering = mastering_options()
     chapter_state: dict[str, str] = {}
     sentence_segment_index: dict[str, int] = {}
     reused_chapters = 0
@@ -1095,21 +1168,41 @@ async def _assemble_job_delivery(job_id: str) -> None:
         fingerprint = _chapter_fingerprint(chapter["title"], chapter_items)
         chapter_state[str(chapter_index)] = fingerprint
         joined_path = chapters_dir / f"chapter-{chapter_index + 1:03d}.mp3"
-        if previous_state.get(str(chapter_index)) == fingerprint and joined_path.is_file() and joined_path.stat().st_size:
+        clips_path = joined_path.with_suffix(".clips.json")
+        cached_clips = _read_chapter_clips(clips_path, len(chapter_items))
+        if (previous_state.get(str(chapter_index)) == fingerprint and joined_path.is_file()
+                and joined_path.stat().st_size and cached_clips is not None):
             # Nothing in this chapter changed, so keep the audio already built.
+            # Its measured clip positions are kept with it: recomputing them
+            # against mastered audio would drift the text/audio synchronisation.
             chapter_audio.append(joined_path.read_bytes())
+            chapter_clips.append(cached_clips)
             reused_chapters += 1
             log.info("assemble.chapter", "reused unchanged chapter audio", chapter_index=chapter_index,
                      fingerprint=fingerprint[:16], sentences=len(chapter_items))
         else:
             # ffmpeg runs in a worker thread so the server keeps answering
             # status requests while a long chapter is re-encoded.
-            joined = await asyncio.to_thread(daisy_join_mp3, chapter_segments)
+            if mastering.active:
+                mastered = await asyncio.to_thread(
+                    audio_master.master_chapter, chapter_segments, mastering,
+                )
+                joined = mastered.audio
+                clips = mastered.clips or _measure_fallback_clips(chapter_segments, joined)
+            else:
+                # Mastering off, or no ffmpeg: the plain join still copies
+                # frames when every passage shares one stream format.
+                mastered = audio_master.JoinedAudio(b"", False, "Pulido desactivado.", [])
+                joined = await asyncio.to_thread(daisy_join_mp3, chapter_segments)
+                clips = _measure_fallback_clips(chapter_segments, joined)
             write_atomic(joined_path, joined)
+            write_atomic_text(clips_path, json.dumps([list(clip) for clip in clips]))
             chapter_audio.append(joined)
+            chapter_clips.append(clips)
             rebuilt_chapters += 1
             log.info("assemble.chapter", "rebuilt chapter audio", chapter_index=chapter_index,
-                     fingerprint=fingerprint[:16], sentences=len(chapter_items), bytes=len(joined))
+                     fingerprint=fingerprint[:16], sentences=len(chapter_items), bytes=len(joined),
+                     mastered=mastered.mastered, mastering=mastered.detail)
 
     if not segments:
         raise RuntimeError("No verified sentence audio is available to assemble.")
@@ -1146,7 +1239,8 @@ async def _assemble_job_delivery(job_id: str) -> None:
         segments, delivery_dir / "daisy", chapters=chapters, author=metadata["author"],
         edition=metadata["edition"], publication_year=metadata["publication_year"],
         publisher=metadata["publisher"], front_matter=front_matter,
-        chapter_audio=chapter_audio, use_ffmpeg=use_ffmpeg, clips_out=clips,
+        chapter_audio=chapter_audio, chapter_clips=chapter_clips, use_ffmpeg=use_ffmpeg,
+        clips_out=clips, mastering=mastering,
     ))
     try:
         validate_daisy_package(package)
@@ -2140,6 +2234,9 @@ async def _build_direct_package(
         # Joined by ffmpeg into clean streams when it is available (it is in
         # Docker); byte-joined MP3 files confuse players about their length.
         use_ffmpeg=bool(filesystem.which("ffmpeg")),
+        # A direct download is a finished audiobook too, so it gets the same
+        # trimming, pauses and loudness as a reviewed production run.
+        mastering=mastering_options(),
     ))
     await asyncio.to_thread(validate_daisy_package, package_dir)
     archive_path = work_dir / "soni2-daisy.zip"

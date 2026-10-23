@@ -174,6 +174,15 @@ _DIGIT_DECIMAL_RE = re.compile(
 )
 # Recognizers write a spoken "por ciento" as "por ciento", "por cien" or
 # "por 100"; all three mean the same percentage.
+# A Roman numeral after a structural word is that number: "Parte III" and
+# "Parte 3" are the same heading. Scoped to the same words the narration copy
+# rewrites, so a bare "I" or "XX" in prose stays a letter or a date.
+_ROMAN_HEADING_RE = re.compile(
+    r"(?<!\w)(capitulos?|partes?|libros?|seccion|secciones|tomos?|actos?|escenas?|"
+    r"volumenes|volumen|anexos?|apendices?)(\s+)([ivxlcdm]{1,15})(?!\w)", re.I
+)
+
+
 _PERCENT_RE = re.compile(r"(?<!\w)(\d+(?:[.,]\d+)?)\s*(?:%|por\s+(?:ciento|cien|100))(?!\w)", re.I)
 # And a spoken date as "12 de marzo de 2024", with the day and year left in
 # digits, which the word-phrase parser cannot see.
@@ -197,6 +206,13 @@ def _numeric_value(raw: str) -> str:
     except ValueError:
         return compact
     return str(number).rstrip("0").rstrip(".") if isinstance(number, float) and number % 1 else str(int(number)) if isinstance(number, float) else str(number)
+
+
+def _roman_value(value: str) -> int | None:
+    """Parse a well-formed Roman numeral, so "XIV" compares equal to 14."""
+    from app.spanish_speech import roman_to_int
+
+    return roman_to_int(value)
 
 
 def _numeric_tokens(text: str, allow_spoken_time: bool, source_has_time: bool, source_has_date: bool = False) -> list[Token]:
@@ -265,6 +281,18 @@ def _numeric_tokens(text: str, allow_spoken_time: bool, source_has_time: bool, s
         original_start, original_end = span(match.start(), match.end())
         tokens.append(Token(key, original_start, original_end, match.start(), match.end()))
         claim(match.start(), match.end())
+
+    # A Roman numeral after a structural word is that number.
+    for match in _ROMAN_HEADING_RE.finditer(plain):
+        if not is_free(match.start(3), match.end(3)):
+            continue
+        number = _roman_value(match.group(3))
+        if number is None:
+            continue
+        original_start, original_end = span(match.start(3), match.end(3))
+        tokens.append(Token(f"num:{number}", original_start, original_end,
+                            match.start(3), match.end(3)))
+        claim(match.start(3), match.end(3))
 
     # Percentages, including the "por 100" and "por cien" forms recognizers emit.
     for match in _PERCENT_RE.finditer(plain):
