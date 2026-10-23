@@ -78,7 +78,7 @@ def _from_xml(filename: str, content: bytes, result: BookStructure, fallback_tex
     for node in root.iter():
         local = _local_name(node.tag).lower()
         name = (node.get("name") or "").strip().lower()
-        value = (node.get("content") or " ".join("".join(node.itertext()).split())).strip()
+        value = (node.get("content") or _spoken("".join(node.itertext()))).strip()
         if name and value:
             metadata[name.removeprefix("dc:").removeprefix("ncc:")] = value
         elif local in {"title", "creator", "author", "edition", "publisher", "date"} and value:
@@ -172,7 +172,7 @@ def _from_docx(content: bytes, result: BookStructure, fallback_text: str) -> Boo
     chapters: list[BookChapter] = []
     active = BookChapter(result.title)
     for paragraph in document.paragraphs:
-        text = " ".join(paragraph.text.split())
+        text = _spoken(paragraph.text)
         if not text:
             continue
         if paragraph.style and paragraph.style.name.lower() in {"heading 1", "título 1", "titulo 1"}:
@@ -267,7 +267,7 @@ def _node_text(node) -> str:
     # words, so the text is joined as is and only its white space normalized.
     for line_break in node.find_all("br"):
         line_break.replace_with(" ")
-    return " ".join(node.get_text("").split())
+    return _spoken(node.get_text(""))
 
 
 def _epub_metadata(book, name: str) -> str:
@@ -307,7 +307,9 @@ _EXPLICIT_CHAPTER_HEADING = re.compile(
 def _split_text_chapters(book_title: str, text: str) -> list[BookChapter]:
     """Split plain text only at explicit, standalone chapter/part headings."""
     blocks: list[tuple[str, bool]] = []
-    for block in re.split(r"\n\s*\n", text.replace("\r\n", "\n").replace("\r", "\n")):
+    # The soft hyphen only marks where a break is allowed; it is never spoken.
+    text = text.replace("\r\n", "\n").replace("\r", "\n").replace("­", "")
+    for block in re.split(r"\n\s*\n", text):
         lines = [re.sub(r"\s+", " ", line).strip() for line in block.splitlines() if line.strip()]
         if not lines:
             continue
@@ -324,7 +326,10 @@ def _split_text_chapters(book_title: str, text: str) -> list[BookChapter]:
             continue
         # A heading must be an entire paragraph, never merely words at the
         # start of a prose paragraph. That avoids inventing chapter breaks.
-        paragraph = " ".join(lines)
+        # _join_lines rather than " ".join: a word the line break hyphenated in
+        # two ("distribui-" + "dores") is one word, and a voice reads the two
+        # pieces separately.
+        paragraph = _join_lines(lines)
         is_heading = len(lines) == 1 and bool(_EXPLICIT_CHAPTER_HEADING.fullmatch(lines[0]))
         blocks.append((paragraph, is_heading))
 
@@ -356,8 +361,18 @@ def _split_text_chapters(book_title: str, text: str) -> list[BookChapter]:
     return chapters
 
 
+def _spoken(text: str) -> str:
+    """Normalise a block of source text into one line a voice can read.
+
+    Collapses whitespace and rejoins a word the line break hyphenated in two.
+    Every format funnels through here, so XML, EPUB, DOCX and plain text all
+    reach the voice with whole words.
+    """
+    return _join_lines(text.replace("­", "").splitlines())
+
+
 def _text(node: ET.Element | None) -> str:
-    return " ".join("".join(node.itertext()).split()) if node is not None else ""
+    return _spoken("".join(node.itertext())) if node is not None else ""
 
 
 def _local_name(tag: str) -> str:

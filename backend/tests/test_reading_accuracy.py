@@ -117,3 +117,43 @@ def test_numerals_outside_a_heading_are_not_treated_as_numbers() -> None:
     # A century and a regnal name are not chapter numbers.
     assert qa_review.evaluate("Siglo XX", "Siglo 20")[0] == "likely_error"
     assert qa_review.evaluate("Juan Carlos I", "Juan Carlos 1")[0] == "likely_error"
+
+
+# --------------------------------------------------------------------------- #
+# Through the real parser, not just its helper
+# --------------------------------------------------------------------------- #
+
+def _chapters(name: str, text: str) -> list[str]:
+    from app.book_structure import extract_book_structure
+
+    structure = extract_book_structure(name, text.encode("utf-8"))
+    return [paragraph for chapter in structure.chapters for paragraph in chapter.paragraphs]
+
+
+def test_plain_text_rejoins_split_words_through_the_parser() -> None:
+    # The plain-text reader joins a paragraph's lines itself, so fixing the
+    # shared helper alone left .txt books still broken. Found by narrating one
+    # on the deployed server.
+    paragraphs = _chapters("libro.txt", (
+        "Capitulo XIV\n\n"
+        "El pueblo tenia muchos distribui-\ndores de agua y la disca-\n"
+        "pacidad no era un obsta-\nculo.\n"
+    ))
+    joined = " ".join(paragraphs)
+    assert "distribuidores" in joined
+    assert "discapacidad" in joined
+    assert "obstaculo" in joined
+    assert "- " not in joined
+
+
+def test_plain_text_keeps_a_real_hyphen_and_drops_the_soft_one() -> None:
+    assert _chapters("libro.txt", "Un acuerdo franco-\nAleman y Covid-\n19.\n") == \
+        ["Un acuerdo franco-Aleman y Covid-19."]
+    assert _chapters("libro.txt", "La discapa­cidad plena.\n") == ["La discapacidad plena."]
+
+
+def test_an_xml_book_also_reaches_the_voice_with_whole_words() -> None:
+    source = ("<book><title>Prueba</title><chapter><title>Capitulo 1</title>"
+              "<p>La disca-\npacidad no fue un obsta-\nculo.</p></chapter></book>")
+    joined = " ".join(_chapters("libro.xml", source))
+    assert "discapacidad" in joined and "obstaculo" in joined
