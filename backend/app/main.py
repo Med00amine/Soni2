@@ -34,7 +34,7 @@ from app.book_structure import extract_book_structure
 from app.daisy_validation import validate_daisy_package
 from app.sentences import build_synthesis_text, segment_paragraphs
 from app import jobs as job_store
-from app import audio_master, providers, qa_review, quality_report
+from app import audio_master, pronunciation, providers, qa_review, quality_report
 from app.audio_cache import AudioCache, write_atomic, write_atomic_text
 from app.job_logging import JobLogger
 from app.narration_plan import build_narration_plan, apply_narration_selection
@@ -376,6 +376,22 @@ class PreviewResult(BaseModel):
 
 class LexiconRequest(BaseModel):
     entries: dict[str, str]
+
+
+class WordRequest(BaseModel):
+    word: str
+
+
+class PronunciationPreview(BaseModel):
+    word: str
+    respelling: str
+    sentence: str = ""
+    voice_id: str = ""
+
+
+class LexiconEntry(BaseModel):
+    term: str
+    pronunciation: str
 
 
 class SentenceDecision(BaseModel):
@@ -1342,6 +1358,73 @@ async def write_pronunciation_lexicon(request: LexiconRequest) -> dict[str, dict
         job_store.replace_lexicon(database_path, request.entries)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"entries": job_store.get_lexicon(database_path)}
+
+
+@app.post("/api/pronunciation/analyse")
+async def analyse_pronunciation(request: WordRequest) -> dict[str, object]:
+    """How Spanish rules read a word, and ways to respell it so a voice agrees."""
+    word = request.word.strip()
+    if not word or len(word) > 80:
+        raise HTTPException(status_code=422, detail="Escribe una palabra de 1 a 80 caracteres.")
+    job_store.initialize_store(database_path)
+    current = job_store.get_lexicon(database_path)
+    analysis = pronunciation.analyse(word)
+    return analysis.as_dict() | {
+        "saved_respelling": current.get(word) or current.get(word.lower()) or "",
+    }
+
+
+@app.post("/api/pronunciation/preview")
+async def preview_pronunciation(request: PronunciationPreview) -> dict[str, object]:
+    """Narrate a candidate respelling so a reviewer can hear it before saving.
+
+    The only trustworthy test of a pronunciation is the ear, so nothing is
+    stored until someone has listened to it.
+    """
+    word = request.word.strip()
+    respelling = request.respelling.strip()
+    if not word or not respelling:
+        raise HTTPException(status_code=422, detail="Hacen falta la palabra y su nueva escritura.")
+    if len(respelling) > 200:
+        raise HTTPException(status_code=422, detail="La nueva escritura es demasiado larga.")
+    # Heard in its sentence when there is one: a word alone can be stressed
+    # differently from the same word inside a phrase.
+    sentence = request.sentence.strip()[:400]
+    spoken = (_replace_word(sentence, word, respelling) if sentence else respelling)
+    try:
+        audio, _reused = await synthesize_cached(spoken, 1.0, request.voice_id)
+    except ProviderError as exc:
+        raise HTTPException(status_code=_provider_http_status(exc), detail=exc.message) from exc
+    return {
+        "audio_base64": base64.b64encode(audio).decode("ascii"),
+        "audio_mime_type": "audio/mpeg",
+        "spoken_text": spoken,
+    }
+
+
+def _replace_word(sentence: str, word: str, respelling: str) -> str:
+    """Swap one word inside a sentence, matching it whole and ignoring case."""
+    return re.sub(rf"(?<!\w){re.escape(word)}(?!\w)", respelling, sentence,
+                  flags=re.IGNORECASE | re.UNICODE)
+
+
+@app.post("/api/pronunciation-lexicon/entries")
+async def save_pronunciation_entry(entry: LexiconEntry) -> dict[str, object]:
+    """Save one pronunciation, so it applies to this book and every later one."""
+    job_store.initialize_store(database_path)
+    try:
+        job_store.upsert_lexicon_entry(database_path, entry.term, entry.pronunciation)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"entries": job_store.get_lexicon(database_path)}
+
+
+@app.delete("/api/pronunciation-lexicon/entries/{term}")
+async def delete_pronunciation_entry(term: str) -> dict[str, object]:
+    job_store.initialize_store(database_path)
+    if not job_store.delete_lexicon_entry(database_path, term):
+        raise HTTPException(status_code=404, detail="Esa palabra no está en el diccionario.")
     return {"entries": job_store.get_lexicon(database_path)}
 
 

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { BookOpen, Upload, Download, Volume2, CheckCircle2 } from 'lucide-react'
 import './production-status.css'
+// Loaded after, so the modern tokens win over the older hardcoded palette.
+import './export-modern.css'
 
 const API = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '')
 
@@ -43,6 +45,16 @@ type QaIssue = { kind: string; category?: string; difference_type?: string; expe
 type AudioReview = { recognized_text: string; recognizer?: string; verdict?: string; confidence?: number; issues: QaIssue[]; review_note: string }
 type ProductionSentence = { sentence_id: string; chapter_index: number; chapter_title: string; sequence: number; text: string; state: string; recognized_text: string; issues: QaIssue[]; audio_path?: string | null; quality_retakes: number; technical_attempts: number; last_error: string; reused_audio?: number | boolean; updated_at?: string }
 type ProductionJob = { job_id: string; state: string; source_name: string; total_sentences: number; progress: Record<string, number>; sentences: ProductionSentence[]; error?: string; voice_id?: string; voice_name?: string; voice_language?: string }
+type PronunciationSuggestion = { respelling: string; label: string; reason: string }
+type PronunciationAnalysis = {
+  word: string
+  ipa: string
+  syllables: string[]
+  stressed: number
+  looks_spanish: boolean
+  suggestions: PronunciationSuggestion[]
+  saved_respelling: string
+}
 type WorkspaceTab = 'upload' | 'review' | 'export'
 type PackageTaskStatus = { task_id: string; state: string; total: number; done: number; reused: number; detail?: string }
 type PackageProgress = Pick<PackageTaskStatus, 'total' | 'done' | 'reused'>
@@ -143,6 +155,15 @@ export default function App() {
   const [directProgress, setDirectProgress] = useState<PackageProgress>()
   const [productionJob, setProductionJob] = useState<ProductionJob>()
   const [reviewingSentence, setReviewingSentence] = useState('')
+  // Pronunciation editor: which sentence it is open for, the word being
+  // worked on, what Spanish rules make of it, and the reviewer's own spelling.
+  const [pronSentence, setPronSentence] = useState('')
+  const [pronWord, setPronWord] = useState('')
+  const [pronAnalysis, setPronAnalysis] = useState<PronunciationAnalysis>()
+  const [pronCustom, setPronCustom] = useState('')
+  const [pronBusy, setPronBusy] = useState('')
+  const [pronSaved, setPronSaved] = useState<Record<string, string>>({})
+  const pronPlayer = useRef<HTMLAudioElement>(null)
   const [sentenceCorrections, setSentenceCorrections] = useState<Record<string, string>>({})
   // Paragraphs narrated again from the review queue. They stay on screen with
   // their new reading, even once it passes, so the reviewer can hear it.
@@ -556,6 +577,72 @@ export default function App() {
   // The server narrates a corrected or retried paragraph inside the request and
   // answers with it, so the card shows the new text and plays the new reading
   // the moment the answer arrives instead of queueing it out of sight.
+  // A word is read wrong because of how it is spelled, so the repair is a
+  // different spelling. Spanish rules say how the word reads now; the reviewer
+  // hears each candidate and only then saves one.
+  async function analysePronunciation(word: string, sentenceId: string) {
+    const clean = word.replace(/[^\p{L}\p{N}'-]/gu, '')
+    if (!clean) return
+    setPronSentence(sentenceId)
+    setPronWord(clean)
+    setPronAnalysis(undefined)
+    setPronCustom('')
+    setPronBusy('analyse')
+    try {
+      const response = await fetch(`${API}/api/pronunciation/analyse`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ word: clean }),
+      })
+      const body = await response.json().catch(() => ({})) as PronunciationAnalysis & { detail?: string }
+      if (!response.ok) throw new Error(body.detail || 'No se pudo analizar la palabra.')
+      setPronAnalysis(body)
+      setPronCustom(body.saved_respelling || '')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'No se pudo analizar la palabra.')
+    } finally { setPronBusy('') }
+  }
+
+  async function hearRespelling(respelling: string, sentence: string) {
+    if (!pronWord || !respelling.trim()) return
+    setPronBusy(`hear:${respelling}`)
+    try {
+      const response = await fetch(`${API}/api/pronunciation/preview`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ word: pronWord, respelling, sentence, voice_id: voiceId }),
+      })
+      const body = await response.json().catch(() => ({})) as { audio_base64?: string; detail?: string }
+      if (!response.ok || !body.audio_base64) throw new Error(body.detail || 'No se pudo generar la muestra.')
+      const bytes = Uint8Array.from(atob(body.audio_base64), character => character.charCodeAt(0))
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }))
+      if (pronPlayer.current) {
+        pronPlayer.current.src = url
+        void pronPlayer.current.play().catch(() => undefined)
+      }
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch (error) {
+      setMessage(error instanceof Error ? publicCopy(error.message) : 'No se pudo generar la muestra.')
+    } finally { setPronBusy('') }
+  }
+
+  async function saveRespelling(respelling: string) {
+    if (!pronWord || !respelling.trim()) return
+    setPronBusy(`save:${respelling}`)
+    try {
+      const response = await fetch(`${API}/api/pronunciation-lexicon/entries`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ term: pronWord, pronunciation: respelling }),
+      })
+      const body = await response.json().catch(() => ({})) as { entries?: Record<string, string>; detail?: string }
+      if (!response.ok) throw new Error(body.detail || 'No se pudo guardar la pronunciación.')
+      setPronSaved(body.entries ?? {})
+      setPronAnalysis(current => current && { ...current, saved_respelling: respelling })
+      setMessage(`«${pronWord}» se pronunciará «${respelling}» en este libro y en los siguientes. `
+        + 'Vuelve a narrar la frase para oírla con el cambio.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'No se pudo guardar la pronunciación.')
+    } finally { setPronBusy('') }
+  }
+
   async function decideSentence(sentence: ProductionSentence, decision: 'accept' | 'retry' | 'correct') {
     if (!productionJob || reviewingSentence) return
     setReviewingSentence(sentence.sentence_id)
@@ -879,6 +966,66 @@ export default function App() {
                           src={`${API}/api/jobs/${productionJob.job_id}/sentences/${encodeURIComponent(sentence.sentence_id)}/audio?v=${version}`}/>
                       </label>
                     : <p className="qa-note">No hay audio guardado para este párrafo, así que hay que volver a narrarlo.</p>}
+                  <details className="pron-editor" open={pronSentence === sentence.sentence_id}>
+                    <summary>Corregir la pronunciación de una palabra</summary>
+                    <p className="pron-help">Pulsa la palabra que suena mal. Verás cómo la lee el español,
+                       podrás escuchar otras formas de escribirla y guardar la que suene bien.</p>
+                    <div className="pron-words">
+                      {Array.from(new Set(sentence.text.split(/\s+/)
+                        .map(part => part.replace(/[^\p{L}\p{N}'-]/gu, ''))
+                        .filter(part => part.length > 1))).map(word =>
+                        <button type="button" key={word}
+                          className={pronSentence === sentence.sentence_id && pronWord === word ? 'pron-word is-active' : 'pron-word'}
+                          onClick={() => void analysePronunciation(word, sentence.sentence_id)}>
+                          {word}{(pronSaved[word] || (pronWord === word && pronAnalysis?.saved_respelling)) ? ' ✓' : ''}
+                        </button>)}
+                    </div>
+                    {pronSentence === sentence.sentence_id && pronBusy === 'analyse' && <p role="status">Analizando «{pronWord}»…</p>}
+                    {pronSentence === sentence.sentence_id && pronAnalysis && <div className="pron-result">
+                      <dl className="pron-facts">
+                        <div><dt>Sílabas</dt><dd>{pronAnalysis.syllables.map((part, index) =>
+                          <span key={index} className={index === pronAnalysis.stressed ? 'pron-stress' : undefined}>{part}</span>)
+                          .reduce<ReactNode[]>((all, part, index) => index ? [...all, '-', part] : [part], [])}</dd></div>
+                        <div><dt>Suena como</dt><dd className="pron-ipa">{pronAnalysis.ipa || '—'}</dd></div>
+                        <div><dt>Escritura</dt><dd>{pronAnalysis.looks_spanish
+                          ? 'El español puede leerla tal cual'
+                          : 'Tiene letras que el español no usa'}</dd></div>
+                      </dl>
+                      {pronAnalysis.saved_respelling && <p className="pron-saved">Guardada ahora como
+                        <strong> {pronAnalysis.saved_respelling}</strong></p>}
+                      <ul className="pron-options">
+                        {pronAnalysis.suggestions.map(option =>
+                          <li key={option.respelling}>
+                            <div><strong>{option.label}:</strong> <span className="pron-try">{option.respelling}</span>
+                              <small>{option.reason}</small></div>
+                            <div className="pron-actions">
+                              <button type="button" disabled={Boolean(pronBusy)}
+                                onClick={() => void hearRespelling(option.respelling, sentence.text)}>
+                                {pronBusy === `hear:${option.respelling}` ? 'Generando…' : 'Escuchar'}</button>
+                              <button type="button" disabled={Boolean(pronBusy)}
+                                onClick={() => void saveRespelling(option.respelling)}>
+                                {pronBusy === `save:${option.respelling}` ? 'Guardando…' : 'Usar esta'}</button>
+                            </div>
+                          </li>)}
+                        <li>
+                          <label className="pron-custom">Escríbela como debe sonar
+                            <input type="text" value={pronCustom} maxLength={200}
+                              placeholder="por ejemplo: guáshinton"
+                              onChange={event => setPronCustom(event.target.value)}/>
+                          </label>
+                          <div className="pron-actions">
+                            <button type="button" disabled={Boolean(pronBusy) || !pronCustom.trim()}
+                              onClick={() => void hearRespelling(pronCustom, sentence.text)}>
+                              {pronBusy === `hear:${pronCustom}` ? 'Generando…' : 'Escuchar'}</button>
+                            <button type="button" disabled={Boolean(pronBusy) || !pronCustom.trim()}
+                              onClick={() => void saveRespelling(pronCustom)}>
+                              {pronBusy === `save:${pronCustom}` ? 'Guardando…' : 'Usar esta'}</button>
+                          </div>
+                        </li>
+                      </ul>
+                      <audio ref={pronPlayer} controls className="pron-player" aria-label="Muestra de pronunciación"/>
+                    </div>}
+                  </details>
                   <label className="qa-correction">Texto corregido (sólo si vas a corregirlo)
                     <textarea rows={3} value={sentenceCorrections[sentence.sentence_id] ?? sentence.text}
                       onChange={event => setSentenceCorrections(current => ({ ...current, [sentence.sentence_id]: event.target.value }))}/>

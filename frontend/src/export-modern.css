@@ -1,0 +1,311 @@
+/* The Export step and the review tools, restyled.
+ *
+ * The original rules hardcoded a pale 2010 palette (#fff panels, #d8e3ec
+ * hairlines, 6px radii) with no tokens and no dark mode, so the newer parts
+ * looked washed out beside it. Everything here works from custom properties,
+ * follows the reader's light/dark preference, and uses one spacing and radius
+ * scale. Loaded after production-status.css so it wins without that file
+ * having to be rewritten.
+ */
+
+:root {
+  --s-bg: #f4f6f8;
+  --s-panel: #ffffff;
+  --s-raised: #fbfcfd;
+  --s-ink: #141a21;
+  --s-ink-soft: #55606d;
+  --s-line: #dde3ea;
+  --s-line-strong: #c3ccd6;
+  --s-accent: #1d5fbf;
+  --s-accent-ink: #ffffff;
+  --s-accent-soft: #e9f0fb;
+  --s-ok: #136c3c;
+  --s-ok-soft: #e4f3ea;
+  --s-warn: #8a5a00;
+  --s-warn-soft: #fdf2d9;
+  --s-bad: #a32a20;
+  --s-bad-soft: #fbe9e6;
+  --s-radius: 12px;
+  --s-radius-sm: 8px;
+  --s-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 8px 24px -12px rgba(16, 24, 40, .18);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --s-bg: #12161b;
+    --s-panel: #1a1f26;
+    --s-raised: #212832;
+    --s-ink: #e8edf3;
+    --s-ink-soft: #a2adba;
+    --s-line: #2c3440;
+    --s-line-strong: #3c4654;
+    --s-accent: #7fb0ff;
+    --s-accent-ink: #0d1521;
+    --s-accent-soft: #16243a;
+    --s-ok: #74d39f;
+    --s-ok-soft: #102c1d;
+    --s-warn: #f0c674;
+    --s-warn-soft: #322610;
+    --s-bad: #ff9d93;
+    --s-bad-soft: #371a16;
+    --s-shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 30px -14px rgba(0, 0, 0, .6);
+  }
+}
+
+/* ---------------------------------------------------------------- export */
+
+.export-panel .export-workspace {
+  width: min(100%, 980px);
+  margin: 0 auto;
+  padding: 24px;
+  border: 1px solid var(--s-line);
+  border-radius: var(--s-radius);
+  background: var(--s-panel);
+  box-shadow: var(--s-shadow);
+  color: var(--s-ink);
+}
+
+.export-workspace-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--s-line);
+}
+
+.export-workspace-heading h2 { margin: 2px 0 6px; color: var(--s-ink); font-size: 1.5rem; letter-spacing: -.01em; }
+.export-workspace-heading > div > p:last-child { margin: 0; max-width: 54ch; color: var(--s-ink-soft); font-size: .93rem; line-height: 1.6; }
+.export-panel .book-review-kicker { color: var(--s-accent); font-size: .7rem; font-weight: 800; letter-spacing: .14em; }
+
+.export-panel .book-review-stats { display: flex; flex-wrap: wrap; gap: 8px; }
+.export-panel .book-review-stats span {
+  padding: 6px 12px;
+  border: 1px solid var(--s-line);
+  border-radius: 999px;
+  background: var(--s-raised);
+  color: var(--s-ink-soft);
+  font-size: .82rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* The two ways to export, side by side and explained. */
+.export-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin: 20px 0 14px; }
+.export-choices article {
+  padding: 16px;
+  border: 1px solid var(--s-line);
+  border-radius: var(--s-radius-sm);
+  background: var(--s-raised);
+  opacity: 1;
+}
+.export-choices article:first-child { border-color: var(--s-accent); background: var(--s-accent-soft); }
+.export-choices h4 { margin: 0 0 8px; color: var(--s-ink); font-size: 1rem; }
+.export-choices p { margin: 0; color: var(--s-ink-soft); font-size: .89rem; line-height: 1.6; }
+
+.export-panel .export-note {
+  margin: 0;
+  padding: 11px 14px;
+  border-left: 3px solid var(--s-accent);
+  border-radius: var(--s-radius-sm);
+  background: var(--s-accent-soft);
+  color: var(--s-ink-soft);
+  font-size: .87rem;
+  line-height: 1.6;
+}
+
+/* Bibliographic data, collapsed until wanted. */
+.export-panel .metadata-editor {
+  margin: 18px 0;
+  padding: 16px;
+  border: 1px solid var(--s-line);
+  border-radius: var(--s-radius-sm);
+  background: var(--s-raised);
+}
+.export-panel .metadata-editor summary { color: var(--s-ink); font-size: .95rem; font-weight: 700; }
+.export-panel .metadata-editor > p { color: var(--s-ink-soft); }
+.export-panel .metadata-editor label { color: var(--s-ink); font-size: .84rem; }
+.export-panel .metadata-editor input {
+  border: 1px solid var(--s-line-strong);
+  border-radius: var(--s-radius-sm);
+  background: var(--s-panel);
+  color: var(--s-ink);
+  padding: 10px 12px;
+}
+.export-panel .metadata-editor input:focus-visible { outline: 2px solid var(--s-accent); outline-offset: 1px; }
+.metadata-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0 14px; }
+
+.export-panel .helper-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px dashed var(--s-line-strong);
+  border-radius: var(--s-radius-sm);
+  background: var(--s-raised);
+}
+.export-panel .helper-action p { margin: 6px 0 0; color: var(--s-ink-soft); font-size: .88rem; line-height: 1.6; }
+
+/* ---------------------------------------------------------------- actions */
+
+.workspace-action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 20px;
+  padding: 18px;
+  border: 1px solid var(--s-line);
+  border-radius: var(--s-radius);
+  background: var(--s-raised);
+}
+.workspace-action-bar > div:first-child strong { display: block; color: var(--s-ink); font-size: 1rem; }
+.workspace-action-bar > div:first-child span { display: block; margin-top: 4px; max-width: 52ch; color: var(--s-ink-soft); font-size: .87rem; line-height: 1.55; }
+
+.workspace-action-bar .action-bar-buttons button,
+.export-panel .package-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 18px;
+  border: 1px solid var(--s-accent);
+  border-radius: 999px;
+  background: var(--s-accent);
+  color: var(--s-accent-ink);
+  font: inherit;
+  font-size: .9rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: filter .15s ease, transform .15s ease;
+}
+.workspace-action-bar .action-bar-buttons button:hover:not(:disabled),
+.export-panel .package-download:hover:not(:disabled) { filter: brightness(1.08); }
+.workspace-action-bar .action-bar-buttons button:active:not(:disabled) { transform: translateY(1px); }
+.workspace-action-bar .action-bar-buttons button:focus-visible,
+.export-panel .package-download:focus-visible { outline: 2px solid var(--s-ink); outline-offset: 2px; }
+.workspace-action-bar .action-bar-buttons .secondary-action {
+  background: transparent;
+  color: var(--s-accent);
+  border-color: var(--s-line-strong);
+}
+.workspace-action-bar .action-bar-buttons button:disabled,
+.export-panel .package-download:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ---------------------------------------------------- production progress */
+
+.export-panel .production-progress {
+  margin-top: 20px;
+  padding: 18px;
+  border: 1px solid var(--s-line);
+  border-radius: var(--s-radius);
+  background: var(--s-panel);
+}
+.export-panel .production-progress h3 { margin: 0 0 8px; color: var(--s-ink); font-size: 1.12rem; }
+.production-voice { color: var(--s-ink-soft); }
+.export-panel progress { width: 100%; height: 10px; margin: 10px 0; }
+
+/* -------------------------------------------------------- review queue */
+
+.review-queue-item {
+  padding: 16px;
+  border: 1px solid var(--s-line);
+  border-left: 3px solid var(--s-warn);
+  border-radius: var(--s-radius-sm);
+  background: var(--s-panel);
+}
+.qa-compare section { border-color: var(--s-line); background: var(--s-raised); }
+.qa-compare h5 { color: var(--s-ink-soft); }
+.qa-compare p { color: var(--s-ink); }
+.qa-badge { border-color: transparent; background: var(--s-warn-soft); color: var(--s-warn); }
+
+/* ------------------------------------------------- pronunciation editor */
+
+.pron-editor {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--s-line);
+  border-radius: var(--s-radius-sm);
+  background: var(--s-raised);
+}
+.pron-editor summary { color: var(--s-accent); font-size: .9rem; font-weight: 700; cursor: pointer; }
+.pron-help { margin: 8px 0 10px; color: var(--s-ink-soft); font-size: .85rem; line-height: 1.6; }
+
+.pron-words { display: flex; flex-wrap: wrap; gap: 6px; }
+.pron-word {
+  padding: 5px 11px;
+  border: 1px solid var(--s-line-strong);
+  border-radius: 999px;
+  background: var(--s-panel);
+  color: var(--s-ink);
+  font: inherit;
+  font-size: .85rem;
+  cursor: pointer;
+}
+.pron-word:hover { border-color: var(--s-accent); }
+.pron-word.is-active { border-color: var(--s-accent); background: var(--s-accent); color: var(--s-accent-ink); font-weight: 650; }
+.pron-word:focus-visible { outline: 2px solid var(--s-accent); outline-offset: 2px; }
+
+.pron-result { margin-top: 12px; }
+.pron-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 0 0 12px; }
+.pron-facts dt { color: var(--s-ink-soft); font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; }
+.pron-facts dd { margin: 3px 0 0; color: var(--s-ink); font-size: .95rem; }
+.pron-ipa { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.pron-stress { font-weight: 800; color: var(--s-accent); text-decoration: underline; }
+.pron-saved { margin: 0 0 10px; padding: 8px 11px; border-radius: var(--s-radius-sm); background: var(--s-ok-soft); color: var(--s-ok); font-size: .86rem; }
+
+.pron-options { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+.pron-options li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 13px;
+  border: 1px solid var(--s-line);
+  border-radius: var(--s-radius-sm);
+  background: var(--s-panel);
+}
+.pron-options small { display: block; margin-top: 3px; color: var(--s-ink-soft); font-size: .8rem; line-height: 1.5; }
+.pron-try { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1rem; color: var(--s-accent); }
+.pron-actions { display: flex; gap: 8px; }
+.pron-actions button {
+  padding: 7px 14px;
+  border: 1px solid var(--s-line-strong);
+  border-radius: 999px;
+  background: var(--s-panel);
+  color: var(--s-ink);
+  font: inherit;
+  font-size: .83rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pron-actions button:last-child { border-color: var(--s-accent); background: var(--s-accent); color: var(--s-accent-ink); }
+.pron-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.pron-actions button:focus-visible { outline: 2px solid var(--s-accent); outline-offset: 2px; }
+
+.pron-custom { display: block; color: var(--s-ink); font-size: .84rem; font-weight: 650; }
+.pron-custom input {
+  display: block;
+  width: min(100%, 320px);
+  margin-top: 5px;
+  padding: 9px 11px;
+  border: 1px solid var(--s-line-strong);
+  border-radius: var(--s-radius-sm);
+  background: var(--s-raised);
+  color: var(--s-ink);
+  font: inherit;
+  font-weight: 400;
+}
+.pron-player { width: 100%; margin-top: 12px; }
+
+@media (max-width: 640px) {
+  .export-panel .export-workspace { padding: 16px; }
+  .workspace-action-bar { padding: 14px; }
+  .pron-options li { flex-direction: column; align-items: stretch; }
+  .pron-actions button { flex: 1 1 auto; }
+}

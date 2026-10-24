@@ -244,3 +244,32 @@ def replace_lexicon(database: Path, entries: dict[str, str]) -> None:
         connection.executemany(
             "INSERT INTO pronunciation_lexicon(term,pronunciation,updated_at) VALUES (?,?,?)", normalized
         )
+
+
+def upsert_lexicon_entry(database: Path, term: str, pronunciation: str) -> None:
+    """Add or change one pronunciation, leaving the rest of the lexicon alone."""
+    term = term.strip()
+    pronunciation = pronunciation.strip()
+    if not term or not pronunciation:
+        raise ValueError("Both the word and its pronunciation are required.")
+    if len(term) > 200 or len(pronunciation) > 500:
+        raise ValueError("The word or its pronunciation is too long.")
+    with sqlite3.connect(database) as connection:
+        count = connection.execute("SELECT COUNT(*) FROM pronunciation_lexicon").fetchone()[0]
+        exists = connection.execute(
+            "SELECT 1 FROM pronunciation_lexicon WHERE term=?", (term,)).fetchone()
+        if not exists and count >= 2000:
+            raise ValueError("The pronunciation lexicon is full.")
+        connection.execute(
+            "INSERT INTO pronunciation_lexicon(term,pronunciation,updated_at) VALUES (?,?,?) "
+            "ON CONFLICT(term) DO UPDATE SET pronunciation=excluded.pronunciation,"
+            "updated_at=excluded.updated_at",
+            (term, pronunciation, utc_now()),
+        )
+
+
+def delete_lexicon_entry(database: Path, term: str) -> bool:
+    """Remove one pronunciation. True when something was removed."""
+    with sqlite3.connect(database) as connection:
+        cursor = connection.execute("DELETE FROM pronunciation_lexicon WHERE term=?", (term.strip(),))
+        return cursor.rowcount > 0
