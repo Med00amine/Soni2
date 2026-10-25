@@ -10,6 +10,7 @@ out of credit. Every provider failure is translated into a classified
 from __future__ import annotations
 
 import hashlib
+import math
 from dataclasses import dataclass, field
 from urllib.parse import quote
 
@@ -20,9 +21,12 @@ FISH_ASR_URL = "https://api.fish.audio/v1/asr"
 DEEPGRAM_TTS_URL = "https://api.deepgram.com/v1/speak"
 DEEPGRAM_ASR_URL = "https://api.deepgram.com/v1/listen"
 ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech"
-# The most stable ElevenLabs model on long-form narration, with Spain and
-# Mexico Spanish variants. Newer, more expressive models trade stability for range.
-ELEVENLABS_DEFAULT_MODEL = "eleven_multilingual_v2"
+# Chosen by benchmark on identical Peninsular Spanish passages (2026-10-25,
+# docs/quality-system.md): eleven_v4 had no detected content error with two
+# independent recognizers and was the only model that also read raw dates,
+# amounts and abbreviations correctly. eleven_multilingual_v2 remains the
+# conservative alternative ElevenLabs documents as most stable on long form.
+ELEVENLABS_DEFAULT_MODEL = "eleven_v4"
 
 MP3_HEADERS = (b"ID3", b"\xff\xfb", b"\xff\xf3", b"\xff\xf2")
 MOCK_MARKER = b"ID3\x03\x00\x00\x00\x00\x00\x00SONI2-MOCK-TEXT:"
@@ -45,12 +49,17 @@ class ProviderError(RuntimeError):
     cannot fix, so the pipeline stops spending attempts on them.
     """
 
-    def __init__(self, kind: str, message: str, *, permanent: bool, status_code: int | None = None) -> None:
+    def __init__(self, kind: str, message: str, *, permanent: bool, status_code: int | None = None,
+                 retry_after: float | None = None, code: str = "") -> None:
         super().__init__(message)
         self.kind = kind
         self.message = message
         self.permanent = permanent
         self.status_code = status_code
+        # Seconds the provider asked us to wait (Retry-After), when it said.
+        self.retry_after = retry_after
+        # The provider's own status word, e.g. "concurrent_limit_exceeded".
+        self.code = code
 
 
 @dataclass(frozen=True)
@@ -275,14 +284,32 @@ def _classify_by_detail(provider: str, status: int, word: str, message: str, act
     if word in {"payment_required", "paid_plan_required", "subscription_required"}:
         return ProviderError("credit", f"Esta voz o este modelo necesitan un plan de pago en {label}.{said}",
                              permanent=True, status_code=status)
-    if word in {"too_many_concurrent_requests", "system_busy", "rate_limit_exceeded"}:
+    if word in {"too_many_concurrent_requests", "concurrent_limit_exceeded", "system_busy", "rate_limit_exceeded"}:
         return ProviderError("rate_limit", f"{label} está ocupado o se superó el límite de peticiones simultáneas."
                              f"{said} Se reintentará en unos segundos.", permanent=False, status_code=status)
+    if word in {"validation_error", "invalid_request", "text_too_long", "max_character_limit_exceeded"}:
+        return ProviderError("bad_audio", f"{label} rechazó la petición.{said}", permanent=True, status_code=status)
     return None
+
+
+def _retry_after(response: httpx.Response) -> float | None:
+    value = (response.headers or {}).get("retry-after", "")
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return None
+    return seconds if 0 <= seconds <= 600 else None
 
 
 def classify_http_error(provider: str, error: httpx.HTTPStatusError, *, operation: str) -> ProviderError:
     """Turn an upstream status into something the user can act on."""
+    classified = _classify_http_error(provider, error, operation=operation)
+    classified.retry_after = _retry_after(error.response)
+    classified.code = classified.code or _error_detail(error.response)[0]
+    return classified
+
+
+def _classify_http_error(provider: str, error: httpx.HTTPStatusError, *, operation: str) -> ProviderError:
     label = _provider_label(provider)
     status = error.response.status_code
     action = "generar audio" if operation == "tts" else "transcribir audio"
@@ -339,14 +366,36 @@ async def _post(provider: str, operation: str, client: httpx.AsyncClient, *args,
 # Text to speech
 # --------------------------------------------------------------------------- #
 
+# Characters ElevenLabs accepts in one request, per model (GET /v1/models,
+# measured 2026-10-25). Narration units are far smaller; this is the guard.
+ELEVENLABS_MAX_CHARACTERS = {
+    "eleven_v4": 10_000, "eleven_v4_turbo": 10_000, "eleven_v3": 5_000, "eleven_v3_conversational": 5_000,
+    "eleven_multilingual_v2": 10_000, "eleven_flash_v2_5": 40_000, "eleven_turbo_v2_5": 40_000,
+}
+
+
+def max_request_characters(provider: str, model: str) -> int:
+    if provider == "elevenlabs":
+        return ELEVENLABS_MAX_CHARACTERS.get(model, 5_000)
+    return {"deepgram": 2_000, "fishaudio": 10_000}.get(provider, 10_000)
+
+
 async def synthesize(
     text: str, voice: Voice, *, speed: float = 1.0, api_key: str = "", model: str = "", timeout: float = 180,
-    previous_text: str = "", next_text: str = "",
+    previous_text: str = "", next_text: str = "", seed: int | None = None,
+    voice_settings: dict | None = None, meta: dict | None = None,
 ) -> bytes:
     """Narrate one passage. ``previous_text``/``next_text`` are the neighbouring
-    passages, sent where the provider can use them to keep the joins smooth."""
+    passages, sent where the provider can use them to keep the joins smooth.
+
+    ``seed`` makes an ElevenLabs take reproducible on a best-effort basis;
+    ``meta`` receives what the provider reported about the request (request
+    id, characters billed), so every attempt can be traced and costed.
+    """
     provider = voice.provider
     if provider == "mock":
+        if meta is not None:
+            meta.update({"provider": "mock", "characters_billed": 0, "seed": seed})
         return mock_audio(text)
     if not api_key:
         raise ProviderError("not_configured",
@@ -357,8 +406,12 @@ async def synthesize(
     elif provider == "deepgram":
         audio = await _synthesize_deepgram(text, voice, api_key, timeout)
     elif provider == "elevenlabs":
+        limit = max_request_characters(provider, model or voice.model)
+        if len(text) > limit:
+            raise ProviderError("bad_audio", f"El fragmento tiene {len(text)} caracteres y el modelo admite "
+                                f"{limit} por petición.", permanent=True)
         audio = await _synthesize_elevenlabs(text, voice, speed, api_key, model or voice.model, timeout,
-                                             previous_text, next_text)
+                                             previous_text, next_text, seed, voice_settings, meta)
     else:
         raise ProviderError("not_configured", f"El proveedor de narración «{provider}» no está implementado.",
                             permanent=True)
@@ -395,9 +448,12 @@ async def _synthesize_deepgram(text: str, voice: Voice, api_key: str, timeout: f
 
 async def _synthesize_elevenlabs(
     text: str, voice: Voice, speed: float, api_key: str, model: str, timeout: float,
-    previous_text: str, next_text: str,
+    previous_text: str, next_text: str, seed: int | None = None, voice_settings: dict | None = None,
+    meta: dict | None = None,
 ) -> bytes:
     body: dict[str, object] = {"text": text, "model_id": model or ELEVENLABS_DEFAULT_MODEL}
+    if seed is not None:
+        body["seed"] = int(seed) % 4_294_967_296
     # Request stitching: the neighbouring paragraphs let the voice carry its
     # intonation across the join instead of starting every paragraph afresh.
     # ElevenLabs bills only `text`; the context is free (measured: a 20-character
@@ -406,10 +462,13 @@ async def _synthesize_elevenlabs(
         body["previous_text"] = previous_text
     if next_text:
         body["next_text"] = next_text
+    settings_override = {key: value for key, value in (voice_settings or {}).items() if value is not None}
     if abs(speed - 1.0) > 1e-6:
+        settings_override["speed"] = speed
+    if settings_override:
         # Only when asked: a voice_settings object replaces the settings the
         # voice was published with, which normal speed should keep.
-        body["voice_settings"] = {"speed": speed}
+        body["voice_settings"] = settings_override
     async with httpx.AsyncClient(timeout=timeout) as client:
         response = await _post(
             "elevenlabs", "tts", client, f"{ELEVENLABS_TTS_URL}/{quote(voice.voice_id, safe='')}",
@@ -418,6 +477,15 @@ async def _synthesize_elevenlabs(
             json=body,
         )
     _remember_concurrency("elevenlabs", response)
+    if meta is not None:
+        headers = getattr(response, "headers", None) or {}
+        cost = str(headers.get("character-cost", ""))
+        meta.update({
+            "provider": "elevenlabs", "model": body["model_id"], "seed": body.get("seed"),
+            "request_id": str(headers.get("request-id", "")) or None,
+            "characters_billed": int(cost) if cost.isdigit() else None,
+            "characters_sent": len(text),
+        })
     return response.content
 
 
@@ -452,6 +520,8 @@ async def transcribe(
         result = await _transcribe_fish(audio, api_key, filename, content_type, with_timestamps, language, timeout)
     elif provider == "deepgram":
         result = await _transcribe_deepgram(audio, api_key, content_type, with_timestamps, language, timeout)
+    elif provider == "elevenlabs":
+        result = await _transcribe_elevenlabs(audio, api_key, filename, content_type, language, timeout)
     else:
         raise ProviderError("not_configured", f"El transcriptor «{provider}» no está implementado.", permanent=True)
     if not result.text.strip():
@@ -495,14 +565,85 @@ async def _transcribe_deepgram(
         if alternatives and isinstance(alternatives[0], dict):
             alternative = alternatives[0]
     segments: list[dict[str, object]] = []
-    if with_timestamps:
-        # Normalize Deepgram's word objects onto the {text,start,end} shape the
-        # alignment code already uses for Fish Audio segments.
-        for word in alternative.get("words") or []:
-            if isinstance(word, dict) and "start" in word and "end" in word:
-                segments.append({"text": str(word.get("punctuated_word") or word.get("word", "")),
-                                 "start": word["start"], "end": word["end"]})
+    # Deepgram always returns word timings and confidences; keeping them costs
+    # nothing and lets review point at the exact second a word was misheard.
+    # They are normalized onto the {text,start,end} shape the alignment code
+    # already uses for Fish Audio segments.
+    for word in alternative.get("words") or []:
+        if isinstance(word, dict) and "start" in word and "end" in word:
+            segments.append({"text": str(word.get("punctuated_word") or word.get("word", "")),
+                             "start": word["start"], "end": word["end"],
+                             "confidence": word.get("confidence")})
     return Transcript(str(alternative.get("transcript", "")), "deepgram-nova-3", segments)
+
+
+ELEVENLABS_STT_URL = "https://api.elevenlabs.io/v1/speech-to-text"
+ELEVENLABS_STT_MODEL = "scribe_v2"
+
+
+async def _transcribe_elevenlabs(
+    audio: bytes, api_key: str, filename: str, content_type: str, language: str, timeout: float,
+) -> Transcript:
+    """ElevenLabs Scribe: a second recognizer, trained and served separately
+    from Deepgram's, used to adjudicate when the first one disagrees."""
+    code = {"es": "spa", "en": "eng"}.get(language.split("-")[0], "")
+    data = {"model_id": ELEVENLABS_STT_MODEL, "tag_audio_events": "false", "timestamps_granularity": "word"}
+    if code:
+        data["language_code"] = code
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await _post(
+            "elevenlabs", "asr", client, ELEVENLABS_STT_URL, headers={"xi-api-key": api_key},
+            data=data, files={"file": (filename, audio, content_type or "audio/mpeg")},
+        )
+    payload = response.json()
+    segments = []
+    for word in payload.get("words") or []:
+        if isinstance(word, dict) and word.get("type") == "word" and "start" in word:
+            logprob = word.get("logprob")
+            segments.append({"text": str(word.get("text", "")).strip(), "start": word["start"], "end": word["end"],
+                             "confidence": round(math.exp(logprob), 4) if isinstance(logprob, (int, float)) else None})
+    return Transcript(str(payload.get("text", "")), f"elevenlabs-{ELEVENLABS_STT_MODEL}", segments)
+
+
+ELEVENLABS_SHARED_VOICES_URL = "https://api.elevenlabs.io/v1/shared-voices"
+ELEVENLABS_VOICES_URL = "https://api.elevenlabs.io/v1/voices"
+
+
+async def elevenlabs_voice_profile(voice_id: str, api_key: str, *, timeout: float = 15) -> dict | None:
+    """What ElevenLabs itself says about a voice: name, locale, and the models
+    on which that accent is verified.
+
+    A voice in the account is read from /v1/voices; a library voice used by
+    id is found in /v1/shared-voices. Returns None when neither says.
+    """
+    headers = {"xi-api-key": api_key}
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        try:
+            response = await client.get(f"{ELEVENLABS_VOICES_URL}/{quote(voice_id, safe='')}", headers=headers)
+            if response.status_code == 200:
+                payload = response.json()
+                labels = payload.get("labels") or {}
+                return _voice_profile(voice_id, payload.get("name", ""), labels.get("accent", ""),
+                                      payload.get("verified_languages") or [], "account")
+            response = await client.get(ELEVENLABS_SHARED_VOICES_URL, headers=headers,
+                                        params={"search": voice_id, "page_size": 5})
+            if response.status_code == 200:
+                for entry in response.json().get("voices") or []:
+                    if entry.get("voice_id") == voice_id:
+                        return _voice_profile(voice_id, entry.get("name", ""), entry.get("accent", ""),
+                                              entry.get("verified_languages") or [], "shared_library",
+                                              locale=entry.get("locale") or "")
+        except (httpx.HTTPError, ValueError):
+            return None
+    return None
+
+
+def _voice_profile(voice_id: str, name: str, accent: str, verified: list, source: str, locale: str = "") -> dict:
+    peninsular_models = sorted({str(item.get("model_id")) for item in verified
+                                if isinstance(item, dict) and (item.get("locale") == "es-ES")
+                                and str(item.get("accent", "")).casefold() in {"peninsular", "castilian", "spain"}})
+    return {"voice_id": voice_id, "name": name, "accent": accent, "locale": locale, "source": source,
+            "peninsular_models": peninsular_models}
 
 
 def cache_fingerprint(provider: str, voice: Voice, model: str, speed: float, text: str) -> str:

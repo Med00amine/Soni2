@@ -43,8 +43,26 @@ def add_to_archive(archive: zipfile.ZipFile, source: Path, name: str) -> None:
     archive.write(source, name, compress_type=archive_compression(name))
 
 
-def _write_xml(path: Path, root: ET.Element, doctype: str | None = None) -> None:
+def _write_xml(path: Path, root: ET.Element, doctype: str | None = None, default_namespace: str | None = None) -> None:
+    # The default namespace is given per document. ElementTree's global
+    # register_namespace("") is overwritten by every SMIL file written in the
+    # loop, which made the DTBook come out as <ns0:dtbook><ns0:p>…: legal XML,
+    # but invalid against the DTD and unreadable for DTD-based DAISY readers.
+    if default_namespace:
+        # ElementTree's own default_namespace option rejects unqualified
+        # attributes (id, src), so the document's own tags are written
+        # unprefixed and the namespace declared once on the root.
+        prefix = "{" + default_namespace + "}"
+        for element in root.iter():
+            if isinstance(element.tag, str) and element.tag.startswith(prefix):
+                element.tag = element.tag[len(prefix):]
+        root.set("xmlns", default_namespace)
     body = ET.tostring(root, encoding="unicode", short_empty_elements=True)
+    if default_namespace == OPF_NS:
+        # <dc-metadata> declares the dc namespace itself, as the OEB 1.2 DTD
+        # requires; ElementTree would also put it on <package>, where the DTD
+        # does not allow it.
+        body = body.replace(f' xmlns:dc="{DC_NS}"', "", 1) if body.count(f'xmlns:dc="{DC_NS}"') > 1 else body
     prefix = '<?xml version="1.0" encoding="UTF-8"?>\n'
     if doctype:
         prefix += f"{doctype}\n"
@@ -75,6 +93,35 @@ def _mp3_stream_format(data: bytes) -> tuple[int, int, int, int] | None:
     return None
 
 
+def _audio_frames(data: bytes) -> bytes:
+    """Only the MPEG audio frames of one MP3 file, for joining without ffmpeg.
+
+    A provider's file starts with an ID3 tag and an Xing/Info frame that states
+    that file's own length; glued into the middle of a chapter they make
+    players misreport the length and stumble at the join. Copying the frames
+    alone gives one clean stream. A payload that is not MPEG audio, or the mock
+    provider's self-describing clip, is returned unchanged.
+    """
+    if b"SONI2-MOCK-TEXT:" in data[:40]:
+        return data
+    offset = 0
+    if data[:3] == b"ID3" and len(data) >= 10:
+        offset = 10 + ((data[6] & 0x7F) << 21 | (data[7] & 0x7F) << 14 | (data[8] & 0x7F) << 7 | data[9] & 0x7F)
+    frames: list[bytes] = []
+    while offset < len(data) - 4:
+        frame = _mp3_frame(data, offset)
+        if frame and (offset + frame[0] >= len(data) or _mp3_frame(data, offset + frame[0])):
+            payload = data[offset:offset + frame[0]]
+            # The length header of a VBR/CBR file is itself a silent frame
+            # whose payload names "Xing" or "Info": leave it out.
+            if not (not frames and (b"Xing" in payload[:64] or b"Info" in payload[:64])):
+                frames.append(payload)
+            offset += frame[0]
+        else:
+            offset += 1
+    return b"".join(frames) if frames else data
+
+
 def _join_mp3(segments: list[bytes], *, use_ffmpeg: bool) -> bytes:
     """Join MP3 files; with ffmpeg the result is a single, clean stream.
 
@@ -86,7 +133,7 @@ def _join_mp3(segments: list[bytes], *, use_ffmpeg: bool) -> bytes:
     is re-encoded.
     """
     if not use_ffmpeg:
-        return b"".join(segments)
+        return b"".join(_audio_frames(segment) for segment in segments)
     executable = shutil.which("ffmpeg")
     if not executable:
         raise RuntimeError("ffmpeg is required for safe production MP3 assembly.")
@@ -247,6 +294,18 @@ def make_paragraphs(text: str) -> list[str]:
     return paragraphs
 
 
+SMIL_DOCTYPE = ('<!DOCTYPE smil PUBLIC "-//NISO//DTD dtbsmil 2005-2//EN" '
+                '"http://www.daisy.org/z3986/2005/dtbsmil-2005-2.dtd">')
+
+
+def _smil_head(smil: ET.Element, book_id: str, title: str, elapsed: float) -> None:
+    """The metadata Z39.86-2005 requires in every SMIL file."""
+    head = ET.SubElement(smil, _q(SMIL_NS, "head"))
+    for name, content in (("dtb:uid", book_id), ("dtb:generator", "Soni2"),
+                          ("dtb:totalElapsedTime", _clock(elapsed)), ("dc:Title", title)):
+        ET.SubElement(head, _q(SMIL_NS, "meta"), {"name": name, "content": content})
+
+
 def build_daisy_package(
     title: str,
     paragraphs: list[str],
@@ -263,6 +322,7 @@ def build_daisy_package(
     chapter_clips: list[list[tuple[float, float]]] | None = None,
     use_ffmpeg: bool = False,
     clips_out: list[tuple[str, float, float]] | None = None,
+    chapter_starts_out: list[float] | None = None,
     mastering: audio_master.MasteringOptions | None = None,
 ) -> Path:
     """Write a DAISY 3 package whose files carry the book's own name.
@@ -334,27 +394,49 @@ def build_daisy_package(
         (output_dir / "audio" / filename).write_bytes(audio)
     front_audio = [item[2] for item in front_matter]
     ordered_audio = front_audio + chapter_audio_contents
+    book_clips: list[tuple[float, float]] = []
     if mastering is not None and mastering.active:
         # The chapters are already levelled; the book only needs the longer
         # pause between them so a listener hears where one ends.
-        full_audio = audio_master.master_book(ordered_audio, mastering).audio
+        mastered_book = audio_master.master_book(ordered_audio, mastering)
+        full_audio = mastered_book.audio
+        book_clips = list(getattr(mastered_book, "clips", []) or [])
     else:
         full_audio = _join_mp3(ordered_audio, use_ffmpeg=use_ffmpeg)
+    if len(book_clips) != len(ordered_audio):
+        # Joined end to end: each part starts where the previous one ended.
+        position = 0.0
+        book_clips = []
+        for part in ordered_audio:
+            length = mp3_duration(part)
+            book_clips.append((position, position + length))
+            position += length
     (output_dir / full_audio_name).write_bytes(full_audio)
     if clips_out is not None:
         clips_out.extend(segment_clips)
+    if chapter_starts_out is not None:
+        # Where each chapter begins inside the complete audiobook, so a time in
+        # a chapter file can be given as a time in the whole book.
+        chapter_starts_out.extend(start for start, _end in book_clips[len(front_audio):])
 
-    ET.register_namespace("", DTBOOK_NS)
     dtbook = ET.Element(
         _q(DTBOOK_NS, "dtbook"),
         {"version": "2005-3", _q(XML_NS, "lang"): "es-ES"},
     )
     head = ET.SubElement(dtbook, _q(DTBOOK_NS, "head"))
-    ET.SubElement(head, _q(DTBOOK_NS, "meta"), {"name": "dc:Title", "content": title})
+    # Z39.86-2005 requires dtb:uid and dc:Title in the DTBook head.
+    for name, content in (("dtb:uid", book_id), ("dc:Title", title), ("dc:Creator", author),
+                          ("dc:Language", "es-ES"), ("dc:Identifier", book_id), ("dc:Format", "ANSI/NISO Z39.86-2005")):
+        if content:
+            ET.SubElement(head, _q(DTBOOK_NS, "meta"), {"name": name, "content": content})
     book = ET.SubElement(dtbook, _q(DTBOOK_NS, "book"))
-    bodymatter = ET.SubElement(book, _q(DTBOOK_NS, "bodymatter"))
+    frontmatter = ET.SubElement(book, _q(DTBOOK_NS, "frontmatter"))
+    ET.SubElement(frontmatter, _q(DTBOOK_NS, "doctitle")).text = title
     if author:
-        ET.SubElement(head, _q(DTBOOK_NS, "meta"), {"name": "dc:Creator", "content": author})
+        ET.SubElement(frontmatter, _q(DTBOOK_NS, "docauthor")).text = author
+    bodymatter = ET.SubElement(book, _q(DTBOOK_NS, "bodymatter"))
+    # Where each SMIL file starts on the book's timeline (dtb:totalElapsedTime).
+    elapsed = 0.0
     smil_names: list[str] = []
     chapter_targets: list[tuple[str, str, str]] = []
     page_targets: list[tuple[int, str]] = []
@@ -368,10 +450,9 @@ def build_daisy_package(
         par_id = f"{front_id}-par"
         ET.SubElement(level, _q(DTBOOK_NS, "p"),
                       {"id": paragraph_id, "smilref": f"smil/{smil_name}#{par_id}"}).text = text
-        ET.register_namespace("", SMIL_NS)
         smil = ET.Element(_q(SMIL_NS, "smil"), {_q(XML_NS, "lang"): "es-ES"})
-        smil_head = ET.SubElement(smil, _q(SMIL_NS, "head"))
-        ET.SubElement(smil_head, _q(SMIL_NS, "meta"), {"name": "dc:Title", "content": label})
+        _smil_head(smil, book_id, label, elapsed)
+        elapsed += mp3_duration(_audio)
         sequence = ET.SubElement(ET.SubElement(smil, _q(SMIL_NS, "body")), _q(SMIL_NS, "seq"), {"id": f"seq-{front_id}"})
         par = ET.SubElement(sequence, _q(SMIL_NS, "par"), {"id": par_id})
         ET.SubElement(par, _q(SMIL_NS, "text"), {"src": f"../{dtbook_name}#{paragraph_id}"})
@@ -379,7 +460,7 @@ def build_daisy_package(
             "src": f"../audio/{filename}", "clipBegin": _clock(0), "clipEnd": _clock(mp3_duration(_audio)),
         })
         _write_xml(output_dir / "smil" / smil_name, smil,
-                   '<!DOCTYPE smil PUBLIC "-//NISO//DTD dtbsmil 2005-1//EN" "http://www.daisy.org/z3986/2005/dtbsmil-2005-1.dtd">')
+                   SMIL_DOCTYPE, SMIL_NS)
         chapter_targets.append((label, f"smil/{smil_name}#{par_id}", "frontmatter"))
     audio_index = 0
     for chapter_index, (chapter_title, chapter_paragraphs) in enumerate(chapters, start=1):
@@ -393,10 +474,9 @@ def build_daisy_package(
         heading = ET.SubElement(level, _q(DTBOOK_NS, "h1"), {"id": heading_id})
         heading.text = chapter_title
 
-        ET.register_namespace("", SMIL_NS)
         smil = ET.Element(_q(SMIL_NS, "smil"), {_q(XML_NS, "lang"): "es-ES"})
-        smil_head = ET.SubElement(smil, _q(SMIL_NS, "head"))
-        ET.SubElement(smil_head, _q(SMIL_NS, "meta"), {"name": "dc:Title", "content": chapter_title})
+        _smil_head(smil, book_id, chapter_title, elapsed)
+        elapsed += mp3_duration(chapter_audio_contents[chapter_index - 1])
         sequence = ET.SubElement(ET.SubElement(smil, _q(SMIL_NS, "body")), _q(SMIL_NS, "seq"), {"id": f"seq-{chapter_id}"})
         first_par_id = ""
         # Production jobs synthesize a chapter title as the first segment. Map
@@ -434,14 +514,14 @@ def build_daisy_package(
         if page_match:
             page_targets.append((int(page_match.group(1)), f"smil/{smil_name}#{first_par_id}"))
         _write_xml(output_dir / "smil" / smil_name, smil,
-                   '<!DOCTYPE smil PUBLIC "-//NISO//DTD dtbsmil 2005-1//EN" "http://www.daisy.org/z3986/2005/dtbsmil-2005-1.dtd">')
+                   SMIL_DOCTYPE, SMIL_NS)
 
     _write_xml(
         output_dir / dtbook_name,
         dtbook,
         '<!DOCTYPE dtbook PUBLIC "-//NISO//DTD dtbook 2005-3//EN" "http://www.daisy.org/z3986/2005/dtbook-2005-3.dtd">',
+        DTBOOK_NS,
     )
-    ET.register_namespace("", NCX_NS)
     ncx = ET.Element(_q(NCX_NS, "ncx"), {"version": "2005-1", _q(XML_NS, "lang"): "es-ES"})
     ncx_head = ET.SubElement(ncx, _q(NCX_NS, "head"))
     for name, content in (
@@ -476,13 +556,12 @@ def build_daisy_package(
         output_dir / ncx_name,
         ncx,
         '<!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">',
+        NCX_NS,
     )
 
-    ET.register_namespace("", RESOURCE_NS)
-    resources = ET.Element(
-        _q(RESOURCE_NS, "resources"),
-        {"version": "2005-1", _q(XML_NS, "lang"): "es-ES"},
-    )
+    # The resource DTD declares no xml:lang on <resources>; the language is
+    # stated on each <resource>.
+    resources = ET.Element(_q(RESOURCE_NS, "resources"), {"version": "2005-1"})
     scope = ET.SubElement(resources, _q(RESOURCE_NS, "scope"), {"nsuri": NCX_NS})
     node_set = ET.SubElement(
         scope,
@@ -495,9 +574,9 @@ def build_daisy_package(
         output_dir / res_name,
         resources,
         '<!DOCTYPE resources PUBLIC "-//NISO//DTD resource 2005-1//EN" "http://www.daisy.org/z3986/2005/resource-2005-1.dtd">',
+        RESOURCE_NS,
     )
 
-    ET.register_namespace("", OPF_NS)
     ET.register_namespace("dc", DC_NS)
     package = ET.Element(_q(OPF_NS, "package"), {"unique-identifier": "uid"})
     metadata = ET.SubElement(package, _q(OPF_NS, "metadata"))
@@ -529,6 +608,9 @@ def build_daisy_package(
         ET.SubElement(x_metadata, _q(OPF_NS, "meta"), {"name": name, "content": content})
     manifest = ET.SubElement(package, _q(OPF_NS, "manifest"))
     items = [
+        # Z39.86-2005: the manifest lists every file of the book, the package
+        # file included.
+        ("opf", opf_name, "text/xml"),
         ("dtbook", dtbook_name, "application/x-dtbook+xml"),
         ("ncx", ncx_name, "application/x-dtbncx+xml"),
         ("resource", res_name, "application/x-dtbresource+xml"),
@@ -542,12 +624,15 @@ def build_daisy_package(
     items.extend((f"front-audio-{index:04d}", f"audio/{name}", "audio/mpeg") for index, name in enumerate(front_names, start=1))
     for item_id, href, media_type in items:
         ET.SubElement(manifest, _q(OPF_NS, "item"), {"id": item_id, "href": href, "media-type": media_type})
-    spine = ET.SubElement(package, _q(OPF_NS, "spine"), {"toc": "ncx"})
+    # No toc="ncx": that attribute is OPF 2.0 (EPUB). OEB 1.2, which DAISY 3
+    # uses, finds the NCX through the manifest.
+    spine = ET.SubElement(package, _q(OPF_NS, "spine"))
     for index, _name in enumerate(smil_names, start=1):
         ET.SubElement(spine, _q(OPF_NS, "itemref"), {"idref": f"smil-{index:04d}"})
     _write_xml(
         output_dir / opf_name,
         package,
-        '<!DOCTYPE package PUBLIC "+//ISBN 0-9673008-1-9//DTD OEB 1.2 Package//EN" "oebpkg12.dtd">',
+        '<!DOCTYPE package PUBLIC "+//ISBN 0-9673008-1-9//DTD OEB 1.2 Package//EN" "http://openebook.org/dtds/oeb-1.2/oebpkg12.dtd">',
+        OPF_NS,
     )
     return output_dir

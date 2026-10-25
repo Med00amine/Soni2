@@ -16,11 +16,33 @@ class NarrationSection:
     included: bool
     needs_review: bool = False
     reason: str = ""
+    # The extractor invented the title ("Página 3", "Capítulo 2"): it labels
+    # navigation but the book never says it, so it is not narrated.
+    title_generated: bool = False
 
     def as_dict(self) -> dict[str, object]:
         return {"id": self.id, "title": self.title, "category": self.category,
                 "paragraph_count": len(self.paragraphs), "included": self.included,
-                "needs_review": self.needs_review, "reason": self.reason}
+                "needs_review": self.needs_review, "reason": self.reason,
+                "title_generated": self.title_generated}
+
+
+class SelectedChapter(tuple):
+    """``(title, paragraphs)`` that also knows whether its title is invented.
+
+    A tuple so every caller that unpacks ``title, paragraphs`` keeps working.
+    """
+
+    title_generated: bool = False
+
+    def __new__(cls, title: str, paragraphs: list[str], title_generated: bool = False):
+        instance = super().__new__(cls, (title, paragraphs))
+        instance.title_generated = title_generated
+        return instance
+
+
+def is_generated(chapter) -> bool:
+    return bool(getattr(chapter, "title_generated", False))
 
 
 def _norm(value: str) -> str:
@@ -121,13 +143,21 @@ def _is_narrative_prose(paragraphs: list[str]) -> bool:
     return any(len(item.strip()) > 40 and _SENTENCE_END.search(item.strip()) for item in paragraphs)
 
 
-def build_narration_plan(chapters: list[tuple[str, list[str]]]) -> list[NarrationSection]:
-    """Split obvious preliminary/index/back matter; ambiguous prose is kept and flagged."""
+def build_narration_plan(chapters: list[tuple]) -> list[NarrationSection]:
+    """Split obvious preliminary/index/back matter; ambiguous prose is kept and flagged.
+
+    Each chapter is ``(title, paragraphs)`` or ``(title, paragraphs,
+    title_generated)``.
+    """
     raw: list[tuple[str, list[str], str | None]] = []
-    for title, paras in chapters:
+    generated_raw: list[bool] = []
+    for chapter in chapters:
+        title, paras = chapter[0], chapter[1]
+        title_generated = bool(chapter[2]) if len(chapter) > 2 else is_generated(chapter)
         # Some extractors flatten a whole book into one chapter; others call
         # all text before Chapter 1 "Prólogo". Inspect paragraph headings too.
         active_title, active, active_category = title, [], _category(title)
+        active_generated = title_generated
         for paragraph in paras:
             label = _category(paragraph) if len(paragraph) <= 100 else None
             is_chapter = bool(_CHAPTER.fullmatch(paragraph.strip()))
@@ -135,34 +165,44 @@ def build_narration_plan(chapters: list[tuple[str, list[str]]]) -> list[Narratio
                 if active or active_title:
                     if active:
                         raw.append((active_title, active, active_category))
+                        generated_raw.append(active_generated)
                     elif active_category == "toc":
                         raw.append((active_title, active, active_category))
+                        generated_raw.append(active_generated)
+                # A heading found among the paragraphs is the book's own text.
                 active_title, active, active_category = paragraph, [], label or "main"
+                active_generated = False
             else:
                 active.append(paragraph)
         if active or active_title:
             raw.append((active_title, active, active_category))
+            generated_raw.append(active_generated)
 
     # Detect TOC from an explicit label or a repeated page-reference pattern.
     toc_mode = False
     normalized: list[tuple[str, list[str], str | None]] = []
-    for title, paras, category in raw:
+    generated: list[bool] = []
+    for (title, paras, category), title_generated in zip(raw, generated_raw):
         if category == "toc":
             toc_mode = True
             normalized.append((title, paras, category))
+            generated.append(title_generated)
             continue
         if toc_mode:
             rows = [p for p in paras if _TOC_ROW.search(p) or _NUMBERED_PAGE.match(p)]
             prose = [p for p in paras if p not in rows]
             if rows:
                 normalized.append((title or "Índice", rows, "toc"))
+                generated.append(title_generated or not title)
                 if prose:
                     normalized.append((title, prose, _category(title) or "main"))
+                    generated.append(title_generated)
                 continue
             # stop treating later narrative as TOC at an explicit chapter or prose
             if category == "main" or _CHAPTER.fullmatch(title.strip()):
                 toc_mode = False
         normalized.append((title, paras, category))
+        generated.append(title_generated)
 
     plan: list[NarrationSection] = []
     narrative_started = False
@@ -199,7 +239,9 @@ def build_narration_plan(chapters: list[tuple[str, list[str]]]) -> list[Narratio
             included, review, reason = True, False, "Material introductorio narrativo conservado."
         if not paras and category != "toc":
             continue
-        plan.append(NarrationSection(f"section-{index + 1}", title or f"Sección {index + 1}", category, paras, included, review, reason))
+        plan.append(NarrationSection(f"section-{index + 1}", title or f"Sección {index + 1}", category, paras,
+                                     included, review, reason,
+                                     title_generated=generated[index] or not title.strip()))
 
     # Narration must begin at the narrative. If the policy excluded every
     # section, nothing could be produced, so keep the first section with real
@@ -225,7 +267,7 @@ def _category(title: str) -> str | None:
     return None
 
 
-def apply_narration_selection(plan: list[NarrationSection], selected_ids: set[str] | None) -> list[tuple[str, list[str]]]:
+def apply_narration_selection(plan: list[NarrationSection], selected_ids: set[str] | None) -> list[SelectedChapter]:
     chosen = []
     for section in plan:
         include = section.included if selected_ids is None else section.id in selected_ids
@@ -233,5 +275,5 @@ def apply_narration_selection(plan: list[NarrationSection], selected_ids: set[st
             title = section.title
             # PDF page labels are navigation metadata; don't make the TTS say them.
             if re.fullmatch(r"P[aá]gina\s+\d+", title, re.I): title = ""
-            chosen.append((title, section.paragraphs))
+            chosen.append(SelectedChapter(title, section.paragraphs, section.title_generated or not title))
     return chosen

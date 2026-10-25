@@ -67,7 +67,7 @@ def test_narration_request_carries_the_neighbouring_text_as_context(recorder) ->
     assert call["params"] == {"output_format": "mp3_44100_128"}
     assert call["headers"]["xi-api-key"] == "el-key"
     assert call["json"] == {
-        "text": "Buenos días a todos.", "model_id": "eleven_multilingual_v2",
+        "text": "Buenos días a todos.", "model_id": providers.ELEVENLABS_DEFAULT_MODEL,
         "previous_text": "Amanecía despacio.", "next_text": "La casa tenía ventanas.",
     }
 

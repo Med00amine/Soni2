@@ -1,5 +1,16 @@
 # Soni2 — providers, cost control, output layout, logs and reports
 
+> **2026-10-25:** the quality system — what is verified, how errors are
+> diagnosed and repaired, the release gate and the measured results — is in
+> [quality-system.md](quality-system.md). Changes to this page's statements:
+> the default ElevenLabs model is now `eleven_v4` (chosen by benchmark);
+> review compares recognizers against the expected *spoken* form and the
+> written text; a second recognizer (ElevenLabs Scribe) adjudicates
+> differences; every take is kept in `production_attempts`; the delivery ZIP
+> adds `quality-status.json`, `extraction-report.json` and
+> `completeness.json`; and `GET /api/jobs/{id}/artifacts` serves only a book
+> the release gate passed.
+
 Reference for how the pipeline is wired after the 2026-10-20 upgrade. The
 acceptance status and what remains unverified live in
 [daisy-acceptance-status.md](daisy-acceptance-status.md).

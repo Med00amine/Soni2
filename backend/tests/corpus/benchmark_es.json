@@ -1,0 +1,35 @@
+{
+  "description": "Representative Peninsular Spanish passages for comparing TTS models on identical input. Written for this project (no third-party text).",
+  "passages": [
+    {
+      "id": "narrativa",
+      "category": "narrative",
+      "text": "Aquella mañana de otoño, la niebla subía despacio desde el puerto y se quedaba enredada en los tejados de pizarra. Inés cerró la puerta de la librería, guardó la llave en el bolsillo del abrigo y echó a andar hacia la estación sin mirar atrás."
+    },
+    {
+      "id": "dialogo",
+      "category": "dialogue",
+      "text": "—¿De verdad piensas irte esta noche? —preguntó Julián, sin levantar la vista del periódico.\n—No me queda otro remedio —respondió ella—. Si espero a mañana, ya no tendré valor."
+    },
+    {
+      "id": "nombres",
+      "category": "names_places",
+      "text": "Desde Cáceres viajaron a Jerez de la Frontera, y luego a Guadalajara, donde los esperaba Ximena Gutiérrez con su sobrino Íñigo. El abuelo, Ezequiel Zubizarreta, había nacido en Llanes y vivido siempre en Zaragoza."
+    },
+    {
+      "id": "cifras",
+      "category": "numbers_dates_abbreviations",
+      "text": "El 12/03/2024, a las 18:30 h, el Sr. García pagó 3,50 € por el billete. El tren recorrió 245 km a 120 km/h y el precio subió un 2,5 %. En la pág. 23 se cita a Felipe II y al s. XVI; asistieron 1.200 personas."
+    },
+    {
+      "id": "consonantes",
+      "category": "difficult_consonants_accents",
+      "text": "El jilguero gorjeaba junto al cerezo mientras el zapatero cosía, con paciencia y precisión, el cuero de unos zapatos. Ahí había un hombre que ahorraba, y aún así no halló el álbum ni el búho que buscaba."
+    },
+    {
+      "id": "frase_larga",
+      "category": "long_sentence_punctuation",
+      "text": "Cuando por fin llegó la carta —tres semanas después de lo prometido, con el sello medio despegado y la letra temblorosa de quien escribe a la luz de una vela—, nadie en la casa se atrevió a abrirla; la dejaron sobre la mesa del comedor, junto al jarrón de lirios, como si el simple hecho de mirarla pudiera cambiar lo que decía."
+    }
+  ]
+}

@@ -1,8 +1,10 @@
 FROM python:3.12-slim
 
-# ffmpeg joins, re-encodes and masters the narration audio. Without it the
-# delivery falls back to byte-concatenation and says so in the job log.
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+# ffmpeg joins, re-encodes, masters and checks the narration audio. Without it
+# the delivery falls back to byte-concatenation and says so in the job log.
+# Tesseract with the Spanish model reads PDF pages that are scanned images;
+# without it such pages are reported as missing content and block release.
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg tesseract-ocr tesseract-ocr-spa \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

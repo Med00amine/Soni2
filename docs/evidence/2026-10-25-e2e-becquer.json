@@ -1,0 +1,258 @@
+{
+  "book": "becquer-los-ojos-verdes.txt",
+  "job_id": "8b888f9e-ab97-4ca6-8d4f-6a73ba89cb29",
+  "state": "completed",
+  "release_state": "PASSED",
+  "blockers": [],
+  "reviews": [],
+  "provider": "elevenlabs",
+  "model": "eleven_v4",
+  "voice": "o0SveC0zgHFuCsEO3vHR",
+  "asr_primary": "deepgram",
+  "asr_secondary": "elevenlabs",
+  "units": 61,
+  "unit_states": {
+    "verified": 61
+  },
+  "verification": {
+    "asr_primary": 55,
+    "auto_accepted": 4,
+    "asr_secondary": 2
+  },
+  "attempts": 61,
+  "generations": 2,
+  "quality_retakes": 0,
+  "technical_attempts": 2,
+  "secondary_recognitions": 4,
+  "characters_billed_by_provider": 412,
+  "account_characters_before": 12068,
+  "account_characters_after": 12513,
+  "asr_primary_aggregate": {
+    "reference_words": 2694,
+    "recognized_words": 2692,
+    "substitutions": 5,
+    "deletions": 2,
+    "insertions": 0,
+    "wer": 0.0026,
+    "segments": 61,
+    "segments_with_errors": 4
+  },
+  "review_queue": [],
+  "listening_recommended": [
+    {
+      "sentence_id": "c12bde6664728c15f1c10089",
+      "chapter_index": 0,
+      "text": "Yo creo que he visto unos ojos como los que he pintado en esta leyenda. No sé si en sueños, pero yo los he visto. De seguro no los podré describir tales cuales ellos eran, luminosos, trasparentes como las gotas de la lluvia que se resbalan sobre las hojas de los árboles después de una tempestad de verano. De todos modos, cuento con la imaginación de mis lectores para hacerme comprender en este que pudiéramos llamar boceto de un cuadro que pintaré algún día.",
+      "reason": "Aceptada automáticamente: deepgram-nova-3 y elevenlabs-scribe_v2 oyen la misma diferencia. Diferencia menor que ambos reconocedores escriben igual (a menudo un nombre que suena igual escrito de otra forma); escúchala.",
+      "provenance": {
+        "chapter": 0,
+        "paragraph": 3,
+        "part": 0,
+        "parts": 1,
+        "source_chapter": 0,
+        "source_paragraph": 3,
+        "source_flags": []
+      }
+    },
+    {
+      "sentence_id": "d27286e4c5919eb0b7fbbc5c",
+      "chapter_index": 1,
+      "text": "--¡Pieza perdida! Primero perderé yo el señorío de mis padres, y primero perderé el ánima en manos de Satanás, que permitir que se me escape ese ciervo, el único que ha herido mi venablo, la primicia de mis excursiones de cazador... ¿Lo ves?... ¿lo ves?... Aún se distingue á intervalos desde aquí... las piernas le faltan, su carrera se acorta; déjame... déjame... suelta esa brida, ó te revuelco en el polvo... ¿Quién sabe si no le daré lugar para que llegue á la fuente? y si llegase, al diablo ella, su limpidez y sus habitadores. ¡Sus! ¡Relámpago! ¡sus, caballo mío! si lo alcanzas, mando engarzar los diamantes de mi joyel en tu serreta de oro.",
+      "reason": "Aceptada automáticamente: deepgram-nova-3 oyó diferencias que elevenlabs-scribe_v2 no confirma.",
+      "provenance": {
+        "chapter": 1,
+        "paragraph": 10,
+        "part": 0,
+        "parts": 1,
+        "source_chapter": 1,
+        "source_paragraph": 10,
+        "source_flags": []
+      }
+    },
+    {
+      "sentence_id": "82688157a39250c44423326a",
+      "chapter_index": 2,
+      "text": "Por último, una tarde... yo me creí juguete de un sueño... pero no, es verdad; la he hablado ya muchas veces, como te hablo á ti ahora... una tarde encontré sentada en mi puesto, y vestida con unas ropas que llegaban hasta las aguas y flotaban sobre su haz, una mujer hermosa sobre toda ponderación. Sus cabellos eran como el oro; sus pestañas brillaban como hilos de luz, y entre las pestañas volteaban inquietas unas pupilas que yo había visto... sí; porque los ojos de aquella mujer, eran los ojos que yo tenía clavados en la mente; unos ojos de un color imposible; unos ojos...",
+      "reason": "Aceptada automáticamente: Texto correcto, pero «ojos» dura 1.92 s (lo normal en esta voz: 0.37 s).",
+      "provenance": {
+        "chapter": 2,
+        "paragraph": 14,
+        "part": 0,
+        "parts": 1,
+        "source_chapter": 2,
+        "source_paragraph": 14,
+        "source_flags": []
+      }
+    },
+    {
+      "sentence_id": "63faac1793df4a5d7b3b5ddf",
+      "chapter_index": 2,
+      "text": "--¡Oh, no!--dijo el montero.--¡Líbreme Dios de conocerla! Pero mis padres, al prohibirme llegar hasta esos lugares, me dijeron mil veces que el espíritu, trasgo, demonio ó mujer que habita en sus aguas, tiene los ojos de ese color. Yo os conjuro, por lo que más améis en la tierra, á no volver á la fuente de los Álamos. Un día ú otro os alcanzará su venganza, y expiaréis muriendo el delito de haber encenagado sus ondas.",
+      "reason": "Aceptada automáticamente: deepgram-nova-3 oyó diferencias que elevenlabs-scribe_v2 no confirma.",
+      "provenance": {
+        "chapter": 2,
+        "paragraph": 18,
+        "part": 0,
+        "parts": 1,
+        "source_chapter": 2,
+        "source_paragraph": 18,
+        "source_flags": []
+      }
+    },
+    {
+      "sentence_id": "ec92448dc79ce8771da02d2d",
+      "chapter_index": 3,
+      "text": "--¡No me respondes!--exclamó Fernando, al ver burlada su esperanza;--¿querrás que dé crédito á lo que de ti me han dicho? ¡Oh! No... Háblame: yo quiero saber si me amas; yo quiero saber si puedo amarte, si eres una mujer...",
+      "reason": "Aceptada automáticamente: Texto correcto, pero «mujer» dura 1.92 s (lo normal en esta voz: 0.46 s).",
+      "provenance": {
+        "chapter": 3,
+        "paragraph": 5,
+        "part": 0,
+        "parts": 1,
+        "source_chapter": 3,
+        "source_paragraph": 5,
+        "source_flags": []
+      }
+    },
+    {
+      "sentence_id": "531f1a2a8d27c93a323130fa",
+      "chapter_index": 3,
+      "text": "--Ó un demonio... ¿Y si lo fuese?",
+      "reason": "Aceptada automáticamente: deepgram-nova-3 y elevenlabs-scribe_v2 oyen la misma diferencia. Diferencia menor que ambos reconocedores escriben igual (a menudo un nombre que suena igual escrito de otra forma); escúchala.",
+      "provenance": {
+        "chapter": 3,
+        "paragraph": 6,
+        "part": 0,
+        "parts": 1,
+        "source_chapter": 3,
+        "source_paragraph": 6,
+        "source_flags": []
+      }
+    }
+  ],
+  "processing_seconds": 129.8,
+  "audio_seconds": 1096.3,
+  "download": "released",
+  "revalidation_from_zip": {
+    "structural": "passed",
+    "dtd": {
+      "status": "passed",
+      "method": "dtd_z3986_2005",
+      "files": [
+        {
+          "file": "becquer-los-ojos-verdes.ncx",
+          "dtd": "ncx-2005-1.dtd",
+          "valid": true
+        },
+        {
+          "file": "becquer-los-ojos-verdes.opf",
+          "dtd": "oebpkg12.dtd",
+          "valid": true
+        },
+        {
+          "file": "becquer-los-ojos-verdes.res",
+          "dtd": "resource-2005-1.dtd",
+          "valid": true
+        },
+        {
+          "file": "becquer-los-ojos-verdes.xml",
+          "dtd": "dtbook-2005-3.dtd",
+          "valid": true
+        },
+        {
+          "file": "smil/chapter-0001.smil",
+          "dtd": "dtbsmil-2005-2.dtd",
+          "valid": true
+        },
+        {
+          "file": "smil/chapter-0002.smil",
+          "dtd": "dtbsmil-2005-2.dtd",
+          "valid": true
+        },
+        {
+          "file": "smil/chapter-0003.smil",
+          "dtd": "dtbsmil-2005-2.dtd",
+          "valid": true
+        },
+        {
+          "file": "smil/chapter-0004.smil",
+          "dtd": "dtbsmil-2005-2.dtd",
+          "valid": true
+        }
+      ],
+      "errors": []
+    }
+  },
+  "dimensions": {
+    "technical": {
+      "status": "passed",
+      "segments": 61,
+      "verified": 61,
+      "failed": 0,
+      "pending": 0,
+      "awaiting_review": 0,
+      "technical_attempts": 2,
+      "quality_retakes": 0,
+      "reused_from_cache": 59
+    },
+    "source": {
+      "status": "passed",
+      "method": "txt",
+      "coverage": {
+        "source_words": 2697,
+        "extracted_words": 2695,
+        "dropped_words": 2,
+        "unaccounted_words": 0,
+        "added_words": 0,
+        "ratio": 1.0,
+        "unaccounted_examples": [],
+        "added_examples": []
+      },
+      "blocking": [],
+      "open_warnings": [],
+      "acknowledged": 0,
+      "pages": 0,
+      "ocr_pages": 0
+    },
+    "content": {
+      "status": "passed",
+      "verified_by": {
+        "asr_primary": 55,
+        "auto_accepted": 4,
+        "asr_secondary": 2
+      },
+      "awaiting_review": 0,
+      "reference_words": 2694,
+      "asr_word_errors": 7,
+      "wer": 0.0026,
+      "segments_measured": 61
+    },
+    "audio": {
+      "status": "passed",
+      "failed": [],
+      "signal_unchecked": 0,
+      "suspicious": 0
+    },
+    "package": {
+      "status": "passed",
+      "structural": "passed",
+      "dtd": "passed",
+      "completeness": "passed",
+      "official_daisy_pipeline": "not_run"
+    },
+    "human": {
+      "decisions": 0,
+      "awaiting": 0,
+      "acknowledged_warnings": 0,
+      "listening_recommended": [
+        "c12bde6664728c15f1c10089",
+        "d27286e4c5919eb0b7fbbc5c",
+        "82688157a39250c44423326a",
+        "63faac1793df4a5d7b3b5ddf",
+        "ec92448dc79ce8771da02d2d",
+        "531f1a2a8d27c93a323130fa"
+      ],
+      "listening_check": "not_recorded"
+    }
+  }
+}

@@ -114,6 +114,24 @@ describe('downloading the audiobook', () => {
     expect(document.body.textContent).not.toContain('Corrige y descarga')
   })
 
+  it('names the downloaded ZIP after the book title', async () => {
+    const names: string[] = []
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      names.push(this.download)
+    })
+    await render()
+    await uploadBook()
+    // Without a title yet, the file name stands in for it.
+    await act(async () => { buttonLabelled('Descargar audiolibro ahora')!.click() })
+    const title = document.querySelector<HTMLInputElement>('#metadata-title')!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(title, 'El faro: de Cabo Gris?')
+      title.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => { buttonLabelled('Descargar audiolibro ahora')!.click() })
+    expect(names).toEqual(['libro.zip', 'El faro de Cabo Gris.zip'])
+  })
+
   it('downloads in one step without starting a review queue', async () => {
     await render()
     await uploadBook()
@@ -276,7 +294,7 @@ describe('the export step', () => {
     await uploadBook()
     // Step 1 shows the upload controls, not the export buttons.
     expect(buttonLabelled('Descargar audiolibro ahora')).toBeTruthy()
-    const dock = document.querySelector('.review-action-dock')
+    const dock = document.querySelector('.export-actions')
     expect(dock).toBeTruthy()
     // The dock lives inside the export panel, so it cannot duplicate itself on
     // the listen-and-review step.

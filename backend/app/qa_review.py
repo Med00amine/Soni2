@@ -28,6 +28,7 @@ the queue too long to be useful.
 from __future__ import annotations
 
 import difflib
+import re
 import unicodedata
 
 from app.spanish_normalization import canonical_tokens, compare_transcripts
@@ -72,10 +73,38 @@ def _is_value_difference(expected: str, recognized: str) -> bool:
     return any(token.value.startswith(_VALUE_PREFIXES) for token in (*left, *right))
 
 
+def phonetic_key(word: str) -> str:
+    """How a Spanish word sounds, as far as spelling can tell.
+
+    Words with the same key are pronounced the same in Peninsular Spanish, so
+    a recognizer writing one for the other heard the right sound: "Ximena"
+    and "Jimena" (/xiˈmena/), "Llanes" and "Yanes" (yeísmo), "vaca" and
+    "baca". The distinction between z/ce/ci (θ) and s, which Spain keeps, is
+    kept.
+    """
+    text = _plain(word)
+    text = text.replace("ch", "ç").replace("ll", "y").replace("v", "b").replace("h", "").replace("w", "u")
+    text = re.sub(r"qu(?=[ei])", "k", text)
+    text = re.sub(r"c(?=[aou]|$|[^eiç])|q", "k", text)
+    text = re.sub(r"gu(?=[ei])", "g", text)
+    text = re.sub(r"g(?=[ei])", "j", text)
+    text = re.sub(r"c(?=[ei])|z", "θ", text)
+    text = text.replace("x", "j")
+    return text
+
+
+def _same_sound(expected: str, recognized: str) -> bool:
+    left, right = _words(expected), _words(recognized)
+    return bool(left) and len(left) == len(right) and all(
+        phonetic_key(a) == phonetic_key(b) for a, b in zip(left, right))
+
+
 def _near_homophone(expected: str, recognized: str) -> bool:
     """Short, very similar words are usually a recognizer slip, not a misreading."""
     if not expected or not recognized:
         return False
+    if _same_sound(expected, recognized):
+        return True
     ratio = difflib.SequenceMatcher(a=_plain(expected), b=_plain(recognized), autojunk=False).ratio()
     return ratio >= 0.82
 
@@ -147,6 +176,12 @@ def classify_issue(issue: dict[str, str], expected_word_count: int, recognized_t
     elif span == 1 and kind in {"delete", "insert"} and set(expected_words or recognized_words) <= _FUNCTION_WORDS:
         category = CATEGORY_AMBIGUOUS
         reason = "Palabra funcional corta; el reconocedor automático suele añadirla u omitirla."
+    elif kind == "replace" and _same_sound(expected, recognized):
+        category = CATEGORY_AMBIGUOUS
+        reason = ("Se pronuncian igual y se escriben distinto (por ejemplo Ximena y Jimena, o el yeísmo "
+                  "de «Llanes» y «Yanes»): el reconocedor oyó el sonido correcto.")
+        return {**issue, "difference_type": difference_type, "category": category, "reason": reason,
+                "phonetic_variant": True}
     elif span == 1 and kind == "replace" and _near_homophone(expected, recognized):
         category = CATEGORY_AMBIGUOUS
         reason = "Palabras casi homófonas; puede ser un fallo del reconocedor y no de la locución."
@@ -160,15 +195,15 @@ def classify_issue(issue: dict[str, str], expected_word_count: int, recognized_t
     return {**issue, "difference_type": difference_type, "category": category, "reason": reason}
 
 
-def evaluate(expected: str, recognized: str) -> tuple[str, list[dict[str, str]], float]:
+def evaluate(expected: str, recognized: str, **options) -> tuple[str, list[dict[str, str]], float]:
     """Return ``(verdict, classified issues, confidence)`` for one sentence.
 
     ``verdict`` is ``verified``, ``ambiguous`` or ``likely_error``.
     ``confidence`` is the share of the sentence that matched after
     normalization: 1.0 when nothing differed, lower as more of it diverged.
     """
-    issues = compare_transcripts(expected, recognized)
-    source_tokens, _ = canonical_tokens(expected, recognized)
+    issues = compare_transcripts(expected, recognized, **options)
+    source_tokens, _ = canonical_tokens(expected, recognized, **options)
     expected_count = max(1, len(source_tokens))
     if not issues:
         return "verified", [], 1.0
@@ -185,6 +220,90 @@ def evaluate(expected: str, recognized: str) -> tuple[str, list[dict[str, str]],
         # not worth another paid generation.
         return "ambiguous", classified, confidence
     return "likely_error", classified, confidence
+
+
+def _word_positions(transcript: str, segments: list[dict]) -> list[tuple[int, int, float, float]]:
+    """``(char start, char end, seconds start, seconds end)`` of each timed word.
+
+    Recognizers return the transcript and its words separately; the words are
+    found in the transcript in order, so a difference's character offsets can
+    be turned into the moment it is heard.
+    """
+    positions: list[tuple[int, int, float, float]] = []
+    cursor = 0
+    folded = transcript.casefold()
+    for segment in segments:
+        word = str(segment.get("text", "")).strip()
+        try:
+            start, end = float(segment["start"]), float(segment["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not word:
+            continue
+        at = folded.find(word.casefold(), cursor)
+        if at < 0:
+            bare = word.strip(".,;:!?¡¿«»\"'()—–-").casefold()
+            at = folded.find(bare, cursor) if bare else -1
+            word = bare
+        if at < 0:
+            continue
+        positions.append((at, at + len(word), start, end))
+        cursor = at + len(word)
+    return positions
+
+
+def locate_issues(issues: list[dict], transcript: str, segments: list[dict]) -> list[dict]:
+    """Add ``audio_start``/``audio_end`` (seconds in the passage's own audio).
+
+    A substitution or an addition is located on the words heard; an omission,
+    which has no words, on the gap where the missing words belong.
+    """
+    positions = _word_positions(transcript, segments)
+    if not positions:
+        return issues
+    for issue in issues:
+        start, end = issue.get("recognized_start"), issue.get("recognized_end")
+        if not isinstance(start, int) or not isinstance(end, int):
+            continue
+        heard = [item for item in positions if item[0] < end and start < item[1]]
+        if heard:
+            issue["audio_start"] = round(min(item[2] for item in heard), 2)
+            issue["audio_end"] = round(max(item[3] for item in heard), 2)
+            continue
+        before = [item for item in positions if item[1] <= start]
+        after = [item for item in positions if item[0] >= end]
+        if before or after:
+            issue["audio_start"] = round(before[-1][3] if before else after[0][2], 2)
+            issue["audio_end"] = round(after[0][2] if after else before[-1][3], 2)
+    return issues
+
+
+_VERDICT_RANK = {"verified": 0, "ambiguous": 1, "likely_error": 2}
+
+
+def evaluate_against(spoken: str, source: str, recognized: str) -> tuple[str, list[dict], float, str]:
+    """Compare a transcript with the expected spoken form and the written text.
+
+    Returns ``(verdict, issues, confidence, reference)`` for whichever matches
+    better. Both are faithful renderings of the same speech: the voice reads
+    "seis y cuarenta y cinco" for "6:45", and a recognizer may write either.
+    Matching *either* is legitimate; matching neither is a real difference.
+    The spoken form wins ties, because it is what the voice was asked to say.
+    """
+    candidates = [("spoken", spoken)]
+    if source.strip() and source.strip() != spoken.strip():
+        candidates.append(("source", source))
+    best: tuple | None = None
+    for reference, text in candidates:
+        # The spoken form is parsed with spoken-number rules, in the context of
+        # the written text that says whether a time or a date is expected.
+        options = {"reference_is_spoken": True, "context": source} if reference == "spoken" else {}
+        verdict, issues, confidence = evaluate(text, recognized, **options)
+        key = (_VERDICT_RANK.get(verdict, 3), -confidence, len(issues))
+        if best is None or key < best[0]:
+            best = (key, verdict, issues, confidence, reference)
+    _key, verdict, issues, confidence, reference = best
+    return verdict, issues, confidence, reference
 
 
 def auto_accept_reason(verdict: str, issues: list[dict[str, str]], confidence: float, expected: str) -> str:

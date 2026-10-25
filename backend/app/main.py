@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import os
+import random
 import re
 import shutil as filesystem
 import tempfile
@@ -24,20 +25,21 @@ import httpx
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.background import BackgroundTask
 
 from app.daisy_export import (add_to_archive, build_daisy_package, join_mp3 as daisy_join_mp3,
-                              make_paragraphs)
+                              make_paragraphs, package_basename)
 from app.book_structure import extract_book_structure
 from app.daisy_validation import validate_daisy_package
-from app.sentences import build_synthesis_text, segment_paragraphs
+from app.sentences import apply_pronunciation_lexicon, build_spoken_text, build_synthesis_text, segment_paragraphs
 from app import jobs as job_store
-from app import audio_master, pronunciation, providers, qa_review, quality_report
+from app import (audio_integrity, audio_master, completeness, daisy_dtd, ocr, pronunciation, providers, qa_metrics,
+                 qa_review, quality_report, release_gate, repair)
 from app.audio_cache import AudioCache, write_atomic, write_atomic_text
 from app.job_logging import JobLogger
-from app.narration_plan import build_narration_plan, apply_narration_selection
+from app.narration_plan import SelectedChapter, build_narration_plan, apply_narration_selection, is_generated
 from app.providers import ProviderError
 from app.spanish_normalization import canonical_tokens, compare_transcripts as compare_spanish_transcripts, comparison_tokens
 from app.text_language import recognition_language
@@ -86,6 +88,24 @@ class Settings(BaseSettings):
     audio_target_lufs: float = -18.0
     audio_paragraph_gap_ms: int = 350
     audio_chapter_gap_ms: int = 900
+    # A second, independent recognizer consulted when the first one hears a
+    # difference: auto | elevenlabs | deepgram | fishaudio | none. "auto" picks
+    # one with credentials that is not the primary recognizer.
+    asr_secondary_provider: str = "auto"
+    # Paid quality retakes per segment before a person decides.
+    qa_max_retakes: int = 2
+    # ElevenLabs voice settings for this deployment. Unset keeps the settings
+    # the voice was published with; set them to make a book reproducible.
+    elevenlabs_stability: float | None = None
+    elevenlabs_similarity_boost: float | None = None
+    elevenlabs_style: float | None = None
+
+    @field_validator("elevenlabs_stability", "elevenlabs_similarity_boost", "elevenlabs_style", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, value: object) -> object:
+        # Docker Compose passes an unset variable as "": that means "keep the
+        # voice's own setting", not a malformed number that stops the server.
+        return None if isinstance(value, str) and not value.strip() else value
     # Resolve the repository .env by path, not relative to the working
     # directory: running `uvicorn app.main:app` from backend/ previously found
     # no .env and silently fell back to the defaults. Real environment
@@ -104,6 +124,25 @@ retry_delays = (2, 4, 8, 16, 32)
 # Automatic retakes after the comparison finds a real error. Each one is a paid
 # narration of the whole paragraph, and a second failure rarely clears on a third.
 MAX_QUALITY_RETAKES = 2
+# What ElevenLabs says about each configured voice (accent, verified models),
+# read once at start-up; see refresh_voice_profiles.
+voice_profiles: dict[str, dict] = {}
+
+
+def max_quality_retakes() -> int:
+    return max(0, settings.qa_max_retakes)
+
+
+def retry_delay(index: int, error: Exception | None = None) -> float:
+    """Exponential backoff with jitter, never shorter than the provider asked.
+
+    Many paragraphs are narrated at once; without jitter they would all retry
+    at the same instant and hit the same rate limit again.
+    """
+    base = retry_delays[min(index, len(retry_delays) - 1)]
+    delay = base * random.uniform(0.5, 1.0)
+    requested = getattr(error, "retry_after", None)
+    return max(delay, float(requested)) if requested else delay
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("soni2")
 
@@ -273,10 +312,16 @@ def tts_voices(provider: str | None = None) -> tuple[providers.Voice, ...]:
             continue
         seen.add(voice_id)
         is_primary = voice_id == primary
+        profile = voice_profiles.get(voice_id) or {}
         name = (declared_name
                 or (settings.elevenlabs_voice_name.strip() if is_primary else "")
+                or profile.get("name", "")
                 or f"Voz de ElevenLabs {index + 1}")
         language = declared_language or (settings.elevenlabs_voice_language if is_primary else "")
+        if not language and settings.elevenlabs_model_id in profile.get("peninsular_models", []):
+            # ElevenLabs itself lists this voice as verified Peninsular Spanish
+            # on the configured model: evidence, not an assumption.
+            language = "es-ES"
         voices.append(providers.elevenlabs_voice(voice_id, name, language, settings.elevenlabs_model_id))
     return tuple(voices)
 
@@ -345,6 +390,32 @@ async def recover_production_jobs() -> None:
         logger.warning("Production job %s was interrupted by a restart and has been stopped", job_id)
     # Direct-download tasks live in memory, so their files cannot outlive a restart.
     shutil.rmtree(_package_tasks_root(), ignore_errors=True)
+    await refresh_voice_profiles()
+
+
+async def refresh_voice_profiles() -> dict[str, dict]:
+    """Ask ElevenLabs what each configured voice is, so its accent is verified.
+
+    A failure is logged and changes nothing: the voice then needs a declared
+    language, as before.
+    """
+    if active_tts_provider() != "elevenlabs" or not settings.elevenlabs_api_key:
+        return voice_profiles
+    entries = [settings.elevenlabs_voice_id, *settings.elevenlabs_extra_voice_ids.split(",")]
+    for entry in entries:
+        voice_id = _elevenlabs_entry(entry)[0]
+        if not voice_id or voice_id in voice_profiles:
+            continue
+        try:
+            profile = await providers.elevenlabs_voice_profile(voice_id, settings.elevenlabs_api_key)
+        except Exception as exc:  # network trouble must not stop the server
+            logger.warning("Voice profile lookup failed for %s: %s", voice_id, type(exc).__name__)
+            continue
+        if profile:
+            voice_profiles[voice_id] = profile
+            logger.info("Voice %s (%s): Peninsular Spanish verified on %s", voice_id, profile.get("name"),
+                        ", ".join(profile.get("peninsular_models") or []) or "no model")
+    return voice_profiles
 
 
 ALLOWED = {".pdf", ".txt", ".xml", ".docx", ".epub"}
@@ -467,7 +538,8 @@ def apply_paragraph_corrections(
         raise ValueError("Las correcciones del libro no tienen un formato valido.") from exc
     if not isinstance(corrections, dict) or len(corrections) > 5000:
         raise ValueError("La lista de correcciones no es valida.")
-    result = [(title, list(paragraphs)) for title, paragraphs in chapters]
+    result = [SelectedChapter(title, list(paragraphs), is_generated(chapter))
+              for chapter in chapters for title, paragraphs in [chapter]]
     for key, value in corrections.items():
         match = re.fullmatch(r"(\d+):(\d+)", str(key))
         if not match or not isinstance(value, str):
@@ -522,24 +594,36 @@ def _permanent_provider_failure(error: Exception) -> bool:
     return _provider_failure_detail(error)[1]
 
 
+def take_seed(text: str, take: int) -> int:
+    """A reproducible seed per text and take: the same take sounds the same if
+    it is ever regenerated, while a retake explores a different reading."""
+    digest = hashlib.sha256(f"{text}\u0000take={take}".encode("utf-8")).hexdigest()
+    return int(digest[:8], 16)
+
+
 async def _synthesize_with_retries(
     text: str, voice_speed: float, voice_id: str, sentence: dict, job_id: str, job_dir: Path,
-    *, refresh: bool = False, context: tuple[str, str] = NO_CONTEXT,
+    *, refresh: bool = False, context: tuple[str, str] = NO_CONTEXT, seed: int | None = None,
+    meta: dict | None = None,
 ) -> tuple[bytes | None, int, str, bool]:
     """Generate one sentence, reusing cached audio and retrying only transient faults.
 
     Returns ``(audio, attempts, error, reused)``. A cache hit costs no attempt
-    and no provider call.
+    and no provider call. ``meta`` receives the provider's request id and the
+    characters it billed, or ``{"cache": "hit"}``.
     """
     log = job_logger(job_dir, job_id)
+    meta = meta if meta is not None else {}
     cache_key = ""
     try:
         cache_key = narration_cache_key(text, voice_speed, voice_id)
     except ProviderError:
         cache_key = ""
+    meta["cache_key"] = cache_key
     if cache_key and not refresh and audio_cache.contains(cache_key):
         audio = audio_cache.get(cache_key)
         if audio:
+            meta.update({"cache": "hit", "characters_billed": 0})
             log.info("tts.cache", "reused cached narration audio", sentence_id=sentence["sentence_id"],
                      chapter_index=sentence.get("chapter_index"), cache_key=cache_key[:16], bytes=len(audio))
             return audio, 0, "", True
@@ -550,10 +634,14 @@ async def _synthesize_with_retries(
     for retry_index in range(len(retry_delays) + 1):
         attempts += 1
         try:
-            audio, reused = await synthesize_cached(text, voice_speed, voice_id, refresh=refresh, context=context)
+            started = time.monotonic()
+            audio, reused = await synthesize_cached(text, voice_speed, voice_id, refresh=refresh, context=context,
+                                                    seed=seed, meta=meta)
+            meta["latency_seconds"] = round(time.monotonic() - started, 3)
             log.info("tts.synthesize", "sentence audio generated", sentence_id=sentence["sentence_id"],
                      chapter_index=sentence.get("chapter_index"), provider=provider, voice=voice_id,
-                     attempt=attempts, reused=reused, bytes=len(audio))
+                     attempt=attempts, reused=reused, bytes=len(audio), seed=seed,
+                     request_id=meta.get("request_id"), characters_billed=meta.get("characters_billed"))
             return audio, attempts, "", reused
         except Exception as exc:
             last_error, permanent = _provider_failure_detail(exc)
@@ -566,14 +654,15 @@ async def _synthesize_with_retries(
                       permanent=permanent, error=last_error)
             if permanent or retry_index >= len(retry_delays):
                 break
-            delay = retry_delays[retry_index]
+            delay = round(retry_delay(retry_index, exc), 3)
             job_store.add_event(database_path, job_id, "WARNING", "retry scheduled", {
                 "sentence_id": sentence["sentence_id"], "delay_seconds": delay,
             })
             log.warning("tts.retry", "transient failure, retry scheduled",
                         sentence_id=sentence["sentence_id"], chapter_index=sentence.get("chapter_index"),
-                        attempt=attempts, delay_seconds=delay)
+                        attempt=attempts, delay_seconds=delay, code=getattr(exc, "code", "") or None)
             await asyncio.sleep(delay)
+    meta["error"] = last_error
     return None, attempts, last_error, False
 
 
@@ -600,12 +689,23 @@ async def _transcription_result(
     )
 
 
+class TranscriptText(str):
+    """A transcript that also carries the recognizer's word timings."""
+
+    segments: list[dict] = []
+
+    def __new__(cls, text: str, segments: list[dict] | None = None):
+        instance = super().__new__(cls, text)
+        instance.segments = segments or []
+        return instance
+
+
 async def transcribe_audio(
     audio: bytes, filename: str = "review.mp3", content_type: str = "audio/mpeg", language: str = "es",
 ) -> tuple[str, str]:
     """Transcribe narration for quality review with the configured ASR provider."""
     result = await _transcription_result(audio, filename, content_type, with_timestamps=False, language=language)
-    return result.text, result.engine
+    return TranscriptText(result.text, result.segments), result.engine
 
 
 async def _transcribe_sentence(audio: bytes, sentence_id: str, text: str = "") -> tuple[str, str]:
@@ -613,6 +713,35 @@ async def _transcribe_sentence(audio: bytes, sentence_id: str, text: str = "") -
     # English; transcribing them as Spanish sent correct audio to a person.
     return await transcribe_audio(audio, f"{sentence_id}.mp3", "audio/mpeg",
                                   language=recognition_language(text) if text else "es")
+
+
+def secondary_asr_provider() -> str:
+    """The independent recognizer that adjudicates a disagreement, or "none".
+
+    It must differ from the primary one: asking the same recognizer twice
+    measures nothing.
+    """
+    configured = settings.asr_secondary_provider.strip().casefold()
+    primary = active_asr_provider()
+    if configured == "none" or primary in {"mock", "none"}:
+        return "none"
+    if configured and configured != "auto":
+        return configured if configured != primary and provider_api_key(configured) else "none"
+    for candidate in ("elevenlabs", "deepgram", "fishaudio"):
+        if candidate != primary and provider_api_key(candidate):
+            return candidate
+    return "none"
+
+
+async def _transcribe_secondary(audio: bytes, sentence_id: str, text: str = "") -> tuple[str, str]:
+    provider = secondary_asr_provider()
+    if provider == "none":
+        raise ProviderError("not_configured", "No hay un segundo transcriptor configurado.", permanent=True)
+    result = await providers.transcribe(
+        audio, provider=provider, api_key=provider_api_key(provider), filename=f"{sentence_id}.mp3",
+        content_type="audio/mpeg", language=recognition_language(text) if text else "es",
+    )
+    return TranscriptText(result.text, result.segments), result.engine
 
 
 def _alignment_from_fish_segments(
@@ -681,66 +810,24 @@ def _alignment_from_fish_segments(
 
 
 async def _analyze_audio(audio: bytes, expected_text: str) -> dict[str, object]:
+    """Technical integrity of one narrated segment (see app.audio_integrity).
+
+    The stream itself is always checked. The decoded signal is checked when
+    ffmpeg is available; mock audio is silent on purpose, so for it only the
+    stream is checked and the result says so.
+    """
     if active_tts_provider() == "mock":
-        # Mock audio is deliberately silent, so acoustic heuristics would only
-        # report that fact. Say so rather than invent a quality verdict.
-        return {"status": "skipped", "engine": "ffmpeg",
-                "reason": "El proveedor simulado genera silencio; no se analiza la calidad acústica."}
-    ffmpeg = filesystem.which("ffmpeg")
-    if not ffmpeg:
-        return {"status": "unavailable", "engine": "ffmpeg", "reason": "ffmpeg is not installed"}
-    process = await asyncio.create_subprocess_exec(
-        ffmpeg, "-hide_banner", "-nostats", "-v", "error", "-i", "pipe:0",
-        "-f", "s16le", "-ac", "1", "-ar", "8000", "pipe:1",
-        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-    )
-    try:
-        pcm, error = await asyncio.wait_for(process.communicate(audio), timeout=30)
-    except asyncio.TimeoutError:
-        process.kill()
-        await process.wait()
-        return {"status": "needs_review", "engine": "ffmpeg", "reason": "audio decode timed out"}
-    if process.returncode != 0 or len(pcm) < 2:
-        return {"status": "needs_review", "engine": "ffmpeg", "reason": "MP3 decode failed", "detail": error.decode("utf-8", "replace")[:200]}
-    import array
-    samples = array.array("h")
-    samples.frombytes(pcm[:len(pcm) - len(pcm) % 2])
-    total = len(samples)
-    duration = total / 8000
-    reasons: list[str] = []
-    window = 800
-    peak = max((abs(int(value)) for value in samples), default=0)
-    clipped = sum(abs(int(value)) >= 32700 for value in samples)
-    silence_windows = [
-        (start, min(start + window, total))
-        for start in range(0, total, window)
-        if not any(abs(int(value)) > 120 for value in samples[start:min(start + window, total)])
-    ]
-    longest_silence = 0
-    current_silence = 0
-    previous_silence_end = None
-    for start, end in silence_windows:
-        if previous_silence_end is not None and start == previous_silence_end:
-            current_silence += end - start
-        else:
-            longest_silence = max(longest_silence, current_silence)
-            current_silence = end - start
-        previous_silence_end = end
-    longest_silence = max(longest_silence, current_silence) / 8000
-    clipped_ratio = clipped / max(1, total)
-    words = max(1, len(_normalize_for_qa(expected_text)))
-    if duration < max(0.2, words * 0.07):
-        reasons.append("suspiciously_short_duration")
-    if duration > words * 3.0 + 2:
-        reasons.append("suspiciously_long_duration")
-    if longest_silence > 2.0:
-        reasons.append("abnormal_silence")
-    if clipped_ratio > 0.005:
-        reasons.append("possible_clipping")
-    return {"status": "needs_review" if reasons else "passed", "engine": "ffmpeg",
-            "duration_seconds": round(duration, 3), "peak": peak,
-            "clipped_sample_ratio": round(clipped_ratio, 6), "longest_silence_seconds": round(longest_silence, 3),
-            "reasons": reasons}
+        stream = audio_integrity.inspect_stream(audio)
+        if stream["errors"]:
+            return {"status": "failed", "engine": "soni2-integrity", "reasons": stream["errors"], "stream": stream}
+        return {"status": "skipped", "engine": "soni2-integrity", "stream": stream,
+                "reason": "El proveedor simulado genera silencio; solo se comprueba que el MP3 sea válido."}
+    result = await asyncio.to_thread(audio_integrity.assess, audio, expected_text)
+    if result.get("status") == "passed" and (result.get("signal") or {}).get("status") == "unavailable":
+        # The stream is sound, but nobody listened to the signal.
+        result["status"] = "unavailable"
+        result["reason"] = "ffmpeg no está instalado: solo se comprobó el flujo MP3."
+    return result
 
 
 def _narration_context() -> dict[str, str]:
@@ -752,7 +839,8 @@ def _narration_context() -> dict[str, str]:
 
 
 def _quality_report(
-    job: dict, events: list[dict], *, validation: dict | None = None,
+    job: dict, events: list[dict], *, validation: dict | None = None, release: dict | None = None,
+    fault_locations: list[dict] | None = None,
 ) -> dict:
     context = _narration_context()
     job_voice = find_tts_voice(job.get("voice_id", ""), context["provider"])
@@ -764,6 +852,8 @@ def _quality_report(
         voice_language=job_voice.language if job_voice else context["voice_language"],
         validation=validation,
         cache_stats={**audio_cache.stats.as_dict(), **audio_cache.usage()},
+        release=release,
+        fault_locations=fault_locations,
     )
 
 
@@ -784,7 +874,9 @@ def _write_job_reports(
         job["state"] = final_state
     if validation is None:
         validation = _read_validation_state(job_dir)
-    report = _quality_report(job, job_store.get_events(database_path, job_id), validation=validation)
+    release = compute_release(job_id, assume_state=final_state or job["state"])
+    report = _quality_report(job, job_store.get_events(database_path, job_id), validation=validation,
+                             release=release, fault_locations=_read_json(job_dir / "fault-locations.json", []))
     write_atomic_text(job_dir / "quality-report.json", quality_report.render_json(report))
     log_text = (job_dir / "job.log").read_text(encoding="utf-8") if (job_dir / "job.log").is_file() else ""
     write_atomic_text(
@@ -836,63 +928,144 @@ def _unit_context(job: dict, position: int) -> tuple[str, str]:
     return narration_context(previous, following)
 
 
+def _speech_seconds(integrity: dict) -> float | None:
+    signal = integrity.get("signal") or {}
+    if signal.get("duration_seconds"):
+        return max(0.05, signal["duration_seconds"] - signal.get("leading_silence_seconds", 0)
+                   - signal.get("trailing_silence_seconds", 0))
+    return integrity.get("duration_seconds")
+
+
+def _evaluation(engine: str, transcript: str, spoken: str, source: str, integrity: dict | None = None) -> repair.Evaluation:
+    """One recognizer's transcript, compared with the expected speech."""
+    verdict, issues, confidence, reference = qa_review.evaluate_against(spoken, source, str(transcript))
+    # Where each difference is heard, in seconds of this passage's audio.
+    qa_review.locate_issues(issues, str(transcript), getattr(transcript, "segments", []))
+    options = {"reference_is_spoken": True, "context": source} if reference == "spoken" else {}
+    metrics = qa_metrics.error_rates(spoken if reference == "spoken" else source, str(transcript), **options)
+    metrics["timing_anomalies"] = repair.timing_anomalies(
+        getattr(transcript, "segments", []), spoken, _speech_seconds(integrity or {}))
+    return repair.Evaluation(engine, str(transcript), verdict, issues, confidence, reference, metrics)
+
+
+def _attempt_audio_path(job_dir: Path, item: dict, number: int) -> Path:
+    return (job_dir / "audio" / f"chapter-{item['chapter_index'] + 1:03d}" / "attempts"
+            / f"{item['sentence_id']}-a{number:02d}.mp3")
+
+
 async def _produce_unit(
     job: dict, item: dict, *, job_dir: Path, log: JobLogger, context: tuple[str, str] = NO_CONTEXT,
-    interactive: bool = False, fresh_take: bool = False,
+    interactive: bool = False, fresh_take: bool = False, trigger: str = "",
 ) -> UnitResult:
-    """Narrate one unit, check it against its text and store the outcome.
+    """Narrate one unit, verify it, repair it if possible, and store the outcome.
 
-    The job worker retakes a real error automatically. A unit a person asked for
-    (``interactive``) gets exactly one new reading, so they hear it straight away
-    and decide; ``fresh_take`` skips the cache, for "narrate it again".
-    Differences the comparison judges minor are accepted and recorded instead of
-    queued for a person: that queue is for what a listener would notice.
+    Each take goes through the same steps: generate → technical integrity →
+    primary recognizer → (on a difference) an independent second recognizer →
+    diagnosis of where the difference comes from → the action that fits it.
+    Only synthesis and audio problems are worth a paid retake; a difference on
+    doubtful source text or on a normalized expression goes to a person with
+    the evidence, and a recognizer the second one contradicts is overruled but
+    recorded. Every take is kept with its evidence (production_attempts).
+
+    The job worker may retake up to ``qa_max_retakes`` times. A unit a person
+    asked for (``interactive``) gets exactly one new reading, so they hear it
+    straight away and decide; ``fresh_take`` skips the cache.
     """
     job_id = job["job_id"]
     sentence_id = item["sentence_id"]
     chapter_index = item["chapter_index"]
+    spoken = item.get("spoken_text") or item["text"]
+    normalization = item.get("normalization") or {}
+    changes = normalization.get("changes") or []
+    source_flags = (item.get("provenance") or {}).get("source_flags") or []
     job_store.update_sentence(database_path, job_id, sentence_id, state="generating")
     job_store.add_event(database_path, job_id, "INFO", "sentence started", {"sentence_id": sentence_id})
     chosen_audio: bytes | None = None
     recognized_text = ""
+    secondary_text = ""
     issues: list[dict[str, str]] = []
     confidence: float | None = None
     acoustic: dict[str, object] = {"status": "not_performed"}
+    metrics: dict = {}
+    diagnosis: repair.Diagnosis | None = None
+    verification = ""
     quality_retakes = int(item["quality_retakes"])
     tech_attempts = int(item["technical_attempts"])
     final_state = "failed"
     last_error = ""
     reused_audio = False
     previous_transcript: str | None = None
-    # A person's request is one reading; the worker may retake up to the limit.
+    normalization_retakes = 0
+    budget = max_quality_retakes()
     # At least one reading always happens, even for a unit already past the limit.
     first_generation = quality_retakes
-    last_generation = first_generation if interactive else max(first_generation, MAX_QUALITY_RETAKES)
+    last_generation = first_generation if interactive else max(first_generation, budget)
     for generation_index in range(first_generation, last_generation + 1):
         # The first pass may reuse cached audio. A quality retake must not:
         # handing back the reading that already failed review would spend a
-        # transcription on a guaranteed repeat. (Compared with the counter the
-        # loop updates, every "retake" used to get the cached failed reading back.)
+        # transcription on a guaranteed repeat.
+        fresh = fresh_take or generation_index > first_generation
+        number = len(job_store.get_attempts(database_path, job_id, sentence_id)) + 1
+        take_trigger = trigger or ("quality_retake" if generation_index > first_generation else "first_take")
+        meta: dict = {}
+        seed = take_seed(item["synthesis_text"], number - 1)
         audio, attempts, error, reused = await _synthesize_with_retries(
             item["synthesis_text"], job["voice_speed"], job["voice_id"], item, job_id, job_dir,
-            refresh=fresh_take or generation_index > first_generation, context=context,
+            refresh=fresh, context=context, seed=seed, meta=meta,
         )
         tech_attempts += attempts
         reused_audio = reused
+        provider_record = {**meta, "seed_requested": seed, "technical_attempts": attempts, "provider": active_tts_provider(),
+                           "voice_id": job["voice_id"], "model": tts_model_for(active_tts_provider())}
         if audio is None:
             last_error = error
+            job_store.add_attempt(database_path, job_id, sentence_id, {
+                "trigger": take_trigger, "provider": provider_record, "cache_key": meta.get("cache_key", ""),
+                "outcome": "generation_failed"})
             break
         if not providers.is_mp3(audio):
             last_error = "El proveedor de narración devolvió datos sin una cabecera MP3 reconocible."
             job_store.add_event(database_path, job_id, "ERROR", "invalid MP3 artifact", {"sentence_id": sentence_id})
             log.error("tts.validate", "provider returned a payload without an MP3 header",
                       sentence_id=sentence_id, chapter_index=chapter_index)
+            job_store.add_attempt(database_path, job_id, sentence_id, {
+                "trigger": take_trigger, "provider": provider_record, "outcome": "invalid_audio"})
             break
+        attempt_path = _attempt_audio_path(job_dir, item, number)
+        attempt_path.parent.mkdir(parents=True, exist_ok=True)
+        write_atomic(attempt_path, audio)
+        attempt_record = {"trigger": take_trigger, "provider": provider_record, "reused_audio": reused,
+                          "cache_key": meta.get("cache_key", ""),
+                          "audio_path": attempt_path.relative_to(job_dir).as_posix()}
+        integrity = await _analyze_audio(audio, spoken)
+        acoustic = integrity
+        log.info("tts.validate", "audio integrity checked", sentence_id=sentence_id, chapter_index=chapter_index,
+                 integrity=integrity.get("status"), reasons=",".join(integrity.get("reasons") or []) or None,
+                 duration=integrity.get("duration_seconds"), chars_per_second=integrity.get("chars_per_second"))
         if not settings.quality_review_enabled:
             chosen_audio, final_state = audio, "needs_human_review"
             last_error = "La revisión automática de calidad está desactivada."
             log.warning("qa.skip", "automatic quality review is disabled; sentence needs a person",
                         sentence_id=sentence_id, chapter_index=chapter_index)
+            job_store.add_attempt(database_path, job_id, sentence_id, {
+                **attempt_record, "integrity": integrity, "outcome": "review_disabled"})
+            break
+        retakes_left = generation_index < last_generation
+        if integrity.get("status") == "failed":
+            # Unusable audio: no transcript can rescue it.
+            empty = repair.Evaluation("none", "", "not_run", [], 0.0)
+            diagnosis = repair.diagnose(empty, integrity=integrity, retakes_left=retakes_left)
+            chosen_audio = chosen_audio or audio
+            job_store.add_attempt(database_path, job_id, sentence_id, {
+                **attempt_record, "integrity": integrity, "diagnosis": diagnosis.as_dict(),
+                "outcome": diagnosis.action})
+            log.warning("qa.integrity", "audio failed its integrity check", sentence_id=sentence_id,
+                        chapter_index=chapter_index, reasons=",".join(integrity.get("reasons") or []))
+            if diagnosis.action == repair.ACTION_RETAKE and not interactive:
+                quality_retakes = generation_index + 1
+                continue
+            final_state = "needs_human_review"
+            last_error = f"{diagnosis.recommendation} {' '.join(diagnosis.reasons)}"
             break
         try:
             recognized_text, recognizer = await _transcribe_sentence(audio, sentence_id, item["text"])
@@ -908,64 +1081,91 @@ async def _produce_unit(
             log.warning("qa.transcribe", "transcription unavailable; routed to human review",
                         sentence_id=sentence_id, chapter_index=chapter_index,
                         asr_provider=active_asr_provider(), error=detail)
+            job_store.add_attempt(database_path, job_id, sentence_id, {
+                **attempt_record, "integrity": integrity, "outcome": "transcription_unavailable"})
             break
-        quality, current_issues, current_confidence = _sentence_quality(item["text"], recognized_text)
-        acoustic = await _analyze_audio(audio, item["text"])
-        if acoustic["status"] not in {"passed", "skipped"}:
+        primary = _evaluation(recognizer, recognized_text, spoken, item["text"], integrity)
+        secondary: repair.Evaluation | None = None
+        if primary.verdict != "verified" and secondary_asr_provider() != "none":
+            try:
+                text_two, engine_two = await _transcribe_secondary(audio, sentence_id, item["text"])
+                secondary = _evaluation(engine_two, text_two, spoken, item["text"], integrity)
+                secondary_text = str(text_two)
+            except Exception as exc:
+                detail, _permanent = _provider_failure_detail(exc)
+                log.warning("qa.secondary", "second recognizer unavailable", sentence_id=sentence_id,
+                            chapter_index=chapter_index, error=detail)
+        diagnosis = repair.diagnose(
+            primary, secondary=secondary, integrity=integrity, changes=changes, source_flags=source_flags,
+            expected_text=spoken, retakes_left=retakes_left and not interactive,
+            normalization_retakes=normalization_retakes,
+        )
+        current_issues = list(primary.issues)
+        if integrity.get("status") == "needs_review":
             current_issues.append(qa_review.audio_issue(
-                item["text"], recognized_text, json.dumps(acoustic, ensure_ascii=False),
-            ))
-            # An acoustic defect is a real generation problem, so it is
-            # worth a retake rather than a reviewer's time.
-            quality = "likely_error"
+                spoken, recognized_text, json.dumps({key: integrity.get(key) for key in
+                                                     ("status", "reasons", "duration_seconds", "chars_per_second")},
+                                                    ensure_ascii=False)))
+        chosen_audio, issues, confidence, metrics = audio, current_issues, primary.confidence, primary.metrics
+        job_store.add_attempt(database_path, job_id, sentence_id, {
+            **attempt_record, "integrity": integrity, "primary": primary.as_dict(),
+            "secondary": secondary.as_dict() if secondary else {}, "diagnosis": diagnosis.as_dict(),
+            "outcome": diagnosis.action})
         job_store.add_event(database_path, job_id, "INFO", "quality transcription completed", {
-            "sentence_id": sentence_id, "recognizer": recognizer, "state": quality,
-            "confidence": current_confidence, "issue_count": len(current_issues),
+            "sentence_id": sentence_id, "recognizer": recognizer, "state": primary.verdict,
+            "confidence": primary.confidence, "issue_count": len(current_issues),
         })
         log.info("qa.compare", "quality comparison completed", sentence_id=sentence_id,
-                 chapter_index=chapter_index, recognizer=recognizer, verdict=quality,
-                 confidence=current_confidence, issues=len(current_issues),
-                 acoustic=acoustic.get("status"))
-        chosen_audio, issues, confidence = audio, current_issues, current_confidence
-        if quality == "verified":
-            final_state, last_error = "verified", ""
+                 chapter_index=chapter_index, recognizer=recognizer, verdict=primary.verdict,
+                 reference=primary.reference, confidence=primary.confidence, issues=len(current_issues),
+                 wer=primary.metrics.get("wer"), secondary=secondary.verdict if secondary else None,
+                 origin=diagnosis.origin, action=diagnosis.action, acoustic=integrity.get("status"))
+        if diagnosis.action == repair.ACTION_ACCEPT:
+            final_state, last_error, verification = "verified", "", "asr_primary"
             break
-        accepted = qa_review.auto_accept_reason(quality, current_issues, current_confidence, item["text"])
-        if accepted:
-            # Kept with its differences, so the report shows what was let through.
+        if diagnosis.action == repair.ACTION_ACCEPT_FLAGGED:
             final_state = "verified"
-            last_error = f"{qa_review.AUTO_ACCEPT_PREFIX}: {accepted}."
-            log.info("qa.auto_accept", "minor difference accepted without a person", sentence_id=sentence_id,
-                     chapter_index=chapter_index, confidence=current_confidence, issues=len(current_issues))
+            verification = "asr_secondary" if secondary and secondary.verdict == "verified" else "auto_accepted"
+            last_error = f"{qa_review.AUTO_ACCEPT_PREFIX}: {' '.join(diagnosis.reasons).rstrip('.')}."
+            log.info("qa.auto_accept", "difference accepted without a person", sentence_id=sentence_id,
+                     chapter_index=chapter_index, origin=diagnosis.origin, confidence=primary.confidence)
             break
         if interactive:
             final_state = "needs_human_review"
             last_error = ("La nueva locución todavía no coincide del todo con el texto. "
                           "Escúchala y decide si es correcta.")
             break
-        if recognized_text == previous_transcript:
-            # A fresh reading produced exactly the same transcript, so
-            # further retakes would cost money and change nothing.
-            final_state = "needs_human_review"
-            last_error = ("La nueva locución se transcribió igual que la anterior, "
-                          "así que hace falta una decisión humana.")
-            log.warning("qa.repeat", "retake produced an identical transcript; stopping retakes",
-                        sentence_id=sentence_id, chapter_index=chapter_index,
-                        quality_retake=quality_retakes)
-            break
-        previous_transcript = recognized_text
-        if generation_index < last_generation:
+        if diagnosis.action == repair.ACTION_RETAKE:
+            if recognized_text == previous_transcript and diagnosis.origin != repair.ORIGIN_AUDIO:
+                # A fresh reading produced exactly the same transcript, so
+                # further retakes would cost money and change nothing.
+                final_state = "needs_human_review"
+                last_error = ("La nueva locución se transcribió igual que la anterior, "
+                              "así que hace falta una decisión humana.")
+                log.warning("qa.repeat", "retake produced an identical transcript; stopping retakes",
+                            sentence_id=sentence_id, chapter_index=chapter_index,
+                            quality_retake=quality_retakes)
+                break
+            previous_transcript = recognized_text
+            if diagnosis.origin == repair.ORIGIN_NORMALIZATION:
+                normalization_retakes += 1
             quality_retakes = generation_index + 1
             job_store.add_event(database_path, job_id, "WARNING", "quality retake scheduled", {
-                "sentence_id": sentence_id, "quality_retake": quality_retakes,
+                "sentence_id": sentence_id, "quality_retake": quality_retakes, "origin": diagnosis.origin,
             })
             log.warning("qa.retake", "quality retake scheduled", sentence_id=sentence_id,
                         chapter_index=chapter_index, quality_retake=quality_retakes,
-                        confidence=current_confidence)
+                        confidence=primary.confidence, origin=diagnosis.origin, severity=diagnosis.severity)
+            continue
+        final_state = "needs_human_review"
+        if diagnosis.action == repair.ACTION_HUMAN and diagnosis.origin == repair.ORIGIN_SYNTHESIS:
+            last_error = f"El párrafo no superó la comparación tras {budget} retomas de calidad."
         else:
-            final_state = "needs_human_review"
-            last_error = (f"El párrafo no superó la comparación tras {MAX_QUALITY_RETAKES} "
-                          "retomas de calidad.")
+            last_error = f"{diagnosis.recommendation} {' '.join(diagnosis.reasons)}".strip()
+        log.warning("qa.escalate", "segment escalated to a person", sentence_id=sentence_id,
+                    chapter_index=chapter_index, origin=diagnosis.origin, action=diagnosis.action,
+                    severity=diagnosis.severity)
+        break
     audio_path = None
     if chosen_audio is not None:
         relative = Path("audio") / f"chapter-{chapter_index + 1:03d}" / f"segment-{item['sequence'] + 1:04d}.mp3"
@@ -993,6 +1193,9 @@ async def _produce_unit(
         issues_json=json.dumps(issues, ensure_ascii=False),
         acoustic_json=json.dumps(acoustic, ensure_ascii=False),
         confidence=confidence, last_error=last_error, reused_audio=int(reused_audio),
+        metrics_json=json.dumps(metrics, ensure_ascii=False),
+        diagnosis_json=json.dumps(diagnosis.as_dict() if diagnosis else {}, ensure_ascii=False),
+        secondary_text=secondary_text, verification=verification,
     )
     job_store.add_event(database_path, job_id, "INFO", "sentence finished", {
         "sentence_id": sentence_id, "state": final_state, "technical_attempts": tech_attempts,
@@ -1001,7 +1204,7 @@ async def _produce_unit(
     log.info("sentence.finish", "sentence finished", sentence_id=sentence_id,
              chapter_index=chapter_index, state=final_state, technical_attempts=tech_attempts,
              quality_retakes=quality_retakes, reused_audio=reused_audio, audio_path=audio_path,
-             error=last_error or None)
+             verification=verification or None, error=last_error or None)
     return UnitResult(final_state, last_error, chosen_audio is not None)
 
 
@@ -1065,12 +1268,14 @@ async def run_production_job(job_id: str) -> None:
                         failed=sum(state == "failed" for state in states),
                         pending=sum(state in {"pending", "generating"} for state in states))
             _write_job_reports(job_id, final_state="partially_completed")
+            compute_release(job_id)
             return
         if any(state != "verified" for state in states):
             job_store.update_job(database_path, job_id, state="partially_completed", completed_at=job_store.utc_now())
             log.warning("job.review", "job awaits human review before delivery",
                         awaiting=sum(state != "verified" for state in states))
             _write_job_reports(job_id, final_state="partially_completed")
+            compute_release(job_id)
             return
         await _assemble_job_delivery(job_id)
     except Exception as exc:
@@ -1080,6 +1285,7 @@ async def run_production_job(job_id: str) -> None:
         job_store.add_event(database_path, job_id, "ERROR", "job failed", {"error": detail})
         log.error("job.fail", "job failed", error=detail)
         _write_job_reports(job_id, final_state="failed")
+        compute_release(job_id)
     finally:
         active_jobs.pop(job_id, None)
 
@@ -1249,6 +1455,7 @@ async def _assemble_job_delivery(job_id: str) -> None:
              reused_chapters=reused_chapters, rebuilt_chapters=rebuilt_chapters,
              front_matter=len(front_matter), joined_with_ffmpeg=use_ffmpeg)
     clips: list[tuple[str, float, float]] = []
+    chapter_starts: list[float] = []
     package = await asyncio.to_thread(functools.partial(
         build_daisy_package,
         metadata["title"] or Path(job["source_name"]).stem, [text for _, body in chapters for text in body],
@@ -1256,7 +1463,7 @@ async def _assemble_job_delivery(job_id: str) -> None:
         edition=metadata["edition"], publication_year=metadata["publication_year"],
         publisher=metadata["publisher"], front_matter=front_matter,
         chapter_audio=chapter_audio, chapter_clips=chapter_clips, use_ffmpeg=use_ffmpeg,
-        clips_out=clips, mastering=mastering,
+        clips_out=clips, chapter_starts_out=chapter_starts, mastering=mastering,
     ))
     try:
         validate_daisy_package(package)
@@ -1268,18 +1475,37 @@ async def _assemble_job_delivery(job_id: str) -> None:
         log.error("daisy.validate", "structural validation failed", detail=str(exc)[:300])
         _write_job_reports(job_id, final_state="failed", validation=validation)
         raise
+    dtd = await asyncio.to_thread(daisy_dtd.validate_package, package)
+    corrected_ids = {event["details"].get("sentence_id") for event in job_store.get_events(database_path, job_id)
+                     if event.get("message") == "human review decision"
+                     and event["details"].get("decision") == "correct"}
+    chain = await asyncio.to_thread(completeness.verify, job["chapters"], job["sentences"], job_dir, package,
+                                    corrected_ids)
+    write_atomic_text(job_dir / "completeness.json", json.dumps(chain, ensure_ascii=False, indent=2))
     validation = _record_validation(job_dir, {
-        "status": "passed",
-        "method": "soni2_structural_validation",
+        "status": "passed" if dtd["status"] == "passed" else "failed",
+        "method": "soni2_structural_validation+dtd_z3986_2005",
         "checks": "archivos requeridos, referencias smilref, destinos NCX, manifiesto y spine OPF, "
-                  "audio final por capítulo y audio no vacío",
+                  "audio final por capítulo y audio no vacío; DTD oficiales de Z39.86-2005",
+        "structural": "passed",
+        "dtd": dtd,
+        "completeness": chain["status"],
         "audio_joined_with_ffmpeg": use_ffmpeg,
         "official_daisy_pipeline": "not_run",
-        "note": "Validación estructural propia. No sustituye al validador oficial DAISY Pipeline "
-                "ni a una comprobación en un reproductor DAISY real.",
+        "detail": "; ".join(dtd["errors"][:3]),
+        "note": "Validación estructural propia y validación contra las DTD oficiales. No sustituye al validador oficial "
+                "(DAISY Pipeline) ni a una comprobación en un reproductor DAISY real.",
     })
-    log.info("daisy.validate", "structural validation passed", method="soni2_structural_validation",
-             official_daisy_pipeline="not_run", joined_with_ffmpeg=use_ffmpeg)
+    log.info("daisy.validate", "package validated", method="soni2_structural_validation+dtd",
+             structural="passed", dtd=dtd["status"], dtd_errors=len(dtd["errors"]),
+             completeness=chain["status"], official_daisy_pipeline="not_run", joined_with_ffmpeg=use_ffmpeg)
+    for check in chain["checks"]:
+        (log.info if check["status"] == "passed" else log.error)(
+            "daisy.completeness", check["label"], status=check["status"], detail=check["detail"])
+    gate = compute_release(job_id, assume_state="completed")
+    write_atomic_text(delivery_dir / "quality-status.json", json.dumps(gate, ensure_ascii=False, indent=2))
+    log.info("release.gate", "book quality status", state=gate["state"], blockers=len(gate["blockers"]),
+             reviews=len(gate["reviews"]))
 
     write_atomic_text(delivery_dir / "tts.log", _tts_log_text(job))
     review_events = [event for event in job_store.get_events(database_path, job_id)
@@ -1303,9 +1529,13 @@ async def _assemble_job_delivery(job_id: str) -> None:
     for sentence_id, index in sentence_segment_index.items():
         chapter_path, begin, end = clips[index - 1]
         audio_hrefs[sentence_id] = f"DAISY 3/audio/{chapter_path}#t={begin:.3f},{end:.3f}"
+    locations = _fault_locations(job, clips, chapter_starts, sentence_segment_index,
+                                 package_basename(metadata["title"] or Path(job["source_name"]).stem) + ".mp3")
+    write_atomic_text(job_dir / "fault-locations.json", json.dumps(locations, ensure_ascii=False, indent=2))
+    log.info("assemble.locations", "differences located in the finished audio", located=len(locations))
     _write_job_reports(job_id, final_state="completed", validation=validation, audio_hrefs=audio_hrefs)
-    for name in ("job.log", "quality-report.json", "quality-report.html",
-                 "reviewed-source.json", "daisy-validation.json"):
+    for name in ("job.log", "quality-report.json", "quality-report.html", "fault-locations.json",
+                 "reviewed-source.json", "daisy-validation.json", "extraction-report.json", "completeness.json"):
         source = job_dir / name
         if source.is_file():
             shutil.copy2(source, delivery_dir / name)
@@ -1320,7 +1550,8 @@ async def _assemble_job_delivery(job_id: str) -> None:
         # job.log is the readable history; its JSON Lines twin stays in the
         # job folder for tooling and is not delivered.
         for name in ("quality-report.html", "quality-report.json", "job.log", "tts.log",
-                     "review-decisions.log", "reviewed-source.json", "daisy-validation.json"):
+                     "review-decisions.log", "reviewed-source.json", "daisy-validation.json",
+                     "quality-status.json", "extraction-report.json", "completeness.json", "fault-locations.json"):
             path = delivery_dir / name
             if path.is_file():
                 add_to_archive(archive, path, name)
@@ -1336,6 +1567,71 @@ async def _assemble_job_delivery(job_id: str) -> None:
     log.info("assemble.cleanup", "removed the staged package tree now that the archive holds it",
              archive=archive_path.name, archive_bytes=archive_path.stat().st_size)
     job_store.update_job(database_path, job_id, state="completed", completed_at=job_store.utc_now(), output_path=str(archive_path))
+    compute_release(job_id)
+
+
+def clock_label(seconds: float) -> str:
+    """1:02:03.4 for a time in an audiobook; 2:03.4 under an hour."""
+    tenths = max(0, round(seconds * 10))
+    hours, rest = divmod(tenths, 36000)
+    minutes, rest = divmod(rest, 600)
+    text = f"{minutes:02d}:{rest // 10:02d}.{rest % 10}" if hours else f"{minutes}:{rest // 10:02d}.{rest % 10}"
+    return f"{hours}:{text}" if hours else text
+
+
+def _fault_locations(job: dict, clips: list[tuple[str, float, float]], chapter_starts: list[float],
+                     segment_index: dict[str, int], book_file: str) -> list[dict]:
+    """Every located difference, as a time in its chapter file and in the whole book.
+
+    The recognizer timed each difference inside the paragraph's own audio.
+    Mastering trims the paragraph's leading silence and places it at its
+    measured SMIL clip, and each chapter starts at a measured point of the
+    complete audiobook, so the same moment can be found in all three files.
+    The times are accurate to the trimming (a few hundredths of a second).
+    """
+    locations: list[dict] = []
+    chapter_numbers = sorted({unit["chapter_index"] for unit in job["sentences"]})
+    for unit in job["sentences"]:
+        index = segment_index.get(unit["sentence_id"])
+        if not index:
+            continue
+        chapter_path, clip_begin, clip_end = clips[index - 1]
+        position = chapter_numbers.index(unit["chapter_index"])
+        chapter_start = chapter_starts[position] if position < len(chapter_starts) else None
+        lead = ((unit.get("acoustic") or {}).get("signal") or {}).get("leading_silence_seconds") or 0.0
+        marks = [(issue, "difference") for issue in unit.get("issues") or [] if "audio_start" in issue]
+        marks += [({"audio_start": anomaly["start"], "audio_end": anomaly["end"], "expected": anomaly["word"],
+                    "recognized": anomaly["word"], "reason": f"Palabra alargada: {anomaly['seconds']:.2f} s, lo "
+                    f"normal en esta voz son {anomaly['expected_seconds']:.2f} s."}, "stretched_word")
+                  for anomaly in (unit.get("metrics") or {}).get("timing_anomalies") or []]
+        changed = False
+        for issue, kind in marks:
+            in_chapter = min(clip_end, clip_begin + max(0.0, float(issue["audio_start"]) - lead))
+            in_book = chapter_start + in_chapter if chapter_start is not None else None
+            if kind == "difference":
+                issue.update({"chapter_file": chapter_path, "chapter_time": round(in_chapter, 2),
+                              "book_time": round(in_book, 2) if in_book is not None else None})
+                changed = True
+            locations.append({
+                "sentence_id": unit["sentence_id"], "chapter": unit["chapter_index"] + 1,
+                "chapter_title": unit["chapter_title"], "paragraph": unit["sequence"] + 1,
+                "kind": kind, "expected": issue.get("expected", ""), "heard": issue.get("recognized", ""),
+                "reason": issue.get("reason", ""), "category": issue.get("category", ""),
+                "paragraph_state": unit["state"], "decision": (unit.get("diagnosis") or {}).get("action", ""),
+                "paragraph_time": round(float(issue["audio_start"]), 2),
+                "chapter_file": f"audio/{chapter_path}", "chapter_time": round(in_chapter, 2),
+                "chapter_clock": clock_label(in_chapter),
+                "book_file": book_file, "book_time": round(in_book, 2) if in_book is not None else None,
+                "book_clock": clock_label(in_book) if in_book is not None else None,
+            })
+        if changed:
+            # Keep updated_at: it is part of the chapter fingerprint, and a
+            # location is not a change to the audio.
+            job_store.update_sentence(database_path, job["job_id"], unit["sentence_id"],
+                                      issues_json=json.dumps(unit["issues"], ensure_ascii=False),
+                                      updated_at=unit["updated_at"])
+    return sorted(locations, key=lambda item: (item["book_time"] is None, item["book_time"] or 0,
+                                               item["chapter"], item["chapter_time"]))
 
 
 async def _start_or_resume_job(job_id: str) -> None:
@@ -1454,7 +1750,7 @@ async def create_production_job(
     try:
         structure = parse_book(filename, content, pages)
         metadata = book_metadata(structure, metadata_json)
-        plan = build_narration_plan([(chapter.title, chapter.paragraphs) for chapter in structure.chapters])
+        plan = build_narration_plan(plan_input(structure))
         selected_ids = _selected_narration_ids(narration_plan_json, plan)
         chapters = apply_narration_selection(plan, selected_ids)
         chapters = apply_paragraph_corrections(chapters, corrections_json)
@@ -1462,6 +1758,7 @@ async def create_production_job(
             chapters = create_navigation_sections(chapters)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    extraction = structure.extraction.as_dict() if structure.extraction else {}
     file_hash = hashlib.sha256(content).hexdigest()
     # Another page range of the same file is another book, not a duplicate job.
     source_hash = hashlib.sha256(f"{file_hash}\u0000pages={pages.strip()}".encode()).hexdigest() if pages.strip() else file_hash
@@ -1479,30 +1776,14 @@ async def create_production_job(
     job_dir.mkdir(parents=True, exist_ok=False)
     source_path = job_dir / filename
     source_path.write_bytes(content)
-    chapter_records = [{"title": title, "paragraphs": paragraphs} for title, paragraphs in chapters]
+    chapter_records = [{"title": title, "paragraphs": paragraphs, "title_generated": is_generated(chapter)}
+                       for chapter in chapters for title, paragraphs in [chapter]]
     (job_dir / "reviewed-source.json").write_text(json.dumps({
         "source_sha256": file_hash, "source_filename": filename, "pages": pages.strip(), "chapters": chapter_records,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_atomic_text(job_dir / "extraction-report.json", json.dumps(extraction, ensure_ascii=False, indent=2))
     lexicon = job_store.get_lexicon(database_path)
-    sentences: list[dict] = []
-    for chapter_index, (chapter_title, paragraphs) in enumerate(chapters):
-        # Put the real chapter label into the narration sequence before its prose.
-        # It is marked so the DAISY exporter can synchronize it with the heading.
-        heading_sentences = segment_paragraphs([chapter_title], f"{source_hash}:heading", chapter_index)
-        for sentence in heading_sentences:
-            sentence["chapter_title"] = chapter_title
-            sentence["is_heading"] = True
-            sentence["synthesis_text"] = build_synthesis_text(sentence["text"], lexicon)
-            sentences.append(sentence)
-        # One unit per paragraph, split exactly as the direct download and the
-        # preview split it, so all three share the same cached audio.
-        units = [part for paragraph in paragraphs for part in make_paragraphs(paragraph)]
-        for sentence in segment_paragraphs(units, source_hash, chapter_index):
-            sentence["sequence"] += len(heading_sentences)
-            sentence["chapter_title"] = chapter_title
-            sentence["is_heading"] = False
-            sentence["synthesis_text"] = build_synthesis_text(sentence["text"], lexicon)
-            sentences.append(sentence)
+    sentences = build_units(chapters, source_hash, lexicon, structure)
     if not sentences:
         raise HTTPException(status_code=422, detail="No hemos encontrado frases que se puedan narrar.")
     job_store.create_job(database_path, {
@@ -1531,6 +1812,95 @@ async def create_production_job(
     return {"job_id": job_id, "state": "queued", "total_sentences": len(sentences), "status_url": f"/api/jobs/{job_id}"}
 
 
+def plan_input(structure) -> list[tuple[str, list[str], bool]]:
+    """Chapters for the narration plan, with whether each title is invented."""
+    return [(chapter.title, chapter.paragraphs, chapter.title_generated) for chapter in structure.chapters]
+
+
+def _source_provenance(structure) -> dict[str, list[dict]]:
+    """Paragraph text → where the extractor found it, in reading order."""
+    index: dict[str, list[dict]] = {}
+    if structure is None:
+        return index
+    for chapter_number, chapter in enumerate(structure.chapters):
+        for paragraph_number, paragraph in enumerate(chapter.paragraphs):
+            index.setdefault(paragraph, []).append({
+                "source_chapter": chapter_number, "source_paragraph": paragraph_number,
+                **chapter.source_of(paragraph_number)})
+    return index
+
+
+def _doubtful_words(structure) -> set[str]:
+    """Words extraction already doubted: low-confidence OCR, broken words, OCR-looking tokens."""
+    report = structure.extraction if structure is not None else None
+    if report is None:
+        return set()
+    doubtful = set()
+    for page in report.pages:
+        for word in (page.get("ocr") or {}).get("low_confidence_words") or []:
+            if len(word.get("word", "")) >= 2:
+                doubtful.add(word["word"].strip(".,;:«»\"'()"))
+    for issue in report.issues:
+        if issue["code"] in {"broken_word", "suspicious_token"}:
+            match = re.search(r"«(.+?)»", issue["message"])
+            if match:
+                doubtful.add(match.group(1))
+    return {word for word in doubtful if word}
+
+
+def build_units(chapters, source_hash: str, lexicon: dict[str, str], structure=None) -> list[dict]:
+    """Narration units for the selected chapters, each traceable to its source.
+
+    A unit carries three texts: ``text``, the book's own words (never
+    changed); ``spoken_text``, what a narrator says for them, with the record
+    of every normalization; and ``synthesis_text``, the spoken form with the
+    pronunciation lexicon applied, which is what the voice receives.
+    """
+    provenance_index = _source_provenance(structure)
+    doubtful = _doubtful_words(structure)
+    sentences: list[dict] = []
+
+    def finish(sentence: dict, chapter_title: str, heading: bool, provenance: dict) -> None:
+        spoken = build_spoken_text(sentence["text"])
+        sentence["chapter_title"] = chapter_title
+        sentence["is_heading"] = heading
+        sentence["spoken_text"] = spoken.spoken
+        sentence["normalization"] = spoken.as_dict()
+        sentence["synthesis_text"] = apply_pronunciation_lexicon(spoken.spoken, lexicon)
+        flags = [{"start": match.start(), "end": match.end(), "code": "extraction_doubt", "text": word}
+                 for word in doubtful
+                 for match in re.finditer(rf"(?<!\w){re.escape(word)}(?!\w)", sentence["text"])]
+        sentence["provenance"] = {**provenance, "source_flags": flags}
+        sentences.append(sentence)
+
+    for chapter_index, chapter in enumerate(chapters):
+        chapter_title, paragraphs = chapter
+        heading_sentences: list[dict] = []
+        # Put the real chapter label into the narration sequence before its
+        # prose; it is marked so the DAISY exporter can synchronize it with the
+        # heading. An invented label ("Página 3") is navigation only: the book
+        # does not say it, so it is not narrated.
+        if not is_generated(chapter):
+            heading_sentences = segment_paragraphs([chapter_title], f"{source_hash}:heading", chapter_index)
+        for sentence in heading_sentences:
+            finish(sentence, chapter_title, True, {"chapter": chapter_index, "element": "heading"})
+        # One unit per paragraph, split exactly as the direct download and the
+        # preview split it, so all three share the same cached audio.
+        parts: list[tuple[str, dict]] = []
+        for paragraph_index, paragraph in enumerate(paragraphs):
+            found = provenance_index.get(paragraph) or [{}]
+            source = found.pop(0) if len(found) > 1 else found[0]
+            pieces = make_paragraphs(paragraph)
+            for part_index, part in enumerate(pieces):
+                parts.append((part, {"chapter": chapter_index, "paragraph": paragraph_index,
+                                     "part": part_index, "parts": len(pieces), **source}))
+        for sentence, (_part, provenance) in zip(
+                segment_paragraphs([part for part, _ in parts], source_hash, chapter_index), parts):
+            sentence["sequence"] += len(heading_sentences)
+            finish(sentence, chapter_title, False, provenance)
+    return sentences
+
+
 @app.get("/api/jobs/{job_id}")
 async def production_job_status(job_id: str) -> dict[str, object]:
     job_store.initialize_store(database_path)
@@ -1549,6 +1919,10 @@ async def production_job_status(job_id: str) -> dict[str, object]:
         "voice_name": voice.name if voice else "",
         "voice_language": voice.language if voice else "",
         "progress": counts, "sentences": job["sentences"], "events": job_store.get_events(database_path, job_id),
+        "release": compute_release(job_id),
+        # Once the book is assembled: every difference as a time in the finished audio.
+        "fault_locations": _read_json(Path(job["source_path"]).parent / "fault-locations.json", [])
+        if job["state"] == "completed" else [],
     }
 
 
@@ -1557,8 +1931,24 @@ async def production_review_queue(job_id: str) -> dict[str, object]:
     job = job_store.get_job(database_path, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Trabajo no encontrado.")
-    items = [item for item in job["sentences"] if item["state"] in {"needs_human_review", "unresolved", "failed"}]
-    return {"job_id": job_id, "total": len(items), "items": items}
+    items = []
+    for item in job["sentences"]:
+        if item["state"] not in {"needs_human_review", "unresolved", "failed"}:
+            continue
+        diagnosis = item.get("diagnosis") or {}
+        items.append({**item,
+                      "error_category": diagnosis.get("origin") or ("technical" if item["state"] == "failed" else ""),
+                      "severity": diagnosis.get("severity", ""),
+                      "recommended_action": diagnosis.get("recommendation")
+                      or ("Reanuda el trabajo para volver a intentarlo." if item["state"] == "failed" else
+                          repair.RECOMMENDATIONS[repair.ACTION_HUMAN]),
+                      "expected_text": item.get("spoken_text") or item["text"]})
+    # The paragraphs accepted with a recognizer's doubt are not in the queue,
+    # but they are what a sampled listening check should start with.
+    listen = [{"sentence_id": item["sentence_id"], "chapter_index": item["chapter_index"], "text": item["text"],
+               "reason": item["last_error"], "provenance": item.get("provenance")}
+              for item in job["sentences"] if (item.get("diagnosis") or {}).get("action") == "accept_flagged"]
+    return {"job_id": job_id, "total": len(items), "items": items, "listening_recommended": listen}
 
 
 @app.post("/api/jobs/{job_id}/review")
@@ -1585,7 +1975,8 @@ async def resolve_production_sentence(job_id: str, decision: SentenceDecision) -
     if decision.decision == "accept":
         if not sentence["audio_path"]:
             raise HTTPException(status_code=409, detail="No existe audio para aceptar esta frase.")
-        job_store.update_sentence(database_path, job_id, decision.sentence_id, state="verified", last_error="Accepted by human reviewer.")
+        job_store.update_sentence(database_path, job_id, decision.sentence_id, state="verified",
+                                  last_error="Accepted by human reviewer.", verification="human")
     else:
         corrected = decision.corrected_text.strip()
         if decision.decision == "correct" and (not corrected or len(corrected) > 2000):
@@ -1593,14 +1984,19 @@ async def resolve_production_sentence(job_id: str, decision: SentenceDecision) -
         units_in_progress.add(key)
         try:
             if decision.decision == "correct":
-                with sqlite3.connect(database_path) as connection:
-                    connection.execute("UPDATE production_sentences SET text=?,synthesis_text=? WHERE job_id=? AND sentence_id=?",
-                                       (corrected, build_synthesis_text(corrected, job_store.get_lexicon(database_path)), job_id, decision.sentence_id))
+                # The reviewer's text replaces the unit's text; its spoken form
+                # and the record of how it was derived follow it.
+                spoken = build_spoken_text(corrected)
+                job_store.update_sentence(
+                    database_path, job_id, decision.sentence_id, text=corrected, spoken_text=spoken.spoken,
+                    normalization_json=json.dumps(spoken.as_dict(), ensure_ascii=False),
+                    synthesis_text=apply_pronunciation_lexicon(spoken.spoken, job_store.get_lexicon(database_path)))
             item = next(row for row in job_store.get_job(database_path, job_id)["sentences"]
                         if row["sentence_id"] == decision.sentence_id)
             result = await _produce_unit(
                 job, item, job_dir=job_dir, log=job_logger(job_dir, job_id, book_id=job["source_hash"]),
                 context=_unit_context(job, position), interactive=True, fresh_take=decision.decision == "retry",
+                trigger="human_correction" if decision.decision == "correct" else "human_retry",
             )
             if not result.produced:
                 # Nothing new was narrated (no credit, a rejected key...): put the
@@ -1624,9 +2020,10 @@ async def resolve_production_sentence(job_id: str, decision: SentenceDecision) -
 
 
 def _restore_unit(job_id: str, before: dict) -> None:
-    with sqlite3.connect(database_path) as connection:
-        connection.execute("UPDATE production_sentences SET text=?,synthesis_text=? WHERE job_id=? AND sentence_id=?",
-                           (before["text"], before["synthesis_text"], job_id, before["sentence_id"]))
+    job_store.update_sentence(
+        database_path, job_id, before["sentence_id"], text=before["text"], synthesis_text=before["synthesis_text"],
+        spoken_text=before.get("spoken_text", ""),
+        normalization_json=json.dumps(before.get("normalization") or {}, ensure_ascii=False))
     job_store.update_sentence(
         database_path, job_id, before["sentence_id"], state=before["state"], audio_path=before["audio_path"],
         recognized_text=before["recognized_text"], issues_json=json.dumps(before["issues"], ensure_ascii=False),
@@ -1651,6 +2048,118 @@ async def _finish_after_review(job_id: str) -> str:
     return "queued"
 
 
+def _read_json(path: Path, default):
+    try:
+        return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else default
+    except (json.JSONDecodeError, OSError):
+        return default
+
+
+def compute_release(job_id: str, *, assume_state: str | None = None) -> dict:
+    """Evaluate the release gate for a job and store the result on it."""
+    job = job_store.get_job(database_path, job_id)
+    if not job:
+        return {}
+    job_dir = Path(job["source_path"]).parent
+    if assume_state:
+        job["state"] = assume_state
+    events = job_store.get_events(database_path, job_id)
+    job["human_decisions"] = sum(1 for event in events if event.get("message") == "human review decision")
+    finished = job["state"] == "completed"
+    validation = _read_validation_state(job_dir) if finished else {}
+    result = release_gate.evaluate(
+        job,
+        extraction=_read_json(job_dir / "extraction-report.json", None),
+        # Package evidence describes the last assembly; it only counts for a
+        # job that finished assembling since.
+        completeness=_read_json(job_dir / "completeness.json", None) if finished else None,
+        validation=validation, dtd=validation.get("dtd") if finished else None,
+        simulated_audio=job["voice_id"].startswith("mock-") or active_tts_provider() == "mock",
+        acknowledgements=job.get("acknowledgements") or [],
+        released=(job.get("release") or {}).get("released"),
+    )
+    if not assume_state:
+        job_store.update_job(database_path, job_id, release_state=result["state"],
+                             release_json=json.dumps({**result, "computed_at": job_store.utc_now()},
+                                                     ensure_ascii=False))
+    return result
+
+
+class Acknowledgement(BaseModel):
+    issue_id: str
+    reviewer: str = ""
+    note: str = ""
+
+
+class ReleaseRequest(BaseModel):
+    reviewer: str
+    note: str = ""
+    confirm: bool = False
+
+
+@app.get("/api/jobs/{job_id}/release")
+async def release_status(job_id: str) -> dict[str, object]:
+    if not job_store.get_job(database_path, job_id):
+        raise HTTPException(status_code=404, detail="Trabajo no encontrado.")
+    return compute_release(job_id)
+
+
+@app.post("/api/jobs/{job_id}/acknowledge")
+async def acknowledge_warning(job_id: str, request: Acknowledgement) -> dict[str, object]:
+    """A person confirms they checked an extraction warning. Recorded, never silent."""
+    job = job_store.get_job(database_path, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Trabajo no encontrado.")
+    current = compute_release(job_id)
+    open_ids = {issue["id"]: issue for issue in current["dimensions"]["source"]["open_warnings"]}
+    issue = open_ids.get(request.issue_id)
+    if issue is None:
+        raise HTTPException(status_code=404, detail="Ese aviso no existe o ya se confirmó.")
+    if not release_gate.acknowledgeable(issue.get("code", "")):
+        raise HTTPException(status_code=422, detail="Este aviso no se puede confirmar: hay que corregir el origen.")
+    if not request.reviewer.strip():
+        raise HTTPException(status_code=422, detail="Indica quién ha revisado el aviso.")
+    acknowledgements = [*(job.get("acknowledgements") or []), {
+        "id": request.issue_id, "code": issue.get("code"), "reviewer": request.reviewer.strip()[:120],
+        "note": request.note.strip()[:1000], "at": job_store.utc_now()}]
+    job_store.update_job(database_path, job_id, acknowledgements_json=json.dumps(acknowledgements, ensure_ascii=False))
+    job_store.add_event(database_path, job_id, "INFO", "extraction warning acknowledged",
+                        {"issue_id": request.issue_id, "reviewer": request.reviewer.strip()[:120]})
+    return compute_release(job_id)
+
+
+@app.post("/api/jobs/{job_id}/release")
+async def release_book(job_id: str, request: ReleaseRequest) -> dict[str, object]:
+    """Publish a book that passed every check. Refused for anything else."""
+    job = job_store.get_job(database_path, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Trabajo no encontrado.")
+    current = compute_release(job_id)
+    if current["state"] == release_gate.RELEASED:
+        return current
+    if current["state"] != release_gate.PASSED:
+        raise HTTPException(status_code=409, detail={
+            "message": f"El libro está en estado {current['label']} y no se puede publicar.",
+            "blockers": current["blockers"], "reviews": current["reviews"]})
+    if not request.confirm or not request.reviewer.strip():
+        raise HTTPException(status_code=422, detail="Confirma la publicación e indica quién la autoriza.")
+    release = {**(job.get("release") or {}), "released": {
+        "at": job_store.utc_now(), "by": request.reviewer.strip()[:120], "note": request.note.strip()[:1000]}}
+    job_store.update_job(database_path, job_id, release_json=json.dumps(release, ensure_ascii=False))
+    job_store.add_event(database_path, job_id, "INFO", "book released", release["released"])
+    _job_log(Path(job["source_path"]).parent, "book released", operation="release.publish",
+             reviewer=release["released"]["by"])
+    return compute_release(job_id)
+
+
+@app.get("/api/jobs/{job_id}/attempts")
+async def production_attempts(job_id: str, sentence_id: str = "") -> dict[str, object]:
+    if not job_store.get_job(database_path, job_id):
+        raise HTTPException(status_code=404, detail="Trabajo no encontrado.")
+    attempts = job_store.get_attempts(database_path, job_id, sentence_id or None)
+    return {"job_id": job_id, "total": len(attempts), "attempts": attempts}
+
+
 @app.post("/api/jobs/{job_id}/resume")
 async def resume_production_job(job_id: str) -> dict[str, str]:
     job = job_store.get_job(database_path, job_id)
@@ -1672,14 +2181,48 @@ async def cancel_production_job(job_id: str) -> dict[str, str]:
     return {"job_id": job_id, "state": "cancellation_requested"}
 
 
+def book_download_name(title: str, fallback: str = "libro", suffix: str = "") -> str:
+    """The book's own title as a file name: «El faro de Cabo Gris.zip».
+
+    Accents and spaces are kept, because the reader recognises the title;
+    only characters Windows or macOS do not allow in a file name are removed.
+    """
+    def clean(value: str) -> str:
+        kept = "".join(" " if ord(character) < 32 or character in FORBIDDEN_IN_FILENAMES else character
+                       for character in value)
+        return " ".join(kept.split()).strip(" .")[:120].strip(" .")
+
+    name = clean(title or "") or clean(Path(fallback or "libro").stem) or "libro"
+    return f"{name}{suffix}.zip"
+
+
+FORBIDDEN_IN_FILENAMES = set('<>:"/|?*') | {chr(92)}
+
+
 @app.get("/api/jobs/{job_id}/artifacts")
-async def download_job_delivery(job_id: str) -> FileResponse:
+async def download_job_delivery(job_id: str, diagnostic: bool = False) -> FileResponse:
+    """The delivery, only for a book that passed the release gate.
+
+    ``diagnostic=true`` serves an assembled but unreleasable package for
+    inspection, under a name that says so; its quality-status.json states why.
+    """
     job = job_store.get_job(database_path, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Trabajo no encontrado.")
     if job["state"] != "completed" or not job["output_path"] or not Path(job["output_path"]).is_file():
         raise HTTPException(status_code=409, detail="El paquete completo todavía no está disponible.")
-    return FileResponse(job["output_path"], media_type="application/zip", filename=f"{job_id}-once-delivery.zip")
+    gate = compute_release(job_id)
+    headers = {"X-Soni2-Release-State": gate["state"]}
+    title = (job.get("metadata") or {}).get("title", "")
+    if gate["state"] in {release_gate.PASSED, release_gate.RELEASED}:
+        return FileResponse(job["output_path"], media_type="application/zip",
+                            filename=book_download_name(title, job["source_name"]), headers=headers)
+    if not diagnostic:
+        raise HTTPException(status_code=409, detail={
+            "message": f"El libro está en estado «{gate['label']}»: no se entrega hasta superar todas las "
+                       "comprobaciones.", "blockers": gate["blockers"], "reviews": gate["reviews"]})
+    return FileResponse(job["output_path"], media_type="application/zip",
+                        filename=book_download_name(title, job["source_name"], " (SIN VALIDAR)"), headers=headers)
 
 
 @app.get("/api/jobs/{job_id}/sentences/{sentence_id}/audio")
@@ -1738,16 +2281,25 @@ def create_navigation_sections(chapters: list[tuple[str, list[str]]]) -> list[tu
         active.append(paragraph)
         active_words += len(paragraph.split())
         if active_words >= target_words and len(sections) < 4 and index < len(paragraphs) - 1:
-            sections.append((f"Sección {len(sections) + 1}", active))
+            # Invented for navigation: the book does not say "Sección 2".
+            sections.append(SelectedChapter(f"Sección {len(sections) + 1}", active, True))
             active = []
             active_words = 0
     if active:
-        sections.append((f"Sección {len(sections) + 1}", active))
+        sections.append(SelectedChapter(f"Sección {len(sections) + 1}", active, True))
     return sections if len(sections) >= 2 else chapters
+
+
+def elevenlabs_voice_settings() -> dict | None:
+    values = {"stability": settings.elevenlabs_stability, "similarity_boost": settings.elevenlabs_similarity_boost,
+              "style": settings.elevenlabs_style}
+    values = {key: value for key, value in values.items() if value is not None}
+    return values or None
 
 
 async def synthesize(
     text: str, voice_speed: float = 1.0, voice_id: str = "", *, context: tuple[str, str] = NO_CONTEXT,
+    seed: int | None = None, meta: dict | None = None,
 ) -> bytes:
     """Generate narration audio for one passage with the active TTS provider.
 
@@ -1763,20 +2315,29 @@ async def synthesize(
     api_key = provider_api_key(provider)
     chunks = [chunk for chunk in _tts_chunks(text) if chunk] or [text]
     previous, following = context
-    parts = [
-        await providers.synthesize(
+    parts = []
+    billed = 0
+    for index, chunk in enumerate(chunks):
+        chunk_meta: dict = {}
+        parts.append(await providers.synthesize(
             chunk, voice, speed=voice_speed, api_key=api_key, model=model,
             previous_text=chunks[index - 1] if index else previous,
             next_text=chunks[index + 1] if index + 1 < len(chunks) else following,
-        )
-        for index, chunk in enumerate(chunks)
-    ]
+            seed=seed if provider == "elevenlabs" else None,
+            voice_settings=elevenlabs_voice_settings() if provider == "elevenlabs" else None,
+            meta=chunk_meta,
+        ))
+        billed += int(chunk_meta.get("characters_billed") or 0)
+        if meta is not None:
+            meta.update({key: value for key, value in chunk_meta.items() if key != "characters_billed"})
+    if meta is not None:
+        meta.update({"characters_billed": billed, "chunks": len(chunks), "cache": "miss"})
     return parts[0] if len(parts) == 1 else b"".join(parts)
 
 
 async def synthesize_cached(
     text: str, voice_speed: float = 1.0, voice_id: str = "", *, refresh: bool = False,
-    context: tuple[str, str] = NO_CONTEXT,
+    context: tuple[str, str] = NO_CONTEXT, seed: int | None = None, meta: dict | None = None,
 ) -> tuple[bytes, bool]:
     """Return ``(audio, reused)``, paying the provider only for new audio.
 
@@ -1794,8 +2355,9 @@ async def synthesize_cached(
         "model": model, "speed": voice_speed if providers.supports_speed(provider) else None,
         "characters": len(text), "created_at": job_store.utc_now(),
     }
+    extra = {key: value for key, value in (("seed", seed), ("meta", meta)) if value is not None}
     return await audio_cache.get_or_create(
-        key, lambda: synthesize(text, voice_speed, voice_id, context=context), metadata, refresh=refresh,
+        key, lambda: synthesize(text, voice_speed, voice_id, context=context, **extra), metadata, refresh=refresh,
     )
 
 
@@ -1808,13 +2370,14 @@ async def narrate_with_backoff(
     more likely; waiting and retrying beats failing the whole book. An empty
     balance or a rejected key is permanent and fails at once.
     """
-    for delay in (*retry_delays, None):
+    for index in range(len(retry_delays) + 1):
         try:
             return await synthesize_cached(text, voice_speed, voice_id, context=context)
         except ProviderError as exc:
-            if exc.permanent or delay is None:
+            if exc.permanent or index >= len(retry_delays):
                 raise
-            logger.warning("Narration failed (%s); retrying in %ss", exc.kind, delay)
+            delay = retry_delay(index, exc)
+            logger.warning("Narration failed (%s %s); retrying in %.1fs", exc.kind, exc.code, delay)
             await asyncio.sleep(delay)
     raise AssertionError("unreachable")
 
@@ -1969,6 +2532,12 @@ async def capabilities() -> dict[str, object]:
         "max_technical_attempts": len(retry_delays) + 1,
         "sentence_audio_cache": True,
         "official_daisy_pipeline_validation": False,
+        "dtd_validation": True,
+        "release_gate": True,
+        "secondary_asr_provider": secondary_asr_provider(),
+        "max_quality_retakes_configured": max_quality_retakes(),
+        "ocr_available": ocr.available("spa"),
+        "direct_download_verified": False,
     }
 
 
@@ -2075,7 +2644,7 @@ async def analyze_book_structure(file: UploadFile = File(...), pages: str = Form
         raise HTTPException(status_code=413, detail="El archivo supera el tamaño máximo permitido.")
     try:
         structure = parse_book(filename, content, pages)
-        plan = build_narration_plan([(chapter.title, chapter.paragraphs) for chapter in structure.chapters])
+        plan = build_narration_plan(plan_input(structure))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"title": structure.title, "sections": [section.as_dict() for section in plan],
@@ -2101,7 +2670,7 @@ async def create_preview(
         raise HTTPException(status_code=413, detail="El archivo supera el tamaño máximo permitido.")
     try:
         structure = parse_book(filename, content, pages)
-        plan = build_narration_plan([(chapter.title, chapter.paragraphs) for chapter in structure.chapters])
+        plan = build_narration_plan(plan_input(structure))
         selected_ids = _selected_narration_ids(narration_plan_json, plan)
         selected_chapters = apply_narration_selection(plan, selected_ids)
         text = clean_text("\n\n".join("\n\n".join(([title] if title else []) + paragraphs) for title, paragraphs in selected_chapters))
@@ -2222,7 +2791,7 @@ async def _build_direct_package(
     text = clean_text(structure.as_text())
     if len(text) < 20:
         raise ValueError("No hemos encontrado suficiente texto legible en este documento.")
-    plan = build_narration_plan([(chapter.title, chapter.paragraphs) for chapter in structure.chapters])
+    plan = build_narration_plan(plan_input(structure))
     selected_ids = _selected_narration_ids(narration_plan_json, plan)
     source_chapters = apply_narration_selection(plan, selected_ids)
     source_chapters = apply_paragraph_corrections(source_chapters, corrections_json)
@@ -2322,10 +2891,19 @@ async def _build_direct_package(
         mastering=mastering_options(),
     ))
     await asyncio.to_thread(validate_daisy_package, package_dir)
+    dtd = await asyncio.to_thread(daisy_dtd.validate_package, package_dir)
+    # Nothing in this path listened to the narration, so the package says so
+    # in plain words instead of looking like a verified audiobook.
+    write_atomic_text(package_dir / "quality-status.json", json.dumps({
+        "state": "UNVERIFIED",
+        "label": "Sin verificar",
+        "detail": "Descarga directa: no se transcribió ni se comparó la narración con el texto, no hubo "
+                  "retomas ni revisión humana. Para un audiolibro verificado usa «Producir con revisión de calidad».",
+        "package": {"structural": "passed", "dtd": dtd["status"], "dtd_errors": dtd["errors"][:10]},
+    }, ensure_ascii=False, indent=2))
     archive_path = work_dir / "soni2-daisy.zip"
     await asyncio.to_thread(_zip_package, package_dir, archive_path)
-    safe_name = re.sub(r"[^\w.-]+", "_", Path(filename).stem, flags=re.UNICODE).strip("._") or "libro"
-    return archive_path, f"{safe_name}-daisy.zip"
+    return archive_path, book_download_name(metadata["title"], filename)
 
 
 def _zip_package(package_dir: Path, archive_path: Path) -> None:

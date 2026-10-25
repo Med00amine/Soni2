@@ -113,7 +113,17 @@ def test_transient_synthesis_retries_with_configured_exponential_delays(tmp_path
     assert attempts == calls == 6
     assert error == ""
     assert reused is False
-    assert delays == [2, 4, 8, 16, 32]
+    # Exponential backoff with jitter: each wait is between half and all of
+    # 2/4/8/16/32 s, so parallel requests do not retry in lockstep.
+    assert len(delays) == 5
+    for delay, base in zip(delays, (2, 4, 8, 16, 32)):
+        assert base * 0.5 <= delay <= base
+
+
+def test_a_provider_asking_to_wait_longer_is_obeyed() -> None:
+    error = main.ProviderError("rate_limit", "busy", permanent=False, retry_after=20)
+    assert main.retry_delay(0, error) == 20
+    assert 1 <= main.retry_delay(0, None) <= 2
 
 
 def test_permanent_synthesis_error_fails_without_retry(tmp_path: Path, monkeypatch) -> None:

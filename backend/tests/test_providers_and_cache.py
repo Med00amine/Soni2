@@ -184,8 +184,11 @@ def test_deepgram_transcription_reads_transcript_and_word_timings(monkeypatch) -
     assert captured["headers"]["Authorization"] == "Token dg-key"
     assert result.text == "El camino mide nueve metros."
     assert result.engine == "deepgram-nova-3"
-    assert result.segments == [{"text": "El", "start": 0.1, "end": 0.3},
-                               {"text": "camino", "start": 0.3, "end": 0.8}]
+    # Word confidences are kept (None when Deepgram omits them) so review can
+    # point at the words the recognizer itself was unsure of.
+    assert [{key: word[key] for key in ("text", "start", "end")} for word in result.segments] == [
+        {"text": "El", "start": 0.1, "end": 0.3}, {"text": "camino", "start": 0.3, "end": 0.8}]
+    assert all("confidence" in word for word in result.segments)
 
 
 # --------------------------------------------------------------------------- #

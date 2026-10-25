@@ -365,7 +365,15 @@ def test_daisy_validation_result_is_recorded_and_honest(offline) -> None:
 
     validation = json.loads((_job_dir(job_id) / "daisy-validation.json").read_text(encoding="utf-8"))
     assert validation["status"] == "passed"
-    assert validation["method"] == "soni2_structural_validation"
+    assert validation["method"] == "soni2_structural_validation+dtd_z3986_2005"
+    # Every XML file of the package was checked against the official DTDs.
+    assert validation["dtd"]["status"] == "passed" and validation["dtd"]["errors"] == []
+    assert {item["dtd"] for item in validation["dtd"]["files"]} >= {
+        "dtbook-2005-3.dtd", "ncx-2005-1.dtd", "dtbsmil-2005-2.dtd", "oebpkg12.dtd", "resource-2005-1.dtd"}
+    # The completeness chain was evaluated and recorded (mock audio is not a
+    # real stream, so its verdict is covered by tests with real audio).
+    assert validation["completeness"] in {"passed", "failed"}
+    assert (_job_dir(job_id) / "completeness.json").is_file()
     # The official validator was not run, and the record says so plainly.
     assert validation["official_daisy_pipeline"] == "not_run"
     assert "no sustituye al validador oficial" in validation["note"].lower()
@@ -622,7 +630,8 @@ def test_the_page_download_reports_progress_and_serves_the_zip(slow_voice) -> No
         download = client.get(f"/api/books/package-tasks/{task_id}/download")
         assert download.status_code == 200
         assert zipfile.is_zipfile(io.BytesIO(download.content))
-        assert "-daisy.zip" in download.headers["content-disposition"]
+        # Named after the book: a plain-text book takes its title from the file name.
+        assert 'filename="largo.zip"' in download.headers["content-disposition"]
 
         # Downloading the same book again pays for nothing, and says so.
         calls_before = len(slow_voice["calls"])
