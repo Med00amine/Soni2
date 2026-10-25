@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { BookOpen, Upload, Download, Volume2, CheckCircle2 } from 'lucide-react'
 import './production-status.css'
+// Loaded after, so the modern tokens win over the older hardcoded palette.
+import './export-modern.css'
 
 const API = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '')
 
@@ -39,10 +41,40 @@ type BookChapter = { title: string; paragraphs: string[] }
 type NarrationSection = { id: string; title: string; category: string; paragraph_count: number; included: boolean; needs_review: boolean; reason: string }
 type BookMetadata = { title: string; author: string; edition: string; publication_year: string; publisher: string }
 type VoiceOption = { voice_id: string; name: string; provider?: string; language?: string; peninsular?: boolean; accent_verified?: boolean; labels?: Record<string, string> }
-type QaIssue = { kind: string; category?: string; difference_type?: string; expected?: string; recognized?: string; detail?: string; reason?: string; expected_start?: number; expected_end?: number; recognized_start?: number; recognized_end?: number }
+type QaIssue = { kind: string; category?: string; difference_type?: string; expected?: string; recognized?: string; detail?: string; reason?: string; expected_start?: number; expected_end?: number; recognized_start?: number; recognized_end?: number; audio_start?: number; audio_end?: number; chapter_time?: number; book_time?: number | null }
 type AudioReview = { recognized_text: string; recognizer?: string; verdict?: string; confidence?: number; issues: QaIssue[]; review_note: string }
-type ProductionSentence = { sentence_id: string; chapter_index: number; chapter_title: string; sequence: number; text: string; state: string; recognized_text: string; issues: QaIssue[]; audio_path?: string | null; quality_retakes: number; technical_attempts: number; last_error: string; reused_audio?: number | boolean; updated_at?: string }
-type ProductionJob = { job_id: string; state: string; source_name: string; total_sentences: number; progress: Record<string, number>; sentences: ProductionSentence[]; error?: string; voice_id?: string; voice_name?: string; voice_language?: string }
+type Diagnosis = { origin?: string; severity?: string; action?: string; recommendation?: string; reasons?: string[] }
+type ProductionSentence = { sentence_id: string; chapter_index: number; chapter_title: string; sequence: number; text: string; state: string; recognized_text: string; issues: QaIssue[]; audio_path?: string | null; quality_retakes: number; technical_attempts: number; last_error: string; reused_audio?: number | boolean; updated_at?: string; spoken_text?: string; diagnosis?: Diagnosis; verification?: string }
+type ExtractionWarning = { id: string; code: string; message: string; location?: string; text?: string }
+type ReleaseStatus = {
+  state: string
+  label: string
+  blockers: string[]
+  reviews: string[]
+  uncertainty: string[]
+  releasable?: boolean
+  released?: { at: string; by: string; note?: string } | null
+  dimensions?: {
+    technical?: { status?: string; segments?: number; verified?: number; failed?: number; quality_retakes?: number }
+    source?: { status?: string; coverage?: { ratio?: number; unaccounted_words?: number }; open_warnings?: ExtractionWarning[]; ocr_pages?: number }
+    content?: { status?: string; wer?: number | null; reference_words?: number; awaiting_review?: number }
+    audio?: { status?: string; failed?: string[]; suspicious?: number }
+    package?: { status?: string; structural?: string; dtd?: string; completeness?: string }
+    human?: { decisions?: number; listening_recommended?: string[] }
+  }
+}
+type FaultLocation = { sentence_id: string; chapter: number; chapter_title: string; paragraph: number; kind: string; expected: string; heard: string; reason: string; decision: string; paragraph_state: string; paragraph_time: number; chapter_file: string; chapter_time: number; chapter_clock: string; book_file: string; book_time: number | null; book_clock: string | null }
+type ProductionJob = { fault_locations?: FaultLocation[]; job_id: string; state: string; source_name: string; total_sentences: number; progress: Record<string, number>; sentences: ProductionSentence[]; error?: string; voice_id?: string; voice_name?: string; voice_language?: string; release?: ReleaseStatus }
+type PronunciationSuggestion = { respelling: string; label: string; reason: string }
+type PronunciationAnalysis = {
+  word: string
+  ipa: string
+  syllables: string[]
+  stressed: number
+  looks_spanish: boolean
+  suggestions: PronunciationSuggestion[]
+  saved_respelling: string
+}
 type WorkspaceTab = 'upload' | 'review' | 'export'
 type PackageTaskStatus = { task_id: string; state: string; total: number; done: number; reused: number; detail?: string }
 type PackageProgress = Pick<PackageTaskStatus, 'total' | 'done' | 'reused'>
@@ -91,6 +123,49 @@ function sentenceStateLabel(state: string) {
     unresolved: 'Sin resolver',
     failed: 'Con fallo técnico',
   } as Record<string, string>)[state] ?? state
+}
+
+// 1:02:03,4 in a book, 2:03,4 under an hour: the clock a person reads in a player.
+function clockLabel(seconds: number) {
+  const tenths = Math.max(0, Math.round(seconds * 10))
+  const hours = Math.floor(tenths / 36000)
+  const minutes = Math.floor((tenths % 36000) / 600)
+  const rest = tenths % 600
+  const secondsText = `${String(Math.floor(rest / 10)).padStart(2, '0')},${rest % 10}`
+  return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${secondsText}` : `${minutes}:${secondsText}`
+}
+
+// Start an audio element just before a moment, so the word is heard in context.
+function playFrom(audioId: string, seconds: number) {
+  const audio = document.getElementById(audioId) as HTMLAudioElement | null
+  if (!audio) return
+  const start = () => { audio.currentTime = Math.max(0, seconds - 0.8); void audio.play().catch(() => undefined) }
+  if (audio.readyState >= 1) start()
+  else { audio.preload = 'auto'; audio.addEventListener('loadedmetadata', start, { once: true }); audio.load() }
+}
+
+const RELEASE_STATE_CLASS: Record<string, string> = {
+  PASSED: 'release-ok', RELEASED: 'release-ok', NEEDS_REVIEW: 'release-warn', BLOCKED: 'release-bad',
+}
+
+function dimensionStatus(status?: string) {
+  return ({ passed: 'superado', failed: 'fallido', needs_review: 'requiere revisión', simulated: 'audio simulado',
+            partial: 'parcial', in_progress: 'en curso', not_run: 'no realizado' } as Record<string, string>)[status ?? ''] ?? (status || '—')
+}
+
+function originLabel(origin?: string) {
+  return ({ synthesis: 'la locución', audio: 'el archivo de audio', normalization: 'la lectura de una expresión normalizada',
+            source: 'el texto de origen', asr: 'el reconocimiento automático', technical: 'un fallo técnico' } as Record<string, string>)[origin ?? ''] ?? ''
+}
+
+// A refusal from the server can carry the reasons as a list; show them.
+function errorDetail(detail: unknown, fallback: string) {
+  if (typeof detail === 'string') return detail
+  if (detail && typeof detail === 'object') {
+    const { message, blockers = [], reviews = [] } = detail as { message?: string; blockers?: string[]; reviews?: string[] }
+    return [message, ...blockers, ...reviews].filter(Boolean).join(' ') || fallback
+  }
+  return fallback
 }
 
 function qaIssueLabel(category?: string, kind?: string) {
@@ -143,6 +218,20 @@ export default function App() {
   const [directProgress, setDirectProgress] = useState<PackageProgress>()
   const [productionJob, setProductionJob] = useState<ProductionJob>()
   const [reviewingSentence, setReviewingSentence] = useState('')
+  // Which export the reader means to use; it decides the primary action.
+  const [exportMode, setExportMode] = useState<'direct' | 'reviewed'>('reviewed')
+  // Who signs a release or confirms a warning: recorded with the decision.
+  const [reviewerName, setReviewerName] = useState('')
+  const [releaseConfirmed, setReleaseConfirmed] = useState(false)
+  // Pronunciation editor: which sentence it is open for, the word being
+  // worked on, what Spanish rules make of it, and the reviewer's own spelling.
+  const [pronSentence, setPronSentence] = useState('')
+  const [pronWord, setPronWord] = useState('')
+  const [pronAnalysis, setPronAnalysis] = useState<PronunciationAnalysis>()
+  const [pronCustom, setPronCustom] = useState('')
+  const [pronBusy, setPronBusy] = useState('')
+  const [pronSaved, setPronSaved] = useState<Record<string, string>>({})
+  const pronPlayer = useRef<HTMLAudioElement>(null)
   const [sentenceCorrections, setSentenceCorrections] = useState<Record<string, string>>({})
   // Paragraphs narrated again from the review queue. They stay on screen with
   // their new reading, even once it passes, so the reviewer can hear it.
@@ -371,20 +460,15 @@ export default function App() {
     return form
   }
 
-  function saveBlob(blob: Blob, filename: string) {
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = filename
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    // Give the browser a moment to start the save before releasing the blob.
-    window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
-  }
-
-  function bookFilename(sourceName: string) {
-    return `${(sourceName || book).replace(/\.[^.]+$/, '') || 'libro'}-daisy.zip`
+  // The download carries the book's own title, «El faro de Cabo Gris.zip»,
+  // with the same rule the server uses: accents and spaces stay, only the
+  // characters Windows or macOS refuse in a file name go.
+  function bookFilename(sourceName: string, suffix = '') {
+    const clean = (value: string) => Array.from(value)
+      .map(character => character.charCodeAt(0) < 32 || '<>:"/\\|?*'.includes(character) ? ' ' : character)
+      .join('').split(/\s+/).join(' ').replace(/^[ .]+|[ .]+$/g, '').slice(0, 120).replace(/[ .]+$/, '')
+    const name = clean(bookMetadata.title) || clean((sourceName || book).replace(/\.[^.]+$/, '')) || 'libro'
+    return `${name}${suffix}.zip`
   }
 
   // Generate the audiobook and download it with no review queue. It runs as a
@@ -411,12 +495,12 @@ export default function App() {
       if (activePackageTaskId.current !== taskId) return
       if (status.state !== 'completed') throw new Error(status.detail || 'No se ha podido generar el audiolibro.')
       setMessage('Audio listo. Descargando el ZIP…')
-      const archive = await fetch(`${API}/api/books/package-tasks/${encodeURIComponent(taskId)}/download`)
-      if (!archive.ok) {
-        const body = await archive.json().catch(() => ({})) as { detail?: string }
-        throw new Error(body.detail || `No se ha podido descargar el audiolibro (HTTP ${archive.status}).`)
-      }
-      saveBlob(await archive.blob(), filename)
+      // Streamed to disk by the browser rather than buffered in a blob: an
+      // audiobook package is far too large to hold in the tab's memory, which
+      // is why pressing the button used to appear to do nothing.
+      await streamDownload(
+        `${API}/api/books/package-tasks/${encodeURIComponent(taskId)}/download`, filename,
+      )
       setMessage(status.reused
         ? `El audiolibro se ha descargado. ${status.reused} de ${status.total} párrafos ya estaban narrados y no se han vuelto a pagar.`
         : 'El audiolibro se ha descargado. Incluye el audio por capítulos y la estructura DAISY.')
@@ -529,30 +613,137 @@ export default function App() {
     }
   }
 
-  async function downloadJobArtifact(jobId: string, sourceName: string) {
-    // Fetch it rather than clicking a link: the package is only available once
-    // every sentence is verified or accepted, and a bare link turned that
-    // refusal into a download that silently never happened.
-    setMessage('Preparando la descarga del paquete DAISY…')
+  // Hand a URL to the browser so it streams the file to disk with its own
+  // progress, instead of buffering it in the tab. A one-byte range request
+  // first costs nothing and still surfaces the real error when the file is not
+  // ready, rather than navigating away to a JSON error page.
+  async function streamDownload(url: string, filename: string) {
+    const probe = await fetch(url, { headers: { Range: 'bytes=0-0' } })
+    if (!probe.ok && probe.status !== 206) {
+      const body = await probe.json().catch(() => ({})) as { detail?: unknown }
+      throw new Error(errorDetail(body.detail, `No se ha podido descargar el archivo (HTTP ${probe.status}).`))
+    }
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+  }
+
+  async function releaseAction(path: 'acknowledge' | 'release', body: Record<string, unknown>) {
+    if (!productionJob) return
     try {
-      const response = await fetch(`${API}/api/jobs/${encodeURIComponent(jobId)}/artifacts`)
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({})) as { detail?: string }
-        const detail = body.detail || `No se ha podido descargar el paquete (HTTP ${response.status}).`
-        throw new Error(response.status === 409
-          ? `${detail} Resuelve las frases pendientes de revisión, o usa «Descargar audiolibro ahora» para generarlo sin revisión.`
-          : detail)
-      }
-      saveBlob(await response.blob(), bookFilename(sourceName))
-      setMessage('El paquete DAISY se ha descargado.')
+      const response = await fetch(`${API}/api/jobs/${encodeURIComponent(productionJob.job_id)}/${path}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      })
+      const result = await response.json().catch(() => ({})) as ReleaseStatus & { detail?: unknown }
+      if (!response.ok) throw new Error(errorDetail(result.detail, 'No se pudo registrar la decisión.'))
+      setProductionJob(current => current ? { ...current, release: result } : current)
+      setMessage(path === 'release' ? 'Libro publicado. La decisión queda registrada con tu nombre.'
+                                    : 'Aviso confirmado y registrado con tu nombre.')
     } catch (error) {
-      setMessage(error instanceof Error ? publicCopy(error.message) : 'No se ha podido descargar el paquete DAISY.')
+      setMessage(error instanceof Error ? error.message : 'No se pudo registrar la decisión.')
+    }
+  }
+
+  async function downloadDiagnosticArtifact(jobId: string, sourceName: string) {
+    setMessage('Descargando el paquete de diagnóstico. No está validado y no debe publicarse.')
+    try {
+      await streamDownload(`${API}/api/jobs/${encodeURIComponent(jobId)}/artifacts?diagnostic=true`,
+        bookFilename(sourceName, ' (SIN VALIDAR)'))
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'No se ha podido descargar el paquete.')
+    }
+  }
+
+  async function downloadJobArtifact(jobId: string, sourceName: string) {
+    // An audiobook package is hundreds of megabytes. Reading it into a blob
+    // first filled the tab's memory and the download appeared to do nothing,
+    // so the browser is handed the URL and streams it straight to disk.
+    // A one-byte range request first, which costs nothing, still surfaces the
+    // real reason when the package is not ready instead of navigating away.
+    setMessage('Comprobando que el paquete esté listo…')
+    try {
+      await streamDownload(`${API}/api/jobs/${encodeURIComponent(jobId)}/artifacts`, bookFilename(sourceName))
+      setMessage('La descarga del paquete DAISY ha comenzado. Puede tardar según el tamaño del libro.')
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'No se ha podido descargar el paquete DAISY.'
+      setMessage(publicCopy(detail.includes('todavía no está disponible')
+        ? `${detail} Resuelve las frases pendientes de revisión, o usa «Descargar audiolibro ahora» para generarlo sin revisión.`
+        : detail))
     }
   }
 
   // The server narrates a corrected or retried paragraph inside the request and
   // answers with it, so the card shows the new text and plays the new reading
   // the moment the answer arrives instead of queueing it out of sight.
+  // A word is read wrong because of how it is spelled, so the repair is a
+  // different spelling. Spanish rules say how the word reads now; the reviewer
+  // hears each candidate and only then saves one.
+  async function analysePronunciation(word: string, sentenceId: string) {
+    const clean = word.replace(/[^\p{L}\p{N}'-]/gu, '')
+    if (!clean) return
+    setPronSentence(sentenceId)
+    setPronWord(clean)
+    setPronAnalysis(undefined)
+    setPronCustom('')
+    setPronBusy('analyse')
+    try {
+      const response = await fetch(`${API}/api/pronunciation/analyse`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ word: clean }),
+      })
+      const body = await response.json().catch(() => ({})) as PronunciationAnalysis & { detail?: string }
+      if (!response.ok) throw new Error(body.detail || 'No se pudo analizar la palabra.')
+      setPronAnalysis(body)
+      setPronCustom(body.saved_respelling || '')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'No se pudo analizar la palabra.')
+    } finally { setPronBusy('') }
+  }
+
+  async function hearRespelling(respelling: string, sentence: string) {
+    if (!pronWord || !respelling.trim()) return
+    setPronBusy(`hear:${respelling}`)
+    try {
+      const response = await fetch(`${API}/api/pronunciation/preview`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ word: pronWord, respelling, sentence, voice_id: voiceId }),
+      })
+      const body = await response.json().catch(() => ({})) as { audio_base64?: string; detail?: string }
+      if (!response.ok || !body.audio_base64) throw new Error(body.detail || 'No se pudo generar la muestra.')
+      const bytes = Uint8Array.from(atob(body.audio_base64), character => character.charCodeAt(0))
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }))
+      if (pronPlayer.current) {
+        pronPlayer.current.src = url
+        void pronPlayer.current.play().catch(() => undefined)
+      }
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch (error) {
+      setMessage(error instanceof Error ? publicCopy(error.message) : 'No se pudo generar la muestra.')
+    } finally { setPronBusy('') }
+  }
+
+  async function saveRespelling(respelling: string) {
+    if (!pronWord || !respelling.trim()) return
+    setPronBusy(`save:${respelling}`)
+    try {
+      const response = await fetch(`${API}/api/pronunciation-lexicon/entries`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ term: pronWord, pronunciation: respelling }),
+      })
+      const body = await response.json().catch(() => ({})) as { entries?: Record<string, string>; detail?: string }
+      if (!response.ok) throw new Error(body.detail || 'No se pudo guardar la pronunciación.')
+      setPronSaved(body.entries ?? {})
+      setPronAnalysis(current => current && { ...current, saved_respelling: respelling })
+      setMessage(`«${pronWord}» se pronunciará «${respelling}» en este libro y en los siguientes. `
+        + 'Vuelve a narrar la frase para oírla con el cambio.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'No se pudo guardar la pronunciación.')
+    } finally { setPronBusy('') }
+  }
+
   async function decideSentence(sentence: ProductionSentence, decision: 'accept' | 'retry' | 'correct') {
     if (!productionJob || reviewingSentence) return
     setReviewingSentence(sentence.sentence_id)
@@ -778,7 +969,9 @@ export default function App() {
     } finally { setRetakeBusy(false) }
   }
 
-  return <main className="shell editor-shell">
+  // Step 2 is a screen-sized editor whose columns scroll on their own; the
+  // other steps are documents, and the page itself scrolls.
+  return <main className={workspaceTab === 'review' ? 'shell editor-shell' : 'shell editor-shell is-document'}>
     <a className="skip" href="#main">Saltar al contenido principal</a>
     <header className="top editor-top"><a className="brand" href="/" aria-label="Inicio de Soni2"><img className="brand-logo" src="/soni2-logo.svg" alt="Soni2" width="200" height="42"/></a><span className="top-note">Una forma más tranquila de disfrutar los libros</span></header>
     <section id="main" className="hero workspace editor-workspace" aria-label="Espacio de trabajo de Soni2">
@@ -840,7 +1033,12 @@ export default function App() {
           <details className="metadata-editor"><summary>Datos bibliográficos del libro</summary><p>Corrige los datos detectados. Se guardarán en los metadatos del libro dentro del ZIP.</p><label htmlFor="metadata-title">Título<input id="metadata-title" maxLength={500} value={bookMetadata.title} onChange={event => setBookMetadata(current => ({ ...current, title: event.target.value }))}/></label><label htmlFor="metadata-author">Autoría<input id="metadata-author" maxLength={500} value={bookMetadata.author} onChange={event => setBookMetadata(current => ({ ...current, author: event.target.value }))}/></label><div className="metadata-row"><label htmlFor="metadata-edition">Edición<input id="metadata-edition" maxLength={500} value={bookMetadata.edition} onChange={event => setBookMetadata(current => ({ ...current, edition: event.target.value }))}/></label><label htmlFor="metadata-year">Año de publicación<input id="metadata-year" maxLength={500} value={bookMetadata.publication_year} onChange={event => setBookMetadata(current => ({ ...current, publication_year: event.target.value }))}/></label></div><label htmlFor="metadata-publisher">Editorial<input id="metadata-publisher" maxLength={500} value={bookMetadata.publisher} onChange={event => setBookMetadata(current => ({ ...current, publisher: event.target.value }))}/></label></details>
           {bookChapters.length === 1 && totalParagraphCount > 1 && !hasManualSections && <div className="helper-action"><div><strong>¿El libro no tiene capítulos detectables?</strong><p>Puedo crear secciones de navegación según la longitud, respetando los límites de párrafo. Son secciones para orientarse, no capítulos originales.</p></div><button type="button" className="package-download" onClick={createNavigationSections}>Crear secciones de navegación</button></div>}
           {hasManualSections && <div className="helper-action"><p>Secciones creadas por longitud. Revisa sus límites antes de exportar.</p><button type="button" className="helper-secondary" onClick={restoreDetectedStructure}>Restaurar estructura original</button></div>}
-          {productionJob && <section className="workflow-card production-progress" aria-labelledby="production-title"><h3 id="production-title">Producción del audiolibro</h3><p className="production-voice">Voz utilizada en este trabajo: <strong>{productionJob.voice_name || productionJob.voice_id || 'sin registrar'}</strong>{productionJob.voice_language ? ` (${productionJob.voice_language})` : ''}</p>{productionJob.voice_id && voiceId && productionJob.voice_id !== voiceId && <p className="audio-setup-note" role="status">Has seleccionado otra voz después de iniciar este trabajo. Este resultado y su informe corresponden a la voz anterior; vuelve a producir para usar la nueva.</p>}<p role="status" aria-live="polite">{publicCopy(message)}</p><progress max={productionJob.total_sentences || 1} value={Object.entries(productionJob.progress ?? {}).reduce((sum, [state, count]) => sum + (['pending', 'generating'].includes(state) ? 0 : count), 0)} aria-label="Avance de producción"/><p>{Object.entries(productionJob.progress ?? {}).map(([state, count]) => `${sentenceStateLabel(state)}: ${count}`).join(' · ')}</p>{inFlightSentences > 0 && <p className="production-working" role="status" aria-live="polite"><span className="spinner" aria-hidden="true"/>Narrando y comprobando {inFlightSentences === 1 ? 'una frase' : `${inFlightSentences} frases`}… Al terminar se reconstruyen el capítulo afectado y el paquete, así que puede tardar un minuto.</p>}<div className="review-controls"><button type="button" className="package-download" onClick={refreshProductionJob}>Actualizar estado</button>{productionJob.state === 'completed' && <button type="button" className="package-download" onClick={() => void downloadJobArtifact(productionJob.job_id, productionJob.source_name)}>Descargar ZIP DAISY</button>}</div>
+          {productionJob && <section className="workflow-card production-progress" aria-labelledby="production-title"><h3 id="production-title">Producción del audiolibro</h3><p className="production-voice">Voz utilizada en este trabajo: <strong>{productionJob.voice_name || productionJob.voice_id || 'sin registrar'}</strong>{productionJob.voice_language ? ` (${productionJob.voice_language})` : ''}</p>{productionJob.voice_id && voiceId && productionJob.voice_id !== voiceId && <p className="audio-setup-note" role="status">Has seleccionado otra voz después de iniciar este trabajo. Este resultado y su informe corresponden a la voz anterior; vuelve a producir para usar la nueva.</p>}<p role="status" aria-live="polite">{publicCopy(message)}</p><progress max={productionJob.total_sentences || 1} value={Object.entries(productionJob.progress ?? {}).reduce((sum, [state, count]) => sum + (['pending', 'generating'].includes(state) ? 0 : count), 0)} aria-label="Avance de producción"/><p>{Object.entries(productionJob.progress ?? {}).map(([state, count]) => `${sentenceStateLabel(state)}: ${count}`).join(' · ')}</p>{inFlightSentences > 0 && <p className="production-working" role="status" aria-live="polite"><span className="spinner" aria-hidden="true"/>Narrando y comprobando {inFlightSentences === 1 ? 'una frase' : `${inFlightSentences} frases`}… Al terminar se reconstruyen el capítulo afectado y el paquete, así que puede tardar un minuto.</p>}{productionJob.release && <ReleasePanel release={productionJob.release} reviewerName={reviewerName}
+              onReviewerName={setReviewerName} confirmed={releaseConfirmed} onConfirmed={setReleaseConfirmed}
+              onAcknowledge={issueId => void releaseAction('acknowledge', { issue_id: issueId, reviewer: reviewerName })}
+              onRelease={() => void releaseAction('release', { reviewer: reviewerName, confirm: releaseConfirmed })}/>}
+            {(productionJob.fault_locations?.length ?? 0) > 0 && <FaultLocations jobId={productionJob.job_id}
+              locations={productionJob.fault_locations ?? []}/>}<div className="review-controls"><button type="button" className="package-download" onClick={refreshProductionJob}>Actualizar estado</button>{productionJob.state === 'completed' && (!productionJob.release || ['PASSED', 'RELEASED'].includes(productionJob.release.state)) && <button type="button" className="package-download" onClick={() => void downloadJobArtifact(productionJob.job_id, productionJob.source_name)}>Descargar ZIP DAISY</button>}{productionJob.state === 'completed' && productionJob.release && !['PASSED', 'RELEASED'].includes(productionJob.release.state) && <button type="button" className="package-download secondary" onClick={() => void downloadDiagnosticArtifact(productionJob.job_id, productionJob.source_name)}>Descargar paquete de diagnóstico (sin validar)</button>}</div>
             {reviewQueue.length > 0 && <div className="review-queue">
               <h4 className="review-queue-title">{pendingReview ? `Párrafos que necesitan tu revisión (${pendingReview})` : 'Párrafos corregidos'}</h4>
               <p className="review-queue-help">Las partes resaltadas son las que no coinciden entre el texto y el audio.
@@ -867,15 +1065,84 @@ export default function App() {
                       : <em>No se obtuvo transcripción de este párrafo.</em>}</p></section>
                   </div>}
                   {!fixed && sentence.issues.length > 0 && <ul className="qa-issue-list">{sentence.issues.map((issue, index) =>
-                    <li key={`${issue.kind}-${index}`}><strong>{qaIssueLabel(issue.category, issue.kind)}.</strong>{issue.reason ? ` ${issue.reason}` : ''}</li>)}</ul>}
+                    <li key={`${issue.kind}-${index}`}><strong>{qaIssueLabel(issue.category, issue.kind)}.</strong>{issue.reason ? ` ${issue.reason}` : ''}
+                      {typeof issue.audio_start === 'number' && <span className="qa-issue-time">
+                        {' '}Se oye en el segundo {issue.audio_start.toFixed(1).replace('.', ',')} del párrafo
+                        {typeof issue.book_time === 'number' ? ` (${clockLabel(issue.book_time)} del libro completo)` : ''}.
+                        {sentence.audio_path && <button type="button" className="qa-seek"
+                          onClick={() => playFrom(`audio-${sentence.sentence_id}`, issue.audio_start ?? 0)}>Escuchar desde ahí</button>}
+                      </span>}</li>)}</ul>}
+                  {!fixed && sentence.diagnosis?.recommendation && <p className="qa-diagnosis"><strong>
+                    {sentence.diagnosis.origin ? `Origen probable: ${originLabel(sentence.diagnosis.origin)}. ` : ''}</strong>
+                    {sentence.diagnosis.recommendation}</p>}
                   {sentence.last_error && <p className="qa-note">{publicCopy(sentence.last_error)}</p>}
                   {busy && <p className="production-working" role="status"><span className="spinner" aria-hidden="true"/>Narrando la nueva versión del párrafo…</p>}
                   {sentence.audio_path
                     ? <label className="qa-audio">{fresh ? 'Escucha la nueva locución' : 'Escucha este párrafo'}
-                        <audio key={version} controls preload={fresh ? 'auto' : 'none'} autoPlay={lastRenarrated === sentence.sentence_id}
+                        <audio id={`audio-${sentence.sentence_id}`} key={version} controls preload={fresh ? 'auto' : 'none'} autoPlay={lastRenarrated === sentence.sentence_id}
                           src={`${API}/api/jobs/${productionJob.job_id}/sentences/${encodeURIComponent(sentence.sentence_id)}/audio?v=${version}`}/>
                       </label>
                     : <p className="qa-note">No hay audio guardado para este párrafo, así que hay que volver a narrarlo.</p>}
+                  <details className="pron-editor" open={pronSentence === sentence.sentence_id}>
+                    <summary>Corregir la pronunciación de una palabra</summary>
+                    <p className="pron-help">Pulsa la palabra que suena mal. Verás cómo la lee el español,
+                       podrás escuchar otras formas de escribirla y guardar la que suene bien.</p>
+                    <div className="pron-words">
+                      {Array.from(new Set(sentence.text.split(/\s+/)
+                        .map(part => part.replace(/[^\p{L}\p{N}'-]/gu, ''))
+                        .filter(part => part.length > 1))).map(word =>
+                        <button type="button" key={word}
+                          className={pronSentence === sentence.sentence_id && pronWord === word ? 'pron-word is-active' : 'pron-word'}
+                          onClick={() => void analysePronunciation(word, sentence.sentence_id)}>
+                          {word}{(pronSaved[word] || (pronWord === word && pronAnalysis?.saved_respelling)) ? ' ✓' : ''}
+                        </button>)}
+                    </div>
+                    {pronSentence === sentence.sentence_id && pronBusy === 'analyse' && <p role="status">Analizando «{pronWord}»…</p>}
+                    {pronSentence === sentence.sentence_id && pronAnalysis && <div className="pron-result">
+                      <dl className="pron-facts">
+                        <div><dt>Sílabas</dt><dd>{pronAnalysis.syllables.map((part, index) =>
+                          <span key={index} className={index === pronAnalysis.stressed ? 'pron-stress' : undefined}>{part}</span>)
+                          .reduce<ReactNode[]>((all, part, index) => index ? [...all, '-', part] : [part], [])}</dd></div>
+                        <div><dt>Suena como</dt><dd className="pron-ipa">{pronAnalysis.ipa || '—'}</dd></div>
+                        <div><dt>Escritura</dt><dd>{pronAnalysis.looks_spanish
+                          ? 'El español puede leerla tal cual'
+                          : 'Tiene letras que el español no usa'}</dd></div>
+                      </dl>
+                      {pronAnalysis.saved_respelling && <p className="pron-saved">Guardada ahora como
+                        <strong> {pronAnalysis.saved_respelling}</strong></p>}
+                      <ul className="pron-options">
+                        {pronAnalysis.suggestions.map(option =>
+                          <li key={option.respelling}>
+                            <div><strong>{option.label}:</strong> <span className="pron-try">{option.respelling}</span>
+                              <small>{option.reason}</small></div>
+                            <div className="pron-actions">
+                              <button type="button" disabled={Boolean(pronBusy)}
+                                onClick={() => void hearRespelling(option.respelling, sentence.text)}>
+                                {pronBusy === `hear:${option.respelling}` ? 'Generando…' : 'Escuchar'}</button>
+                              <button type="button" disabled={Boolean(pronBusy)}
+                                onClick={() => void saveRespelling(option.respelling)}>
+                                {pronBusy === `save:${option.respelling}` ? 'Guardando…' : 'Usar esta'}</button>
+                            </div>
+                          </li>)}
+                        <li>
+                          <label className="pron-custom">Escríbela como debe sonar
+                            <input type="text" value={pronCustom} maxLength={200}
+                              placeholder="por ejemplo: guáshinton"
+                              onChange={event => setPronCustom(event.target.value)}/>
+                          </label>
+                          <div className="pron-actions">
+                            <button type="button" disabled={Boolean(pronBusy) || !pronCustom.trim()}
+                              onClick={() => void hearRespelling(pronCustom, sentence.text)}>
+                              {pronBusy === `hear:${pronCustom}` ? 'Generando…' : 'Escuchar'}</button>
+                            <button type="button" disabled={Boolean(pronBusy) || !pronCustom.trim()}
+                              onClick={() => void saveRespelling(pronCustom)}>
+                              {pronBusy === `save:${pronCustom}` ? 'Guardando…' : 'Usar esta'}</button>
+                          </div>
+                        </li>
+                      </ul>
+                      <audio ref={pronPlayer} controls className="pron-player" aria-label="Muestra de pronunciación"/>
+                    </div>}
+                  </details>
                   <label className="qa-correction">Texto corregido (sólo si vas a corregirlo)
                     <textarea rows={3} value={sentenceCorrections[sentence.sentence_id] ?? sentence.text}
                       onChange={event => setSentenceCorrections(current => ({ ...current, [sentence.sentence_id]: event.target.value }))}/>
@@ -895,24 +1162,31 @@ export default function App() {
               })}
             </div>}
           </section>}
-          <div className="export-choices">
-            <article>
-              <h4>Descargar directamente</h4>
-              <p>Genera el audiolibro completo y lo descarga en un paso. Sin revisión automática de calidad, sin
-                 informe y sin cola de revisión. Es la opción rápida si sólo quieres el archivo.</p>
-            </article>
-            <article>
-              <h4>Producir con revisión de calidad</h4>
-              <p>Narra párrafo a párrafo, transcribe el audio y lo compara con el texto. Los párrafos dudosos aparecen
-                 aquí para que decidas, y el paquete incluye el informe de calidad y el registro. Es la opción para una
-                 entrega formal.</p>
-            </article>
-          </div>
+          <fieldset className="export-choices">
+            <legend>Cómo quieres generar el audiolibro</legend>
+            <label className={exportMode === 'direct' ? 'export-choice is-selected' : 'export-choice'}>
+              <input type="radio" name="export-mode" value="direct" checked={exportMode === 'direct'}
+                onChange={() => setExportMode('direct')}/>
+              <span className="export-choice-title">Descargar directamente
+                <span className="export-choice-tag is-unverified">Sin verificar</span></span>
+              <span className="export-choice-text">Genera el audiolibro completo y lo descarga en un paso. Sin revisión
+                 automática de calidad, sin informe y sin cola de revisión. Es la opción rápida si sólo quieres el archivo.</span>
+            </label>
+            <label className={exportMode === 'reviewed' ? 'export-choice is-selected' : 'export-choice'}>
+              <input type="radio" name="export-mode" value="reviewed" checked={exportMode === 'reviewed'}
+                onChange={() => setExportMode('reviewed')}/>
+              <span className="export-choice-title">Producir con revisión de calidad
+                <span className="export-choice-tag is-verified">Recomendada</span></span>
+              <span className="export-choice-text">Narra párrafo a párrafo, transcribe el audio y lo compara con el texto.
+                 Los párrafos dudosos aparecen aquí para que decidas, y el paquete incluye el informe de calidad y el
+                 registro. Es la opción para una entrega formal.</span>
+            </label>
+          </fieldset>
           <p className="export-note">La vista previa y las dos opciones comparten el audio ya generado: cambiar de una a
              otra no vuelve a pagar por los párrafos que no han cambiado.</p>
-              {(selectedFile || productionJob) && <div className="review-action-dock workspace-action-bar">
-            <div className={directDownloadBusy ? 'is-busy' : undefined}>
-              <strong>{directDownloadBusy ? 'Generando el audiolibro…' : packageBusy ? 'Produciendo con revisión…' : productionJob?.state === 'completed' ? 'El audiolibro está listo' : 'Elige cómo generarlo'}</strong>
+          {(selectedFile || productionJob) && <div className="export-actions" role="group" aria-labelledby="export-actions-title">
+            <div className={directDownloadBusy ? 'export-actions-status is-busy' : 'export-actions-status'}>
+              <strong id="export-actions-title">{directDownloadBusy ? 'Generando el audiolibro…' : packageBusy ? 'Produciendo con revisión…' : productionJob?.state === 'completed' ? 'El audiolibro está listo' : 'Elige cómo generarlo'}</strong>
               {directDownloadBusy && directProgress?.total
                 ? <progress className="direct-progress" max={directProgress.total} value={directProgress.done}
                     aria-label="Avance del audiolibro"/>
@@ -924,34 +1198,130 @@ export default function App() {
                     + '. La descarga empezará sola al terminar.'
                   : 'Preparando el libro. Reutilizamos el audio que ya exista; sólo se genera lo que falte.'
                 : packageBusy
-                  ? 'Narrando y revisando párrafo a párrafo. Puedes seguir el avance más abajo.'
+                  ? 'Narrando y revisando párrafo a párrafo. Puedes seguir el avance más arriba.'
                   : productionJob?.state === 'completed'
                     ? 'Descarga el ZIP con el audio por capítulos, la navegación DAISY y el informe de calidad.'
                     : 'Las dos opciones usan la voz seleccionada en el paso 1.'}</span>
             </div>
-            <div className="action-bar-buttons">
+            <div className="export-actions-buttons">
               {/* Direct: generate and download in one step, no review queue. */}
-              <button type="button" onClick={() => void downloadBookDirectly()}
+              <button type="button" className={exportMode === 'direct' ? 'export-button is-primary' : 'export-button'}
+                onClick={() => void downloadBookDirectly()}
                 disabled={!selectedFile || busy || packageBusy || directDownloadBusy || !selectedNarrationIds.length || !canGenerateAudio}
                 aria-busy={directDownloadBusy}>
-                {directDownloadBusy && <span className="spinner" aria-hidden="true"/>}
-                <Download size={18} aria-hidden="true"/>Descargar audiolibro ahora
+                {directDownloadBusy ? <span className="spinner" aria-hidden="true"/> : <Download size={18} aria-hidden="true"/>}
+                <span>Descargar audiolibro ahora <small className="unverified-tag">(sin verificar)</small></span>
               </button>
               {productionJob?.state === 'completed'
-                ? <button type="button" className="secondary-action" onClick={() => void downloadJobArtifact(productionJob.job_id, productionJob.source_name || book)} disabled={directDownloadBusy}>
-                    <Download size={18} aria-hidden="true"/>Descargar paquete revisado
+                ? <button type="button" className={exportMode === 'reviewed' ? 'export-button is-primary' : 'export-button'}
+                    onClick={() => void downloadJobArtifact(productionJob.job_id, productionJob.source_name || book)} disabled={directDownloadBusy}>
+                    <Download size={18} aria-hidden="true"/><span>Descargar paquete revisado</span>
                   </button>
-                : <button type="button" className="secondary-action" onClick={() => void startReviewedProduction()}
+                : <button type="button" className={exportMode === 'reviewed' ? 'export-button is-primary' : 'export-button'}
+                    onClick={() => void startReviewedProduction()}
                     disabled={!selectedFile || busy || packageBusy || directDownloadBusy || !selectedNarrationIds.length || !canGenerateAudio}
                     aria-busy={packageBusy}>
-                    {packageBusy && <span className="spinner" aria-hidden="true"/>}
-                    <CheckCircle2 size={18} aria-hidden="true"/>Producir con revisión de calidad
+                    {packageBusy ? <span className="spinner" aria-hidden="true"/> : <CheckCircle2 size={18} aria-hidden="true"/>}
+                    <span>Producir con revisión de calidad</span>
                   </button>}
             </div>
-              </div>}
+          </div>}
         </section>
       </section>
     </section>
     <footer className="editor-footer"><span>Creado con cuidado para cada lector.</span><span>Accesible desde el principio · Siempre a tu alcance</span></footer>
   </main>
+}
+
+
+// What the release gate decided, dimension by dimension, and the two decisions
+// only a person can take: confirming an extraction warning and publishing.
+export function ReleasePanel({ release, reviewerName, onReviewerName, confirmed, onConfirmed, onAcknowledge, onRelease }: {
+  release: ReleaseStatus
+  reviewerName: string
+  onReviewerName: (value: string) => void
+  confirmed: boolean
+  onConfirmed: (value: boolean) => void
+  onAcknowledge: (issueId: string) => void
+  onRelease: () => void
+}) {
+  const dimensions = release.dimensions ?? {}
+  const warnings = dimensions.source?.open_warnings ?? []
+  const listen = dimensions.human?.listening_recommended?.length ?? 0
+  const rows: [string, string | undefined, string][] = [
+    ['Generación técnica', dimensions.technical?.status,
+      `${dimensions.technical?.verified ?? 0} de ${dimensions.technical?.segments ?? 0} párrafos verificados, ${dimensions.technical?.quality_retakes ?? 0} retomas`],
+    ['Texto de origen completo', dimensions.source?.status,
+      `cobertura ${((dimensions.source?.coverage?.ratio ?? 0) * 100).toFixed(1)} %, ${warnings.length} avisos abiertos`],
+    ['Contenido (reconocimiento automático)', dimensions.content?.status,
+      dimensions.content?.wer == null ? 'sin medir' : `diferencias con el reconocedor: ${(dimensions.content.wer * 100).toFixed(2)} % de ${dimensions.content.reference_words ?? 0} palabras`],
+    ['Integridad del audio', dimensions.audio?.status, `${dimensions.audio?.suspicious ?? 0} párrafos sospechosos`],
+    ['Paquete DAISY', dimensions.package?.status,
+      `estructura ${dimensionStatus(dimensions.package?.structural)}, DTD ${dimensionStatus(dimensions.package?.dtd)}, cadena completa ${dimensionStatus(dimensions.package?.completeness)}`],
+    ['Revisión humana', undefined, `${dimensions.human?.decisions ?? 0} decisiones, ${listen} párrafos recomendados para escuchar`],
+  ]
+  return <section className={`release-panel ${RELEASE_STATE_CLASS[release.state] ?? 'release-progress'}`} aria-labelledby="release-title">
+    <h4 id="release-title">Estado de calidad: {release.label}</h4>
+    {release.released && <p role="status">Publicado por {release.released.by} el {new Date(release.released.at).toLocaleString('es-ES')}.</p>}
+    {(release.blockers.length > 0 || release.reviews.length > 0) && <ul className="release-reasons">
+      {release.blockers.map(reason => <li key={reason} className="is-blocker">{reason}</li>)}
+      {release.reviews.map(reason => <li key={reason}>{reason}</li>)}
+    </ul>}
+    <table className="release-dimensions"><tbody>
+      {rows.map(([label, status, detail]) => <tr key={label}><th scope="row">{label}</th><td>{status ? dimensionStatus(status) : '—'}</td><td>{detail}</td></tr>)}
+    </tbody></table>
+    {(warnings.length > 0 || release.state === 'PASSED') && <label className="release-reviewer">Tu nombre (queda registrado con la decisión)
+      <input value={reviewerName} onChange={event => onReviewerName(event.target.value)} autoComplete="name"/></label>}
+    {warnings.length > 0 && <ul className="release-warnings">{warnings.map(warning =>
+      <li key={warning.id}><span>{warning.message}{warning.text ? ` «${warning.text}»` : ''}</span>
+        <button type="button" disabled={!reviewerName.trim()} onClick={() => onAcknowledge(warning.id)}>He comprobado el original</button></li>)}
+    </ul>}
+    {release.state === 'PASSED' && <div className="release-action">
+      <label><input type="checkbox" checked={confirmed} onChange={event => onConfirmed(event.target.checked)}/>
+        He leído lo que estas comprobaciones no demuestran{listen ? ` y he escuchado los ${listen} párrafos recomendados` : ''}.</label>
+      <button type="button" className="package-download" disabled={!confirmed || !reviewerName.trim()} onClick={onRelease}>Publicar el audiolibro</button>
+    </div>}
+    <details className="release-uncertainty"><summary>Lo que estas comprobaciones no demuestran</summary>
+      <ul>{release.uncertainty.map(note => <li key={note}>{note}</li>)}</ul></details>
+  </section>
+}
+
+
+const DECISION_LABEL: Record<string, string> = {
+  accept_flagged: 'Aceptada; escúchala', accept: 'Aceptada', human_review: 'Requiere tu decisión',
+  review_source: 'Revisa el texto original', review_normalization: 'Revisa la lectura normalizada', retake: 'Se volvió a narrar',
+}
+
+// Every difference the recognizers found, placed in the finished audiobook:
+// the time in the complete book and in the chapter file, so a person can go
+// straight to it in any player, and a button to hear it here.
+export function FaultLocations({ jobId, locations }: { jobId: string; locations: FaultLocation[] }) {
+  const [current, setCurrent] = useState<FaultLocation>()
+  const playerId = `fault-player-${jobId}`
+  function listen(location: FaultLocation) {
+    setCurrent(location)
+    // The paragraph's own audio, started just before the difference.
+    window.setTimeout(() => playFrom(playerId, location.paragraph_time), 0)
+  }
+  return <section className="fault-locations" aria-labelledby="fault-locations-title">
+    <h4 id="fault-locations-title">Dónde se oyen las diferencias ({locations.length})</h4>
+    <p>El momento exacto en el audiolibro completo y en el archivo de su capítulo. Abre el MP3 en cualquier
+       reproductor y ve a esa hora, o escúchala aquí.</p>
+    <div className="fault-table"><table>
+      <thead><tr><th>Libro completo</th><th>Capítulo</th><th>Qué se oye</th><th>Estado</th><th><span className="visually-hidden">Escuchar</span></th></tr></thead>
+      <tbody>{locations.map((location, index) => <tr key={`${location.sentence_id}-${index}`}
+        className={current === location ? 'is-current' : undefined}>
+        <td className="fault-clock">{location.book_clock ?? '—'}</td>
+        <td>Cap. {location.chapter} · <span className="fault-clock">{location.chapter_clock}</span></td>
+        <td>{location.kind === 'difference'
+          ? <>«{location.expected || '…'}» → «{location.heard || '…'}»</>
+          : <>«{location.expected}» alargada</>}<small>{location.reason}</small></td>
+        <td>{DECISION_LABEL[location.decision] ?? location.paragraph_state}</td>
+        <td><button type="button" className="qa-seek" onClick={() => listen(location)}>Escuchar</button></td>
+      </tr>)}</tbody>
+    </table></div>
+    {current && <audio id={playerId} key={current.sentence_id} controls preload="auto"
+      src={`${API}/api/jobs/${encodeURIComponent(jobId)}/sentences/${encodeURIComponent(current.sentence_id)}/audio`}
+      aria-label={`Párrafo ${current.paragraph} del capítulo ${current.chapter}`}/>}
+  </section>
 }

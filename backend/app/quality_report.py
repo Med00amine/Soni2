@@ -51,6 +51,8 @@ def build_report(
     voice_language: str = "",
     validation: dict[str, Any] | None = None,
     cache_stats: dict[str, Any] | None = None,
+    release: dict[str, Any] | None = None,
+    fault_locations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Assemble the JSON quality report from real job state."""
     sentences = job["sentences"]
@@ -134,6 +136,10 @@ def build_report(
         },
         "audio_cache": cache_stats or {},
         "validation": validation or {"status": "not_run"},
+        # The release gate's verdict, dimension by dimension (app.release_gate).
+        "release": release or {},
+        # Every located difference as a time in its chapter file and the whole book.
+        "fault_locations": fault_locations or [],
         "human_decisions": human_decisions,
         "sentences": rows,
         "events": events,
@@ -355,7 +361,26 @@ def _plural(count: int, one: str, many: str) -> str:
 
 
 def _verdict(report: dict[str, Any]) -> tuple[str, str, str, str]:
-    """(css class, icon, headline, explanation) that a person can act on."""
+    """(css class, icon, headline, explanation) that a person can act on.
+
+    The release gate decides the headline when it has run: a book whose every
+    paragraph matched can still be blocked by its package or its audio, and
+    the report must not call it ready.
+    """
+    release = report.get("release") or {}
+    state = release.get("state")
+    if state == "BLOCKED":
+        return ("v-bad", "×", "Bloqueado: no se puede publicar",
+                (release.get("blockers") or ["Hay comprobaciones sin superar."])[0])
+    if state == "NEEDS_REVIEW":
+        return ("v-warn", "!", "Requiere revisión antes de publicar",
+                " ".join((release.get("reviews") or [])[:2]) or "Quedan decisiones pendientes.")
+    if state in {"PASSED", "RELEASED"}:
+        listen = len((release.get("dimensions") or {}).get("human", {}).get("listening_recommended") or [])
+        return ("v-ok", "✓", "Publicado" if state == "RELEASED" else "Superó todas las comprobaciones automáticas",
+                "Texto completo, audio íntegro, contenido verificado con reconocimiento automático y paquete DAISY "
+                "válido. Esto no garantiza que no haya errores de pronunciación o entonación"
+                + (f"; escucha al menos los {listen} párrafos marcados." if listen else "."))
     totals = report["totals"]
     good = totals["correct"] + totals["corrected"] + totals.get("auto_accepted", 0)
     attention = totals["requires_review"] + totals["unresolved"]
@@ -535,6 +560,9 @@ def render_html(report: dict[str, Any], *, audio_hrefs: dict[str, str] | None = 
 <ul class="legend">{legend}</ul>
 <dl class="facts">{fact_list}</dl>
 
+{_release_block(report)}
+{_locations_block(report)}
+
 <h2>Necesitan tu atención</h2>
 <p class="hint">Escucha cada frase y compárala con el texto. «147» y «ciento cuarenta y siete» cuentan como
 coincidencia: aquí sólo aparecen diferencias reales o dudosas.</p>
@@ -568,6 +596,75 @@ coincidencia: aquí sólo aparecen diferencias reales o dudosas.</p>
 </main>
 <script>{_SCRIPT}</script></body></html>
 """
+
+
+_DIMENSIONS = (("technical", "Generación técnica"), ("source", "Texto de origen completo"),
+               ("content", "Verificación automática del contenido"), ("audio", "Integridad del audio"),
+               ("package", "Paquete DAISY"), ("human", "Revisión humana"))
+_STATUS = {"passed": "superado", "failed": "fallido", "needs_review": "requiere revisión", "simulated": "simulado",
+           "partial": "parcial", "in_progress": "en curso", "not_run": "no realizado"}
+
+
+def _release_block(report: dict[str, Any]) -> str:
+    release = report.get("release") or {}
+    if not release:
+        return ""
+    dimensions = release.get("dimensions") or {}
+    rows = []
+    for key, label in _DIMENSIONS:
+        value = dimensions.get(key) or {}
+        status = value.get("status") or ("superado" if key == "human" and not value.get("awaiting") else "")
+        detail = {
+            "technical": f"{value.get('verified', 0)} de {value.get('segments', 0)} párrafos verificados, "
+                         f"{value.get('quality_retakes', 0)} retomas, {value.get('failed', 0)} fallos",
+            "source": f"cobertura {((value.get('coverage') or {}).get('ratio') or 0):.1%}, "
+                      f"{len(value.get('open_warnings') or [])} avisos abiertos, "
+                      f"{value.get('ocr_pages', 0)} páginas con OCR",
+            "content": f"WER {value['wer']:.2%} sobre {value.get('reference_words', 0)} palabras"
+                       if value.get("wer") is not None else "sin medir",
+            "audio": f"{len(value.get('failed') or [])} defectuosos, {value.get('suspicious', 0)} sospechosos",
+            "package": f"estructura {_STATUS.get(value.get('structural'), '—')}, "
+                       f"DTD {_STATUS.get(value.get('dtd'), '—')}, "
+                       f"cadena completa {_STATUS.get(value.get('completeness'), '—')}, DAISY Pipeline sin ejecutar",
+            "human": f"{value.get('decisions', 0)} decisiones, {len(value.get('listening_recommended') or [])} "
+                     "párrafos recomendados para escuchar",
+        }[key]
+        rows.append(f"<tr><th scope='row'>{_e(label)}</th><td>{_e(_STATUS.get(status, status or '—'))}</td>"
+                    f"<td>{_e(detail)}</td></tr>")
+    items = "".join(f"<li>{_e(text)}</li>" for text in (release.get("blockers") or []) + (release.get("reviews") or []))
+    doubts = "".join(f"<li>{_e(text)}</li>" for text in release.get("uncertainty") or [])
+    return (f"<h2>Estado de calidad: {_e(release.get('label', ''))}</h2>"
+            "<div class='tw'><table><thead><tr><th>Comprobación</th><th>Resultado</th><th>Detalle</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table></div>"
+            + (f"<h3>Qué falta</h3><ul>{items}</ul>" if items else "")
+            + f"<h3>Lo que estas comprobaciones no demuestran</h3><ul>{doubts}</ul>")
+
+
+_DECISIONS = {"accept_flagged": "aceptada; escúchala", "accept": "aceptada", "retake": "se volvió a narrar",
+              "human_review": "requiere tu decisión", "review_source": "revisa el texto original",
+              "review_normalization": "revisa la lectura normalizada"}
+
+
+def _locations_block(report: dict[str, Any]) -> str:
+    locations = report.get("fault_locations") or []
+    if not locations:
+        return ""
+    rows = []
+    for item in locations:
+        chapter_link = (f'<a href="DAISY 3/{_e(item["chapter_file"])}#t={item["chapter_time"]:.1f}">'
+                        f'{_e(item["chapter_clock"])}</a>')
+        book = (f'<a href="DAISY 3/{_e(item["book_file"])}#t={item["book_time"]:.1f}">{_e(item["book_clock"])}</a>'
+                if item.get("book_time") is not None else "—")
+        what = (f"«{_e(item['expected'])}» → «{_e(item['heard'])}»" if item["kind"] == "difference"
+                else f"«{_e(item['expected'])}» alargada")
+        rows.append(f"<tr><td>{book}</td><td>Cap. {item['chapter']} · {chapter_link}</td>"
+                    f"<td>{what}<br><small>{_e(item.get('reason', ''))}</small></td>"
+                    f"<td>{_e(_DECISIONS.get(item.get('decision', ''), item.get('paragraph_state', '')))}</td></tr>")
+    return ("<h2>Dónde se oyen las diferencias</h2>"
+            "<p class='hint'>Cada diferencia detectada, con el momento en que se oye en el audiolibro completo y en el "
+            "archivo de su capítulo. Pulsa la hora para escucharla desde ese punto.</p>"
+            "<div class='tw'><table><thead><tr><th>Libro completo</th><th>Capítulo</th><th>Qué se oye</th>"
+            f"<th>Estado</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>")
 
 
 def render_json(report: dict[str, Any]) -> str:

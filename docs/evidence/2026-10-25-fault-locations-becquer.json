@@ -1,0 +1,62 @@
+{
+  "locations": 8,
+  "confirmed": 8,
+  "results": [
+    {
+      "book_clock": "0:32.1",
+      "expected": "trasparentes",
+      "heard": "transparentes",
+      "window_transcript": "Transparentes como las gotas de la lluvia",
+      "confirmed": true
+    },
+    {
+      "book_clock": "4:22.9",
+      "expected": "Sus",
+      "heard": "Sush",
+      "window_transcript": "Sus, relámpago,",
+      "confirmed": true
+    },
+    {
+      "book_clock": "4:24.9",
+      "expected": "sus",
+      "heard": "sush",
+      "window_transcript": "Sus caballo mío, si lo",
+      "confirmed": true
+    },
+    {
+      "book_clock": "4:29.1",
+      "expected": "mi joyel",
+      "heard": "Mijoyel",
+      "window_transcript": "Los diamantes de Mijoyel en tu serreta de oro.",
+      "confirmed": true
+    },
+    {
+      "book_clock": "11:09.5",
+      "expected": "ojos",
+      "heard": "ojos",
+      "window_transcript": "Unos ojos verdes.",
+      "confirmed": true
+    },
+    {
+      "book_clock": "11:39.5",
+      "expected": "trasgo",
+      "heard": "rasgo",
+      "window_transcript": "Espíritu, rasgo, demonio o mujer",
+      "confirmed": true
+    },
+    {
+      "book_clock": "14:53.4",
+      "expected": "mujer",
+      "heard": "mujer",
+      "window_transcript": "Si eres una mujer o un demonio,",
+      "confirmed": true
+    },
+    {
+      "book_clock": "14:54.2",
+      "expected": "Ó",
+      "heard": "",
+      "window_transcript": "¿Una mujer o un demonio? ¿Y si?",
+      "confirmed": true
+    }
+  ]
+}

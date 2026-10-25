@@ -1,10 +1,22 @@
+# Production-shaped stack: the frontend is a built bundle served by nginx,
+# which also proxies /api to the backend. The browser therefore talks to one
+# origin, so no CORS configuration is needed and no development server is
+# exposed to the internet.
+#
+#   docker compose up -d --build        deploy / update
+#   docker compose logs -f backend      follow the API
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#                                       local development with hot reload
 services:
   backend:
     build: ./backend
+    restart: unless-stopped
     environment:
-      APP_ENV: ${APP_ENV:-development}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
-      TTS_PROVIDER: ${TTS_PROVIDER:-deepgram}
+      APP_ENV: ${APP_ENV:-production}
+      # nginx serves the browser from the same origin, so CORS is only needed
+      # if you point a separate front end at this API.
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:5173,http://127.0.0.1:5173}
+      TTS_PROVIDER: ${TTS_PROVIDER:-elevenlabs}
       TTS_VOICE_ID: ${TTS_VOICE_ID:-}
       REQUIRE_PENINSULAR_VOICE: ${REQUIRE_PENINSULAR_VOICE:-true}
       ASR_PROVIDER: ${ASR_PROVIDER:-auto}
@@ -18,9 +30,18 @@ services:
       ELEVENLABS_EXTRA_VOICE_IDS: ${ELEVENLABS_EXTRA_VOICE_IDS:-}
       ELEVENLABS_VOICE_NAME: ${ELEVENLABS_VOICE_NAME:-}
       ELEVENLABS_VOICE_LANGUAGE: ${ELEVENLABS_VOICE_LANGUAGE:-}
-      ELEVENLABS_MODEL_ID: ${ELEVENLABS_MODEL_ID:-eleven_multilingual_v2}
+      ELEVENLABS_MODEL_ID: ${ELEVENLABS_MODEL_ID:-eleven_v4}
+      ELEVENLABS_STABILITY: ${ELEVENLABS_STABILITY:-}
+      ELEVENLABS_SIMILARITY_BOOST: ${ELEVENLABS_SIMILARITY_BOOST:-}
+      ELEVENLABS_STYLE: ${ELEVENLABS_STYLE:-}
+      ASR_SECONDARY_PROVIDER: ${ASR_SECONDARY_PROVIDER:-auto}
+      QA_MAX_RETAKES: ${QA_MAX_RETAKES:-2}
       QUALITY_REVIEW_ENABLED: ${QUALITY_REVIEW_ENABLED:-true}
       TTS_CONCURRENCY: ${TTS_CONCURRENCY:-0}
+      AUDIO_MASTERING: ${AUDIO_MASTERING:-true}
+      AUDIO_TARGET_LUFS: ${AUDIO_TARGET_LUFS:--18}
+      AUDIO_PARAGRAPH_GAP_MS: ${AUDIO_PARAGRAPH_GAP_MS:-350}
+      AUDIO_CHAPTER_GAP_MS: ${AUDIO_CHAPTER_GAP_MS:-900}
       MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-200}
       PREVIEW_CHARACTERS: ${PREVIEW_CHARACTERS:-5000}
       ONCE_INTRO_TEMPLATE: ${ONCE_INTRO_TEMPLATE:-}
@@ -30,17 +51,26 @@ services:
       ONCE_INTRO_FILENAME: ${ONCE_INTRO_FILENAME:-}
       ONCE_BIBLIOGRAPHIC_FILENAME: ${ONCE_BIBLIOGRAPHIC_FILENAME:-}
       JOB_STORAGE_DIR: /data
-    ports: ["8000:8000"]
+    # Reachable on the server for debugging, not from the internet: the API has
+    # no authentication, and nginx already proxies it for the browser.
+    ports: ["127.0.0.1:8000:8000"]
     volumes:
-      - "./backend/app:/app/app"
+      # Jobs, the SQLite database and the narration cache. The cache is what
+      # stops you paying twice for unchanged text, so it must persist.
       - "soni2-data:/data"
+
   frontend:
-    build: ./frontend
-    environment:
-      VITE_API_URL: ${VITE_API_URL:-}
-      VITE_BACKEND_PROXY_TARGET: ${VITE_BACKEND_PROXY_TARGET:-http://backend:8000}
-    ports: ["5173:5173"]
-    depends_on: [backend]
+    build:
+      context: ./frontend
+      args:
+        # Empty means "call /api on my own origin", which nginx proxies.
+        VITE_API_URL: ${VITE_API_URL:-}
+    restart: unless-stopped
+    # 5173 is kept so an existing security-group rule still reaches the site.
+    ports: ["80:80", "5173:80"]
+    depends_on:
+      backend:
+        condition: service_healthy
 
 volumes:
   soni2-data:

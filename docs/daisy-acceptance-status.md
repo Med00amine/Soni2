@@ -1,5 +1,33 @@
 # Soni2 pipeline acceptance status
 
+**Updated 2026-10-25.** The quality system (extraction coverage, Spanish
+normalization, two-recognizer verification, repair loop, completeness chain,
+official DTD validation and the release gate) is described with its measured
+results in [quality-system.md](quality-system.md), which supersedes the
+sections below where they differ. In particular: narration now uses
+`eleven_v4` with the voice Gabo (`o0SveC0zgHFuCsEO3vHR`), packages are
+validated against the official Z39.86-2005 DTDs, and a book is downloadable
+only once the release gate reports `PASSED`.
+
+## Test results (2026-10-25, this machine)
+
+| Suite | Result |
+|---|---|
+| Backend `pytest`, Docker image (ffmpeg + Tesseract spa) | **460 passed** |
+| Backend `pytest`, host (ffmpeg, no Tesseract) | **459 passed, 1 skipped** (real OCR test) |
+| Frontend `vitest` | **48 passed** (5 files) |
+| Frontend `tsc -b && vite build` | **passed** |
+| Real TTS benchmark, 3 models × 6 passages, two recognizers | see quality-system.md §3 |
+| Real full-book runs (DTBook corpus, Bécquer *Los ojos verdes*, Docker stack over HTTP) | **PASSED** each, ZIPs re-validated |
+
+Baseline at commit `eebfa0e` before this work: 311 passed / 14 skipped
+without ffmpeg, 325 passed with ffmpeg; frontend 44 passed. In the Docker
+image, two mastering tests failed at `eebfa0e` (VBR duration estimate); fixed.
+
+---
+
+*Earlier status (2026-10-20), kept for history:*
+
 Updated 2026-10-20. This reflects the current implementation and the tests that
 were actually run. A synthetic test does not establish ONCE acceptance or audio
 quality. See [pipeline-and-output.md](pipeline-and-output.md) for how the
@@ -93,9 +121,9 @@ it was in before this upgrade.
 
 | Suite | Result |
 |---|---|
-| Backend `pytest`, with ffmpeg | **172 passed** |
-| Backend `pytest`, without ffmpeg | 170 passed, 2 skipped (the two ffmpeg tests) |
-| Frontend `vitest` | **24 passed** (3 files) |
+| Backend `pytest`, with ffmpeg | **263 passed** |
+| Backend `pytest`, without ffmpeg | 249 passed, 14 skipped (the ffmpeg-dependent tests) |
+| Frontend `vitest` | **37 passed** (3 files) |
 | Frontend `tsc -b && vite build` | **passed** |
 | Live Deepgram TTS + ASR check | **passed**; numeric sweep **14/15 verified** |
 

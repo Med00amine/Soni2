@@ -130,8 +130,8 @@ describe('Soni2 audiobook workspace', () => {
     expect(document.querySelector('#book-paragraph-0-0')).not.toBeNull()
     expect(document.querySelector('#book-paragraph-0-12')).toBeNull()
     expect(document.body.textContent).toContain('Sección 1 de 10')
-    expect(document.querySelector('.review-action-dock button')?.textContent).toContain('Descargar audiolibro ahora')
-    expect(document.querySelector('.review-action-dock')?.textContent).toContain('Producir con revisión de calidad')
+    expect(document.querySelector('.export-actions button')?.textContent).toContain('Descargar audiolibro ahora')
+    expect(document.querySelector('.export-actions')?.textContent).toContain('Producir con revisión de calidad')
 
     const nextButton = document.querySelector<HTMLButtonElement>('.review-pagination button:last-child')!
     await act(async () => nextButton.click())
@@ -160,7 +160,7 @@ describe('Soni2 audiobook workspace', () => {
     expect(document.querySelector('#book-paragraph-0-114')).not.toBeNull()
 
     // The reviewed production run is now its own action, beside the direct download.
-    const produce = [...document.querySelectorAll<HTMLButtonElement>('.review-action-dock button')]
+    const produce = [...document.querySelectorAll<HTMLButtonElement>('.export-actions button')]
       .find(button => button.textContent?.includes('Producir con revisión de calidad'))!
     await act(async () => produce.click())
     expect(vi.mocked(fetch)).toHaveBeenCalledWith('/api/books/jobs', expect.objectContaining({ method: 'POST', body: expect.any(FormData) }))
@@ -207,8 +207,8 @@ describe('Soni2 audiobook workspace', () => {
     await act(async () => document.querySelector<HTMLButtonElement>('#tab-export')!.click())
     expect(document.querySelector('#panel-export')?.hasAttribute('hidden')).toBe(false)
     expect(document.querySelector('#panel-review')?.hasAttribute('hidden')).toBe(true)
-    expect(document.querySelector('.workspace-action-bar button')?.textContent).toContain('Descargar audiolibro ahora')
-    expect(document.querySelector('.workspace-action-bar')?.textContent).toContain('Producir con revisión de calidad')
+    expect(document.querySelector('.export-actions button')?.textContent).toContain('Descargar audiolibro ahora')
+    expect(document.querySelector('.export-actions')?.textContent).toContain('Producir con revisión de calidad')
     await act(async () => document.querySelector<HTMLButtonElement>('#tab-review')!.click())
     expect(document.querySelector<HTMLTextAreaElement>('#book-paragraph-1-0')?.value).toBe('Capítulo segundo editado.')
   })
@@ -219,7 +219,7 @@ describe('Soni2 audiobook workspace', () => {
     await uploadTextBook()
     const previewButton = [...document.querySelectorAll('button')].find(button => button.textContent?.includes('Generar vista previa'))!
     await act(async () => previewButton.click())
-    const generateButton = [...document.querySelectorAll<HTMLButtonElement>('.review-action-dock button')]
+    const generateButton = [...document.querySelectorAll<HTMLButtonElement>('.export-actions button')]
       .find(button => button.textContent?.includes('Producir con revisión de calidad'))!
     await act(async () => generateButton.click())
     expect(document.body.textContent).toContain('Producción del audiolibro')
