@@ -1,0 +1,254 @@
+{
+  "book": "el-faro-de-cabo-gris.xml",
+  "job_id": "adb8ba01-5f94-4bc3-9d33-2df4989e8157",
+  "state": "completed",
+  "release_state": "PASSED",
+  "blockers": [],
+  "reviews": [],
+  "provider": "elevenlabs",
+  "model": "eleven_v4",
+  "voice": "o0SveC0zgHFuCsEO3vHR",
+  "asr_primary": "deepgram",
+  "asr_secondary": "elevenlabs",
+  "units": 24,
+  "unit_states": {
+    "verified": 24
+  },
+  "verification": {
+    "asr_primary": 19,
+    "asr_secondary": 3,
+    "auto_accepted": 2
+  },
+  "attempts": 24,
+  "generations": 0,
+  "quality_retakes": 0,
+  "technical_attempts": 0,
+  "secondary_recognitions": 4,
+  "characters_billed_by_provider": 0,
+  "account_characters_before": 5492,
+  "account_characters_after": 5505,
+  "asr_primary_aggregate": {
+    "reference_words": 533,
+    "recognized_words": 533,
+    "substitutions": 4,
+    "deletions": 2,
+    "insertions": 2,
+    "wer": 0.015,
+    "segments": 24,
+    "segments_with_errors": 4
+  },
+  "review_queue": [],
+  "listening_recommended": [
+    {
+      "sentence_id": "8b824b4000b9b3aeceafd04a",
+      "chapter_index": 0,
+      "text": "El autobús dejó a Lucía Ferrández en la plaza de Cabo Gris a las 7:15 de la tarde, cuando la luz empezaba a volverse naranja sobre los acantilados. Llevaba una maleta pequeña, un cuaderno de tapas azules y la dirección del faro escrita a lápiz en un billete de 20 €.",
+      "reason": "Aceptada automáticamente: deepgram-nova-3 oyó diferencias que elevenlabs-scribe_v2 no confirma.",
+      "provenance": {
+        "chapter": 0,
+        "paragraph": 0,
+        "part": 0,
+        "parts": 1,
+        "source_chapter": 0,
+        "source_paragraph": 0,
+        "element": "p",
+        "page": "1",
+        "method": "dtbook",
+        "source_flags": []
+      }
+    },
+    {
+      "sentence_id": "716890cb2dcdb1dc3441f68c",
+      "chapter_index": 1,
+      "text": "El 14 de febrero de 1993 había escrito: «Temporal del noroeste. Olas de 9 m. A las 4:30 se apagó la luz durante doce minutos; la encendí a mano.» Debajo, con otra tinta, alguien había añadido una sola palabra: «Gracias».",
+      "reason": "Aceptada automáticamente: deepgram-nova-3 oyó diferencias que elevenlabs-scribe_v2 no confirma.",
+      "provenance": {
+        "chapter": 1,
+        "paragraph": 1,
+        "part": 0,
+        "parts": 1,
+        "source_chapter": 1,
+        "source_paragraph": 1,
+        "element": "p",
+        "page": "3",
+        "method": "dtbook",
+        "source_flags": []
+      }
+    },
+    {
+      "sentence_id": "7066eb1edfa1f5a3dffcd117",
+      "chapter_index": 1,
+      "text": "sabe que el mar es un libro",
+      "reason": "Aceptada automáticamente: Texto correcto, pero «libro» dura 1.44 s (lo normal en esta voz: 0.46 s).",
+      "provenance": {
+        "chapter": 1,
+        "paragraph": 6,
+        "part": 0,
+        "parts": 1,
+        "source_chapter": 1,
+        "source_paragraph": 6,
+        "element": "line",
+        "page": "4",
+        "method": "dtbook",
+        "source_flags": []
+      }
+    },
+    {
+      "sentence_id": "71aae949eb6d5eb6e1889f8b",
+      "chapter_index": 2,
+      "text": "El sábado subió al faro una mujer mayor con un abrigo verde y un paraguas que el viento había doblado por la mitad. Se presentó como Ximena Zubizarreta, sobrina de don Ezequiel, y traía un termo de café y una caja de galletas de Llanes.",
+      "reason": "Aceptada automáticamente: deepgram-nova-3 y elevenlabs-scribe_v2 oyen la misma diferencia. Diferencia menor que ambos reconocedores escriben igual (a menudo un nombre que suena igual escrito de otra forma); escúchala.",
+      "provenance": {
+        "chapter": 2,
+        "paragraph": 0,
+        "part": 0,
+        "parts": 1,
+        "source_chapter": 2,
+        "source_paragraph": 0,
+        "element": "p",
+        "page": "5",
+        "method": "dtbook",
+        "source_flags": []
+      }
+    },
+    {
+      "sentence_id": "44267ccfc812bb483a607bce",
+      "chapter_index": 2,
+      "text": "—Mi tío llegó aquí en 1962, con veinticuatro años —contó, sentada junto a la ventana—. Decía que en Cabo Gris había aprendido tres cosas: a escuchar el mar, a no fiarse del barómetro y a escribirlo todo.",
+      "reason": "Aceptada automáticamente: deepgram-nova-3 oyó diferencias que elevenlabs-scribe_v2 no confirma.",
+      "provenance": {
+        "chapter": 2,
+        "paragraph": 1,
+        "part": 0,
+        "parts": 1,
+        "source_chapter": 2,
+        "source_paragraph": 1,
+        "element": "p",
+        "page": "5",
+        "method": "dtbook",
+        "source_flags": []
+      }
+    }
+  ],
+  "processing_seconds": 42.7,
+  "audio_seconds": 241.3,
+  "download": "released",
+  "revalidation_from_zip": {
+    "structural": "passed",
+    "dtd": {
+      "status": "passed",
+      "method": "dtd_z3986_2005",
+      "files": [
+        {
+          "file": "El_faro_de_Cabo_Gris.ncx",
+          "dtd": "ncx-2005-1.dtd",
+          "valid": true
+        },
+        {
+          "file": "El_faro_de_Cabo_Gris.opf",
+          "dtd": "oebpkg12.dtd",
+          "valid": true
+        },
+        {
+          "file": "El_faro_de_Cabo_Gris.res",
+          "dtd": "resource-2005-1.dtd",
+          "valid": true
+        },
+        {
+          "file": "El_faro_de_Cabo_Gris.xml",
+          "dtd": "dtbook-2005-3.dtd",
+          "valid": true
+        },
+        {
+          "file": "smil/chapter-0001.smil",
+          "dtd": "dtbsmil-2005-2.dtd",
+          "valid": true
+        },
+        {
+          "file": "smil/chapter-0002.smil",
+          "dtd": "dtbsmil-2005-2.dtd",
+          "valid": true
+        },
+        {
+          "file": "smil/chapter-0003.smil",
+          "dtd": "dtbsmil-2005-2.dtd",
+          "valid": true
+        }
+      ],
+      "errors": []
+    }
+  },
+  "dimensions": {
+    "technical": {
+      "status": "passed",
+      "segments": 24,
+      "verified": 24,
+      "failed": 0,
+      "pending": 0,
+      "awaiting_review": 0,
+      "technical_attempts": 0,
+      "quality_retakes": 0,
+      "reused_from_cache": 24
+    },
+    "source": {
+      "status": "passed",
+      "method": "dtbook",
+      "coverage": {
+        "source_words": 561,
+        "extracted_words": 549,
+        "dropped_words": 13,
+        "unaccounted_words": 0,
+        "added_words": 1,
+        "ratio": 1.0,
+        "unaccounted_examples": [],
+        "added_examples": [
+          "nota"
+        ]
+      },
+      "blocking": [],
+      "open_warnings": [],
+      "acknowledged": 0,
+      "pages": 0,
+      "ocr_pages": 0
+    },
+    "content": {
+      "status": "passed",
+      "verified_by": {
+        "asr_primary": 19,
+        "asr_secondary": 3,
+        "auto_accepted": 2
+      },
+      "awaiting_review": 0,
+      "reference_words": 533,
+      "asr_word_errors": 8,
+      "wer": 0.015,
+      "segments_measured": 24
+    },
+    "audio": {
+      "status": "passed",
+      "failed": [],
+      "signal_unchecked": 0,
+      "suspicious": 0
+    },
+    "package": {
+      "status": "passed",
+      "structural": "passed",
+      "dtd": "passed",
+      "completeness": "passed",
+      "official_daisy_pipeline": "not_run"
+    },
+    "human": {
+      "decisions": 0,
+      "awaiting": 0,
+      "acknowledged_warnings": 0,
+      "listening_recommended": [
+        "8b824b4000b9b3aeceafd04a",
+        "716890cb2dcdb1dc3441f68c",
+        "7066eb1edfa1f5a3dffcd117",
+        "71aae949eb6d5eb6e1889f8b",
+        "44267ccfc812bb483a607bce"
+      ],
+      "listening_check": "not_recorded"
+    }
+  }
+}

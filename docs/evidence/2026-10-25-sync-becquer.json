@@ -1,0 +1,493 @@
+{
+  "summary": {
+    "clips": 61,
+    "located": 53,
+    "not_located": [
+      "chapter-2-title",
+      "p-0013",
+      "chapter-3-title",
+      "p-0028",
+      "p-0038",
+      "p-0043",
+      "chapter-4-title",
+      "p-0056"
+    ],
+    "median_abs_offset_s": 0.07,
+    "max_abs_offset_s": 0.23,
+    "within_250ms": 53
+  },
+  "clips": [
+    {
+      "clip": "p-0001",
+      "clip_begin": 0.0,
+      "word": "Los",
+      "word_start": 0.08,
+      "offset": 0.08,
+      "clip_end": 1.42
+    },
+    {
+      "clip": "p-0002",
+      "clip_begin": 1.77,
+      "word": "Hace",
+      "word_start": 1.76,
+      "offset": -0.01,
+      "clip_end": 6.43
+    },
+    {
+      "clip": "p-0003",
+      "clip_begin": 6.78,
+      "word": "Hoy,",
+      "word_start": 6.8799996,
+      "offset": 0.1,
+      "clip_end": 16.87
+    },
+    {
+      "clip": "p-0004",
+      "clip_begin": 17.22,
+      "word": "Yo",
+      "word_start": 17.314999,
+      "offset": 0.095,
+      "clip_end": 49.69
+    },
+    {
+      "clip": "chapter-2-title",
+      "clip_begin": 0.0,
+      "word": null,
+      "offset": null
+    },
+    {
+      "clip": "p-0006",
+      "clip_begin": 0.67,
+      "word": "Herido",
+      "word_start": 0.71999997,
+      "offset": 0.05,
+      "clip_end": 40.18
+    },
+    {
+      "clip": "p-0007",
+      "clip_begin": 40.53,
+      "word": "Las",
+      "word_start": 40.555,
+      "offset": 0.025,
+      "clip_end": 65.49
+    },
+    {
+      "clip": "p-0008",
+      "clip_begin": 65.84,
+      "word": "Pero",
+      "word_start": 65.85,
+      "offset": 0.01,
+      "clip_end": 84.53
+    },
+    {
+      "clip": "p-0009",
+      "clip_begin": 84.88,
+      "word": "Alto,",
+      "word_start": 84.95,
+      "offset": 0.07,
+      "clip_end": 91.68
+    },
+    {
+      "clip": "p-0010",
+      "clip_begin": 92.03,
+      "word": "Y",
+      "word_start": 92.07,
+      "offset": 0.04,
+      "clip_end": 100.69
+    },
+    {
+      "clip": "p-0011",
+      "clip_begin": 101.03999999999999,
+      "word": "En",
+      "word_start": 101.105,
+      "offset": 0.065,
+      "clip_end": 109.25
+    },
+    {
+      "clip": "p-0012",
+      "clip_begin": 109.6,
+      "word": "¿Qué",
+      "word_start": 109.5,
+      "offset": -0.1,
+      "clip_end": 134.09
+    },
+    {
+      "clip": "p-0013",
+      "clip_begin": 134.44,
+      "word": null,
+      "offset": null
+    },
+    {
+      "clip": "p-0014",
+      "clip_begin": 140.39,
+      "word": "Imposible.",
+      "word_start": 140.56,
+      "offset": 0.17,
+      "clip_end": 142.28
+    },
+    {
+      "clip": "p-0015",
+      "clip_begin": 142.63,
+      "word": "Porque",
+      "word_start": 142.64,
+      "offset": 0.01,
+      "clip_end": 176.7
+    },
+    {
+      "clip": "p-0016",
+      "clip_begin": 177.05,
+      "word": "Pieza",
+      "word_start": 177.12001,
+      "offset": 0.07,
+      "clip_end": 220.11
+    },
+    {
+      "clip": "p-0017",
+      "clip_begin": 220.46,
+      "word": "Caballo",
+      "word_start": 220.61,
+      "offset": 0.15,
+      "clip_end": 223.37
+    },
+    {
+      "clip": "p-0018",
+      "clip_begin": 223.72,
+      "word": "Íñigo",
+      "word_start": 223.81,
+      "offset": 0.09,
+      "clip_end": 236.06
+    },
+    {
+      "clip": "p-0019",
+      "clip_begin": 236.41,
+      "word": "El",
+      "word_start": 236.445,
+      "offset": 0.035,
+      "clip_end": 238.48
+    },
+    {
+      "clip": "p-0020",
+      "clip_begin": 238.82999999999998,
+      "word": "señores,",
+      "word_start": 238.925,
+      "offset": 0.095,
+      "clip_end": 256.82
+    },
+    {
+      "clip": "chapter-3-title",
+      "clip_begin": 0.0,
+      "word": null,
+      "offset": null
+    },
+    {
+      "clip": "p-0022",
+      "clip_begin": 0.78,
+      "word": "Tenéis",
+      "word_start": 0.71999997,
+      "offset": -0.06,
+      "clip_end": 18.08
+    },
+    {
+      "clip": "p-0023",
+      "clip_begin": 18.43,
+      "word": "Ya",
+      "word_start": 18.435,
+      "offset": 0.005,
+      "clip_end": 49.5
+    },
+    {
+      "clip": "p-0024",
+      "clip_begin": 49.85,
+      "word": "Mientras",
+      "word_start": 49.935,
+      "offset": 0.085,
+      "clip_end": 59.03
+    },
+    {
+      "clip": "p-0025",
+      "clip_begin": 59.38,
+      "word": "Después",
+      "word_start": 59.52,
+      "offset": 0.14,
+      "clip_end": 73.71000000000001
+    },
+    {
+      "clip": "p-0026",
+      "clip_begin": 74.06,
+      "word": "Íñigo,",
+      "word_start": 74.064995,
+      "offset": 0.005,
+      "clip_end": 92.77000000000001
+    },
+    {
+      "clip": "p-0027",
+      "clip_begin": 93.12,
+      "word": "Una",
+      "word_start": 93.095,
+      "offset": -0.025,
+      "clip_end": 98.33
+    },
+    {
+      "clip": "p-0028",
+      "clip_begin": 98.68,
+      "word": null,
+      "offset": null
+    },
+    {
+      "clip": "p-0029",
+      "clip_begin": 128.85,
+      "word": "El",
+      "word_start": 128.865,
+      "offset": 0.015,
+      "clip_end": 144.72
+    },
+    {
+      "clip": "p-0030",
+      "clip_begin": 145.07,
+      "word": "Desde",
+      "word_start": 145.10501,
+      "offset": 0.035,
+      "clip_end": 159.68
+    },
+    {
+      "clip": "p-0031",
+      "clip_begin": 160.03,
+      "word": "Tú",
+      "word_start": 160.01,
+      "offset": -0.02,
+      "clip_end": 212.18
+    },
+    {
+      "clip": "p-0032",
+      "clip_begin": 212.53,
+      "word": "Lamentos,",
+      "word_start": 212.67,
+      "offset": 0.14,
+      "clip_end": 233.2
+    },
+    {
+      "clip": "p-0033",
+      "clip_begin": 233.55,
+      "word": "Todo",
+      "word_start": 233.63501,
+      "offset": 0.085,
+      "clip_end": 258.8
+    },
+    {
+      "clip": "p-0034",
+      "clip_begin": 259.15,
+      "word": "Cuando",
+      "word_start": 259.275,
+      "offset": 0.125,
+      "clip_end": 287.69
+    },
+    {
+      "clip": "p-0035",
+      "clip_begin": 288.04,
+      "word": "Tal",
+      "word_start": 288.04498,
+      "offset": 0.005,
+      "clip_end": 313.76
+    },
+    {
+      "clip": "p-0036",
+      "clip_begin": 314.11,
+      "word": "En",
+      "word_start": 314.185,
+      "offset": 0.075,
+      "clip_end": 317.31
+    },
+    {
+      "clip": "p-0037",
+      "clip_begin": 317.66,
+      "word": "Por",
+      "word_start": 317.705,
+      "offset": 0.045,
+      "clip_end": 361.58
+    },
+    {
+      "clip": "p-0038",
+      "clip_begin": 361.93,
+      "word": null,
+      "offset": null
+    },
+    {
+      "clip": "p-0039",
+      "clip_begin": 369.37,
+      "word": "Fernando",
+      "word_start": 369.59,
+      "offset": 0.22,
+      "clip_end": 378.18
+    },
+    {
+      "clip": "p-0040",
+      "clip_begin": 378.53,
+      "word": "¿La",
+      "word_start": 378.495,
+      "offset": -0.035,
+      "clip_end": 379.4
+    },
+    {
+      "clip": "p-0041",
+      "clip_begin": 379.75,
+      "word": "Oh,",
+      "word_start": 379.85498,
+      "offset": 0.105,
+      "clip_end": 409.51
+    },
+    {
+      "clip": "p-0042",
+      "clip_begin": 409.86,
+      "word": "Por",
+      "word_start": 409.87997,
+      "offset": 0.02,
+      "clip_end": 414.73
+    },
+    {
+      "clip": "p-0043",
+      "clip_begin": 415.08,
+      "word": null,
+      "offset": null
+    },
+    {
+      "clip": "p-0044",
+      "clip_begin": 427.46,
+      "word": "¿Sabes",
+      "word_start": 427.325,
+      "offset": -0.135,
+      "clip_end": 447.92
+    },
+    {
+      "clip": "p-0045",
+      "clip_begin": 448.27,
+      "word": "Dijo",
+      "word_start": 448.5,
+      "offset": 0.23,
+      "clip_end": 462.87
+    },
+    {
+      "clip": "chapter-4-title",
+      "clip_begin": 0.0,
+      "word": null,
+      "offset": null
+    },
+    {
+      "clip": "p-0047",
+      "clip_begin": 0.73,
+      "word": "¿Quién",
+      "word_start": 0.64,
+      "offset": -0.09,
+      "clip_end": 25.35
+    },
+    {
+      "clip": "p-0048",
+      "clip_begin": 25.7,
+      "word": "El",
+      "word_start": 25.735,
+      "offset": 0.035,
+      "clip_end": 45.25
+    },
+    {
+      "clip": "p-0049",
+      "clip_begin": 45.6,
+      "word": "Sobre",
+      "word_start": 45.685,
+      "offset": 0.085,
+      "clip_end": 63.97
+    },
+    {
+      "clip": "p-0050",
+      "clip_begin": 64.32,
+      "word": "Ella",
+      "word_start": 64.4,
+      "offset": 0.08,
+      "clip_end": 86.98
+    },
+    {
+      "clip": "p-0051",
+      "clip_begin": 87.33,
+      "word": "Cuando",
+      "word_start": 87.37,
+      "offset": 0.04,
+      "clip_end": 104.06
+    },
+    {
+      "clip": "p-0052",
+      "clip_begin": 104.41,
+      "word": "No",
+      "word_start": 104.435,
+      "offset": 0.025,
+      "clip_end": 121.48
+    },
+    {
+      "clip": "p-0053",
+      "clip_begin": 121.83,
+      "word": "Oh,",
+      "word_start": 121.85,
+      "offset": 0.02,
+      "clip_end": 124.43
+    },
+    {
+      "clip": "p-0054",
+      "clip_begin": 124.78,
+      "word": "El",
+      "word_start": 124.81,
+      "offset": 0.03,
+      "clip_end": 142.19
+    },
+    {
+      "clip": "p-0055",
+      "clip_begin": 142.54,
+      "word": "si",
+      "word_start": 142.45,
+      "offset": -0.09,
+      "clip_end": 153.97
+    },
+    {
+      "clip": "p-0056",
+      "clip_begin": 154.32,
+      "word": null,
+      "offset": null
+    },
+    {
+      "clip": "p-0057",
+      "clip_begin": 201.65,
+      "word": "Mientras",
+      "word_start": 201.77,
+      "offset": 0.12,
+      "clip_end": 218.61
+    },
+    {
+      "clip": "p-0058",
+      "clip_begin": 218.96,
+      "word": "¿Ves?",
+      "word_start": 219.095,
+      "offset": 0.135,
+      "clip_end": 258.15
+    },
+    {
+      "clip": "p-0059",
+      "clip_begin": 258.5,
+      "word": "La",
+      "word_start": 258.53,
+      "offset": 0.03,
+      "clip_end": 293.99
+    },
+    {
+      "clip": "p-0060",
+      "clip_begin": 294.34000000000003,
+      "word": "Fernando",
+      "word_start": 294.42,
+      "offset": 0.08,
+      "clip_end": 314.94
+    },
+    {
+      "clip": "p-0061",
+      "clip_begin": 315.29,
+      "word": "Las",
+      "word_start": 315.39,
+      "offset": 0.1,
+      "clip_end": 326.49
+    }
+  ]
+}

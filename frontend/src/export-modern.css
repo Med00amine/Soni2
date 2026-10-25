@@ -1,85 +1,118 @@
-/* The Export step and the review tools, restyled.
+/* The Export step (step 3 of 3) and the review tools around it.
  *
- * The original rules hardcoded a pale 2010 palette (#fff panels, #d8e3ec
- * hairlines, 6px radii) with no tokens and no dark mode, so the newer parts
- * looked washed out beside it. Everything here works from custom properties,
- * follows the reader's light/dark preference, and uses one spacing and radius
- * scale. Loaded after production-status.css so it wins without that file
- * having to be rewritten.
+ * One stylesheet owns this page. Earlier revisions styled it in three files at
+ * once and the export action bar also carried the step-2 editor dock's class,
+ * so a light, edge-to-edge dock was painted inside the card, and the page sat
+ * in the editor's fixed-height frame with every ancestor clipping its overflow:
+ * nothing scrolled and the buttons fell off the screen.
+ *
+ * Theme: Soni2 is a light design everywhere (header, tabs, upload, editor), so
+ * the tokens below follow the app's own palette and green accent. A dark
+ * variant exists, but only when the whole app opts in with
+ * <html data-theme="dark">; following the operating system here alone turned
+ * this one card into a dark island on a light page.
  */
 
 :root {
-  --s-bg: #f4f6f8;
+  --s-bg: #f7f8f4;
   --s-panel: #ffffff;
-  --s-raised: #fbfcfd;
-  --s-ink: #141a21;
-  --s-ink-soft: #55606d;
-  --s-line: #dde3ea;
-  --s-line-strong: #c3ccd6;
-  --s-accent: #1d5fbf;
+  --s-raised: #f9fbf8;
+  --s-ink: #1f2d27;
+  --s-ink-soft: #5b6a62;
+  --s-line: #dfe6e0;
+  --s-line-strong: #b8cbbd;
+  --s-accent: #285c4a;
+  --s-accent-strong: #204b3d;
   --s-accent-ink: #ffffff;
-  --s-accent-soft: #e9f0fb;
+  --s-accent-soft: #eef5f0;
   --s-ok: #136c3c;
   --s-ok-soft: #e4f3ea;
   --s-warn: #8a5a00;
   --s-warn-soft: #fdf2d9;
   --s-bad: #a32a20;
   --s-bad-soft: #fbe9e6;
-  --s-radius: 12px;
-  --s-radius-sm: 8px;
-  --s-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 8px 24px -12px rgba(16, 24, 40, .18);
+  --s-radius: 14px;
+  --s-radius-sm: 9px;
+  --s-shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 10px 30px -14px rgba(32, 59, 82, .16);
+  --s-space: clamp(16px, 2.2vw, 24px);
+  --s-pad: clamp(18px, 3vw, 32px);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --s-bg: #12161b;
-    --s-panel: #1a1f26;
-    --s-raised: #212832;
-    --s-ink: #e8edf3;
-    --s-ink-soft: #a2adba;
-    --s-line: #2c3440;
-    --s-line-strong: #3c4654;
-    --s-accent: #7fb0ff;
-    --s-accent-ink: #0d1521;
-    --s-accent-soft: #16243a;
-    --s-ok: #74d39f;
-    --s-ok-soft: #102c1d;
-    --s-warn: #f0c674;
-    --s-warn-soft: #322610;
-    --s-bad: #ff9d93;
-    --s-bad-soft: #371a16;
-    --s-shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 30px -14px rgba(0, 0, 0, .6);
-  }
+:root[data-theme="dark"] {
+  --s-bg: #12161b;
+  --s-panel: #1a1f26;
+  --s-raised: #212832;
+  --s-ink: #e8edf3;
+  --s-ink-soft: #a2adba;
+  --s-line: #2c3440;
+  --s-line-strong: #3c4654;
+  --s-accent: #7fd4a2;
+  --s-accent-strong: #a6e4bf;
+  --s-accent-ink: #0d1521;
+  --s-accent-soft: #14271d;
+  --s-ok: #74d39f;
+  --s-ok-soft: #102c1d;
+  --s-warn: #f0c674;
+  --s-warn-soft: #322610;
+  --s-bad: #ff9d93;
+  --s-bad-soft: #371a16;
+  --s-shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 30px -14px rgba(0, 0, 0, .6);
 }
+
+/* ------------------------------------------------------------ page shell */
+
+/* Step 2 is a screen-sized editor whose columns scroll on their own, so the
+   shell is a fixed 100dvh frame. Steps 1 and 3 are documents: the shell grows
+   with its content, the page scrolls, and nothing clips. */
+.editor-shell.shell.is-document { height: auto; min-height: 100dvh; overflow: visible; }
+.editor-shell.is-document .editor-workspace.hero { height: auto; flex: 1 0 auto; overflow: visible; }
+.editor-shell.is-document .workspace-panel { flex: none; min-height: 0; overflow: visible; }
 
 /* ---------------------------------------------------------------- export */
 
+.export-panel { padding: clamp(12px, 2vw, 24px) 0 clamp(24px, 4vw, 48px); }
+
 .export-panel .export-workspace {
-  width: min(100%, 980px);
+  display: grid;
+  gap: var(--s-space);
+  width: 100%;
+  max-width: 1040px;
+  min-width: 0;
   margin: 0 auto;
-  padding: 24px;
+  padding: var(--s-pad);
   border: 1px solid var(--s-line);
   border-radius: var(--s-radius);
   background: var(--s-panel);
   box-shadow: var(--s-shadow);
   color: var(--s-ink);
 }
+/* Spacing comes from the card's grid gap, not from each child's margins. */
+.export-workspace > * { min-width: 0; margin-top: 0; margin-bottom: 0; }
 
 .export-workspace-heading {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  padding-bottom: 18px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px 24px;
+  padding-bottom: var(--s-space);
   border-bottom: 1px solid var(--s-line);
 }
+.export-workspace-heading h2 {
+  margin: 2px 0 6px;
+  color: var(--s-ink);
+  font-size: clamp(1.3rem, 1rem + 1vw, 1.6rem);
+  letter-spacing: -.01em;
+}
+.export-workspace-heading > div > p:last-child {
+  max-width: 60ch;
+  margin: 0;
+  color: var(--s-ink-soft);
+  font-size: .95rem;
+  line-height: 1.6;
+}
+.export-panel .book-review-kicker { margin: 0; color: var(--s-accent); font-size: .72rem; font-weight: 800; letter-spacing: .14em; }
 
-.export-workspace-heading h2 { margin: 2px 0 6px; color: var(--s-ink); font-size: 1.5rem; letter-spacing: -.01em; }
-.export-workspace-heading > div > p:last-child { margin: 0; max-width: 54ch; color: var(--s-ink-soft); font-size: .93rem; line-height: 1.6; }
-.export-panel .book-review-kicker { color: var(--s-accent); font-size: .7rem; font-weight: 800; letter-spacing: .14em; }
-
-.export-panel .book-review-stats { display: flex; flex-wrap: wrap; gap: 8px; }
+.export-panel .book-review-stats { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .export-panel .book-review-stats span {
   padding: 6px 12px;
   border: 1px solid var(--s-line);
@@ -91,50 +124,28 @@
   white-space: nowrap;
 }
 
-/* The two ways to export, side by side and explained. */
-.export-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin: 20px 0 14px; }
-.export-choices article {
-  padding: 16px;
-  border: 1px solid var(--s-line);
-  border-radius: var(--s-radius-sm);
-  background: var(--s-raised);
-  opacity: 1;
-}
-.export-choices article:first-child { border-color: var(--s-accent); background: var(--s-accent-soft); }
-.export-choices h4 { margin: 0 0 8px; color: var(--s-ink); font-size: 1rem; }
-.export-choices p { margin: 0; color: var(--s-ink-soft); font-size: .89rem; line-height: 1.6; }
-
-.export-panel .export-note {
-  margin: 0;
-  padding: 11px 14px;
-  border-left: 3px solid var(--s-accent);
-  border-radius: var(--s-radius-sm);
-  background: var(--s-accent-soft);
-  color: var(--s-ink-soft);
-  font-size: .87rem;
-  line-height: 1.6;
-}
-
 /* Bibliographic data, collapsed until wanted. */
 .export-panel .metadata-editor {
-  margin: 18px 0;
-  padding: 16px;
+  padding: 14px 18px;
   border: 1px solid var(--s-line);
   border-radius: var(--s-radius-sm);
   background: var(--s-raised);
 }
-.export-panel .metadata-editor summary { color: var(--s-ink); font-size: .95rem; font-weight: 700; }
+.export-panel .metadata-editor summary { color: var(--s-ink); font-size: .95rem; font-weight: 700; cursor: pointer; }
+.export-panel .metadata-editor[open] summary { margin-bottom: 4px; }
 .export-panel .metadata-editor > p { color: var(--s-ink-soft); }
 .export-panel .metadata-editor label { color: var(--s-ink); font-size: .84rem; }
 .export-panel .metadata-editor input {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
   border: 1px solid var(--s-line-strong);
   border-radius: var(--s-radius-sm);
   background: var(--s-panel);
   color: var(--s-ink);
-  padding: 10px 12px;
 }
 .export-panel .metadata-editor input:focus-visible { outline: 2px solid var(--s-accent); outline-offset: 1px; }
-.metadata-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0 14px; }
+.metadata-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 0 14px; }
 
 .export-panel .helper-action {
   display: flex;
@@ -142,7 +153,6 @@
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  margin: 16px 0;
   padding: 16px;
   border: 1px dashed var(--s-line-strong);
   border-radius: var(--s-radius-sm);
@@ -150,56 +160,154 @@
 }
 .export-panel .helper-action p { margin: 6px 0 0; color: var(--s-ink-soft); font-size: .88rem; line-height: 1.6; }
 
+/* The two ways to export: a choice, so it is a radio group. */
+.export-choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  min-inline-size: 0;
+  padding: 0;
+  border: 0;
+}
+.export-choices legend {
+  margin: 0 0 10px;
+  padding: 0;
+  color: var(--s-ink);
+  font-size: .95rem;
+  font-weight: 700;
+}
+.export-choice {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  gap: 6px 12px;
+  height: 100%;
+  padding: 18px;
+  border: 1px solid var(--s-line);
+  border-radius: var(--s-radius-sm);
+  background: var(--s-raised);
+  cursor: pointer;
+  transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease;
+}
+.export-choice:hover { border-color: var(--s-line-strong); }
+.export-choice input {
+  grid-row: 1 / 3;
+  width: 20px;
+  height: 20px;
+  margin: 2px 0 0;
+  accent-color: var(--s-accent);
+  cursor: pointer;
+}
+.export-choice:focus-within { outline: 2px solid var(--s-accent); outline-offset: 2px; }
+.export-choice.is-selected {
+  border-color: var(--s-accent);
+  background: var(--s-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--s-accent);
+}
+.export-choice-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  color: var(--s-ink);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.export-choice-tag {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+.export-choice-tag.is-unverified { background: var(--s-warn-soft); color: var(--s-warn); }
+.export-choice-tag.is-verified { background: var(--s-ok-soft); color: var(--s-ok); }
+.export-choice-text { color: var(--s-ink-soft); font-size: .9rem; line-height: 1.6; }
+
+.export-panel .export-note {
+  padding: 12px 16px;
+  border-left: 3px solid var(--s-accent);
+  border-radius: var(--s-radius-sm);
+  background: var(--s-accent-soft);
+  color: var(--s-ink-soft);
+  font-size: .88rem;
+  line-height: 1.6;
+}
+
 /* ---------------------------------------------------------------- actions */
 
-.workspace-action-bar {
+/* Part of the card, in normal flow: no sticky dock covering the content. */
+.export-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-top: 20px;
-  padding: 18px;
-  border: 1px solid var(--s-line);
-  border-radius: var(--s-radius);
-  background: var(--s-raised);
+  gap: 14px 24px;
+  padding-top: var(--s-space);
+  border-top: 1px solid var(--s-line);
 }
-.workspace-action-bar > div:first-child strong { display: block; color: var(--s-ink); font-size: 1rem; }
-.workspace-action-bar > div:first-child span { display: block; margin-top: 4px; max-width: 52ch; color: var(--s-ink-soft); font-size: .87rem; line-height: 1.55; }
+.export-actions-status { display: grid; flex: 1 1 260px; gap: 4px; min-width: 0; }
+.export-actions-status strong { color: var(--s-ink); font-size: 1rem; }
+.export-actions-status span { max-width: 56ch; color: var(--s-ink-soft); font-size: .88rem; line-height: 1.55; }
+.export-actions-status .direct-progress { width: 100%; max-width: 420px; height: 8px; accent-color: var(--s-accent); }
+.export-actions-buttons { display: flex; flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; gap: 10px; min-width: 0; }
 
-.workspace-action-bar .action-bar-buttons button,
+.export-button,
 .export-panel .package-download {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  padding: 11px 18px;
-  border: 1px solid var(--s-accent);
+  width: auto;
+  min-height: 46px;
+  margin: 0;
+  padding: 10px 20px;
+  border: 1px solid var(--s-line-strong);
   border-radius: 999px;
+  background: var(--s-panel);
+  color: var(--s-accent);
+  font: inherit;
+  font-size: .92rem;
+  font-weight: 650;
+  line-height: 1.25;
+  text-align: center;
+  cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease, transform .15s ease;
+}
+.export-button svg { flex: none; }
+.export-button:hover:not(:disabled) { border-color: var(--s-accent); background: var(--s-accent-soft); }
+.export-button.is-primary,
+.export-panel .package-download {
+  border-color: var(--s-accent);
   background: var(--s-accent);
   color: var(--s-accent-ink);
-  font: inherit;
-  font-size: .9rem;
-  font-weight: 650;
-  cursor: pointer;
-  transition: filter .15s ease, transform .15s ease;
 }
-.workspace-action-bar .action-bar-buttons button:hover:not(:disabled),
-.export-panel .package-download:hover:not(:disabled) { filter: brightness(1.08); }
-.workspace-action-bar .action-bar-buttons button:active:not(:disabled) { transform: translateY(1px); }
-.workspace-action-bar .action-bar-buttons button:focus-visible,
+.export-button.is-primary:hover:not(:disabled),
+.export-panel .package-download:hover:not(:disabled) { border-color: var(--s-accent-strong); background: var(--s-accent-strong); }
+.export-button:active:not(:disabled) { transform: translateY(1px); }
+.export-button:focus-visible,
 .export-panel .package-download:focus-visible { outline: 2px solid var(--s-ink); outline-offset: 2px; }
-.workspace-action-bar .action-bar-buttons .secondary-action {
-  background: transparent;
-  color: var(--s-accent);
-  border-color: var(--s-line-strong);
-}
-.workspace-action-bar .action-bar-buttons button:disabled,
+.export-button:disabled,
 .export-panel .package-download:disabled { opacity: .5; cursor: not-allowed; }
+.export-button .spinner { border-color: currentColor; border-top-color: transparent; }
+.export-panel .package-download.secondary { border-color: var(--s-bad); background: var(--s-panel); color: var(--s-bad); }
+.unverified-tag { font-weight: 400; opacity: .85; white-space: nowrap; }
+
+@media (max-width: 720px) {
+  .export-workspace-heading { grid-template-columns: minmax(0, 1fr); }
+  .export-panel .book-review-stats { justify-content: flex-start; }
+  .export-choices { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+  .export-actions-buttons { width: 100%; }
+  .export-button { flex: 1 1 100%; }
+}
 
 /* ---------------------------------------------------- production progress */
 
 .export-panel .production-progress {
-  margin-top: 20px;
   padding: 18px;
   border: 1px solid var(--s-line);
   border-radius: var(--s-radius);
@@ -304,8 +412,30 @@
 .pron-player { width: 100%; margin-top: 12px; }
 
 @media (max-width: 640px) {
-  .export-panel .export-workspace { padding: 16px; }
-  .workspace-action-bar { padding: 14px; }
   .pron-options li { flex-direction: column; align-items: stretch; }
   .pron-actions button { flex: 1 1 auto; }
+}
+.export-panel progress { accent-color: var(--s-accent); }
+
+/* Where the differences are heard: times in the finished audiobook. */
+.fault-locations { display: grid; gap: 10px; padding: 16px 18px; border: 1px solid var(--s-line); border-radius: var(--s-radius-sm); background: var(--s-panel); }
+.fault-locations h4 { margin: 0; color: var(--s-ink); font-size: 1rem; }
+.fault-locations > p { margin: 0; color: var(--s-ink-soft); font-size: .88rem; line-height: 1.55; }
+.fault-table { overflow-x: auto; }
+.fault-table table { width: 100%; border-collapse: collapse; font-size: .86rem; }
+.fault-table th, .fault-table td { padding: 8px; border-top: 1px solid var(--s-line); text-align: left; vertical-align: top; }
+.fault-table th { color: var(--s-ink-soft); font-weight: 600; }
+.fault-table td small { display: block; margin-top: 3px; color: var(--s-ink-soft); }
+.fault-table tr.is-current td { background: var(--s-accent-soft); }
+.fault-clock { font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
+.fault-locations audio, .qa-audio audio { width: 100%; }
+.qa-seek { margin-left: 6px; padding: 3px 10px; border: 1px solid var(--s-line-strong); border-radius: 999px; background: var(--s-panel); color: var(--s-accent); font: inherit; font-size: .8rem; font-weight: 650; cursor: pointer; }
+.qa-seek:hover { border-color: var(--s-accent); background: var(--s-accent-soft); }
+.qa-seek:focus-visible { outline: 2px solid var(--s-accent); outline-offset: 2px; }
+.qa-issue-time { color: var(--s-ink-soft); }
+@media (max-width: 560px) {
+  .fault-table thead { display: none; }
+  .fault-table tr { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; padding: 8px 0; border-top: 1px solid var(--s-line); }
+  .fault-table td { padding: 2px 0; border: 0; }
+  .fault-table td:nth-child(3), .fault-table td:nth-child(4) { grid-column: 1 / -1; }
 }

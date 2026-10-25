@@ -1,0 +1,204 @@
+{
+  "summary": {
+    "clips": 24,
+    "located": 23,
+    "not_located": [
+      "p-0007"
+    ],
+    "median_abs_offset_s": 0.034,
+    "max_abs_offset_s": 0.133,
+    "within_250ms": 23
+  },
+  "clips": [
+    {
+      "clip": "chapter-1-title",
+      "clip_begin": 0.0,
+      "word": "Capítulo",
+      "word_start": 0.0,
+      "offset": 0.0,
+      "clip_end": 2.262
+    },
+    {
+      "clip": "p-0002",
+      "clip_begin": 2.612,
+      "word": "El",
+      "word_start": 2.6399999,
+      "offset": 0.028,
+      "clip_end": 22.559
+    },
+    {
+      "clip": "p-0003",
+      "clip_begin": 22.909,
+      "word": "¿Viene",
+      "word_start": 22.855,
+      "offset": -0.054,
+      "clip_end": 32.486
+    },
+    {
+      "clip": "p-0004",
+      "clip_begin": 32.836,
+      "word": "Vengo",
+      "word_start": 32.96,
+      "offset": 0.124,
+      "clip_end": 39.957
+    },
+    {
+      "clip": "p-0005",
+      "clip_begin": 40.307,
+      "word": "El",
+      "word_start": 40.235,
+      "offset": -0.072,
+      "clip_end": 60.097
+    },
+    {
+      "clip": "p-0006",
+      "clip_begin": 60.447,
+      "word": "Antes",
+      "word_start": 60.57,
+      "offset": 0.123,
+      "clip_end": 68.535
+    },
+    {
+      "clip": "p-0007",
+      "clip_begin": 68.885,
+      "word": null,
+      "offset": null
+    },
+    {
+      "clip": "p-0008",
+      "clip_begin": 71.837,
+      "word": "pilas",
+      "word_start": 71.845,
+      "offset": 0.008,
+      "clip_end": 73.969
+    },
+    {
+      "clip": "p-0009",
+      "clip_begin": 74.319,
+      "word": "el",
+      "word_start": 74.325,
+      "offset": 0.006,
+      "clip_end": 79.037
+    },
+    {
+      "clip": "p-0010",
+      "clip_begin": 79.387,
+      "word": "Lucía",
+      "word_start": 79.445,
+      "offset": 0.058,
+      "clip_end": 92.788
+    },
+    {
+      "clip": "chapter-2-title",
+      "clip_begin": 0.0,
+      "word": "Capítulo",
+      "word_start": 0.0,
+      "offset": 0.0,
+      "clip_end": 3.124
+    },
+    {
+      "clip": "p-0012",
+      "clip_begin": 3.474,
+      "word": "El",
+      "word_start": 3.4399998,
+      "offset": -0.034,
+      "clip_end": 22.664
+    },
+    {
+      "clip": "p-0013",
+      "clip_begin": 23.014,
+      "word": "El",
+      "word_start": 22.985,
+      "offset": -0.029,
+      "clip_end": 44.764
+    },
+    {
+      "clip": "p-0014",
+      "clip_begin": 45.114,
+      "word": "Lucía",
+      "word_start": 45.165,
+      "offset": 0.051,
+      "clip_end": 62.997
+    },
+    {
+      "clip": "p-0015",
+      "clip_begin": 63.347,
+      "word": "En",
+      "word_start": 63.35,
+      "offset": 0.003,
+      "clip_end": 68.639
+    },
+    {
+      "clip": "p-0016",
+      "clip_begin": 68.989,
+      "word": "Quien",
+      "word_start": 68.995,
+      "offset": 0.006,
+      "clip_end": 70.938
+    },
+    {
+      "clip": "p-0017",
+      "clip_begin": 71.288,
+      "word": "no",
+      "word_start": 71.155,
+      "offset": -0.133,
+      "clip_end": 73.472
+    },
+    {
+      "clip": "p-0018",
+      "clip_begin": 73.822,
+      "word": "Sabe",
+      "word_start": 73.955,
+      "offset": 0.133,
+      "clip_end": 75.745
+    },
+    {
+      "clip": "p-0019",
+      "clip_begin": 76.095,
+      "word": "que",
+      "word_start": 76.034996,
+      "offset": -0.06,
+      "clip_end": 78.645
+    },
+    {
+      "clip": "p-0020",
+      "clip_begin": 78.995,
+      "word": "Nota",
+      "word_start": 79.09393,
+      "offset": 0.099,
+      "clip_end": 88.504
+    },
+    {
+      "clip": "chapter-3-title",
+      "clip_begin": 0.0,
+      "word": "Capítulo",
+      "word_start": 0.0,
+      "offset": 0.0,
+      "clip_end": 2.419
+    },
+    {
+      "clip": "p-0022",
+      "clip_begin": 2.769,
+      "word": "El",
+      "word_start": 2.8,
+      "offset": 0.031,
+      "clip_end": 18.798
+    },
+    {
+      "clip": "p-0023",
+      "clip_begin": 19.148,
+      "word": "Mi",
+      "word_start": 19.145,
+      "offset": -0.003,
+      "clip_end": 36.091
+    },
+    {
+      "clip": "p-0024",
+      "clip_begin": 36.441,
+      "word": "Antes",
+      "word_start": 36.53,
+      "offset": 0.089,
+      "clip_end": 59.324
+    }
+  ]
+}

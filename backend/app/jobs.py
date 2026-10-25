@@ -78,6 +78,25 @@ def initialize_store(database: Path) -> None:
             );
             CREATE INDEX IF NOT EXISTS sentence_job_state_idx
                 ON production_sentences(job_id, state, chapter_index, sequence);
+            CREATE TABLE IF NOT EXISTS production_attempts (
+                attempt_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id TEXT NOT NULL REFERENCES production_jobs(job_id) ON DELETE CASCADE,
+                sentence_id TEXT NOT NULL,
+                attempt_number INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                trigger TEXT NOT NULL,
+                audio_path TEXT,
+                cache_key TEXT NOT NULL DEFAULT '',
+                reused_audio INTEGER NOT NULL DEFAULT 0,
+                provider_json TEXT NOT NULL DEFAULT '{}',
+                integrity_json TEXT NOT NULL DEFAULT '{}',
+                primary_json TEXT NOT NULL DEFAULT '{}',
+                secondary_json TEXT NOT NULL DEFAULT '{}',
+                diagnosis_json TEXT NOT NULL DEFAULT '{}',
+                outcome TEXT NOT NULL DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS attempt_job_sentence_idx
+                ON production_attempts(job_id, sentence_id, attempt_number);
             """
         )
         # Keep existing Docker volumes usable as columns are added.
@@ -85,9 +104,26 @@ def initialize_store(database: Path) -> None:
         for name, definition in (
             ("is_heading", "INTEGER NOT NULL DEFAULT 0"),
             ("reused_audio", "INTEGER NOT NULL DEFAULT 0"),
+            # The expected spoken form (normalized, before lexicon respellings)
+            # and the record of how it was derived from the immutable text.
+            ("spoken_text", "TEXT NOT NULL DEFAULT ''"),
+            ("normalization_json", "TEXT NOT NULL DEFAULT '{}'"),
+            ("provenance_json", "TEXT NOT NULL DEFAULT '{}'"),
+            ("metrics_json", "TEXT NOT NULL DEFAULT '{}'"),
+            ("diagnosis_json", "TEXT NOT NULL DEFAULT '{}'"),
+            ("secondary_text", "TEXT NOT NULL DEFAULT ''"),
+            ("verification", "TEXT NOT NULL DEFAULT ''"),
         ):
             if name not in columns:
                 connection.execute(f"ALTER TABLE production_sentences ADD COLUMN {name} {definition}")
+        job_columns = {row[1] for row in connection.execute("PRAGMA table_info(production_jobs)")}
+        for name, definition in (
+            ("release_state", "TEXT NOT NULL DEFAULT ''"),
+            ("release_json", "TEXT NOT NULL DEFAULT '{}'"),
+            ("acknowledgements_json", "TEXT NOT NULL DEFAULT '[]'"),
+        ):
+            if name not in job_columns:
+                connection.execute(f"ALTER TABLE production_jobs ADD COLUMN {name} {definition}")
 
 
 def create_job(database: Path, job: dict[str, Any], sentences: list[dict[str, Any]]) -> None:
@@ -105,10 +141,13 @@ def create_job(database: Path, job: dict[str, Any], sentences: list[dict[str, An
         connection.executemany(
             """INSERT INTO production_sentences
             (job_id,sentence_id,chapter_index,chapter_title,sequence,is_heading,text,synthesis_text,
-             text_start,text_end,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+             text_start,text_end,updated_at,spoken_text,normalization_json,provenance_json)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             [(job["job_id"], item["sentence_id"], item["chapter_index"], item["chapter_title"],
               item["sequence"], int(item.get("is_heading", False)), item["text"], item["synthesis_text"], item["text_start"],
-              item["text_end"], now) for item in sentences],
+              item["text_end"], now, item.get("spoken_text", ""),
+              json.dumps(item.get("normalization") or {}, ensure_ascii=False),
+              json.dumps(item.get("provenance") or {}, ensure_ascii=False)) for item in sentences],
         )
 
 
@@ -122,17 +161,25 @@ def get_job(database: Path, job_id: str) -> dict[str, Any] | None:
         result["chapters"] = json.loads(result.pop("chapters_json"))
         result["metadata"] = json.loads(result.pop("metadata_json"))
         result["cancel_requested"] = bool(result["cancel_requested"])
+        result["release"] = json.loads(result.pop("release_json", "{}") or "{}")
+        result["acknowledgements"] = json.loads(result.pop("acknowledgements_json", "[]") or "[]")
         result["sentences"] = [dict(item) for item in connection.execute(
             "SELECT * FROM production_sentences WHERE job_id=? ORDER BY chapter_index,sequence", (job_id,)
         )]
         for item in result["sentences"]:
             item["issues"] = json.loads(item.pop("issues_json"))
             item["acoustic"] = json.loads(item.pop("acoustic_json"))
+            for column, key in (("normalization_json", "normalization"), ("provenance_json", "provenance"),
+                                ("metrics_json", "metrics"), ("diagnosis_json", "diagnosis")):
+                item[key] = json.loads(item.pop(column, "{}") or "{}")
+            # Rows from before the spoken form existed compare against the text.
+            item["spoken_text"] = item.get("spoken_text") or item["text"]
         return result
 
 
 def update_job(database: Path, job_id: str, **values: Any) -> None:
-    allowed = {"state", "updated_at", "started_at", "completed_at", "output_path", "error", "cancel_requested"}
+    allowed = {"state", "updated_at", "started_at", "completed_at", "output_path", "error", "cancel_requested",
+               "release_state", "release_json", "acknowledgements_json"}
     if not values or set(values) - allowed:
         raise ValueError("Invalid production job update fields.")
     values.setdefault("updated_at", utc_now())
@@ -145,6 +192,8 @@ def update_sentence(database: Path, job_id: str, sentence_id: str, **values: Any
     allowed = {
         "state", "technical_attempts", "quality_retakes", "audio_path", "recognized_text",
         "issues_json", "acoustic_json", "confidence", "last_error", "reused_audio", "updated_at",
+        "metrics_json", "diagnosis_json", "secondary_text", "verification", "text", "synthesis_text",
+        "spoken_text", "normalization_json",
     }
     if not values or set(values) - allowed:
         raise ValueError("Invalid sentence update fields.")
@@ -205,6 +254,43 @@ def stop_interrupted_jobs(database: Path) -> list[str]:
             ("Detenido al reiniciar el servidor.", now, now),
         )
         return [row[0] for row in rows]
+
+
+def add_attempt(database: Path, job_id: str, sentence_id: str, record: dict[str, Any]) -> int:
+    """Keep one take with all its evidence. Attempts are never overwritten."""
+    with sqlite3.connect(database) as connection:
+        number = connection.execute(
+            "SELECT COALESCE(MAX(attempt_number),0)+1 FROM production_attempts WHERE job_id=? AND sentence_id=?",
+            (job_id, sentence_id)).fetchone()[0]
+        connection.execute(
+            """INSERT INTO production_attempts
+            (job_id,sentence_id,attempt_number,created_at,trigger,audio_path,cache_key,reused_audio,
+             provider_json,integrity_json,primary_json,secondary_json,diagnosis_json,outcome)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (job_id, sentence_id, number, utc_now(), record.get("trigger", ""), record.get("audio_path"),
+             record.get("cache_key", ""), int(bool(record.get("reused_audio"))),
+             *(json.dumps(record.get(key) or {}, ensure_ascii=False)
+               for key in ("provider", "integrity", "primary", "secondary", "diagnosis")),
+             record.get("outcome", "")),
+        )
+        return number
+
+
+def get_attempts(database: Path, job_id: str, sentence_id: str | None = None) -> list[dict[str, Any]]:
+    with sqlite3.connect(database) as connection:
+        connection.row_factory = sqlite3.Row
+        query = "SELECT * FROM production_attempts WHERE job_id=?"
+        values: tuple = (job_id,)
+        if sentence_id:
+            query += " AND sentence_id=?"
+            values += (sentence_id,)
+        rows = []
+        for row in connection.execute(query + " ORDER BY sentence_id, attempt_number", values):
+            item = dict(row)
+            for key in ("provider", "integrity", "primary", "secondary", "diagnosis"):
+                item[key] = json.loads(item.pop(f"{key}_json") or "{}")
+            rows.append(item)
+        return rows
 
 
 def get_lexicon(database: Path) -> dict[str, str]:

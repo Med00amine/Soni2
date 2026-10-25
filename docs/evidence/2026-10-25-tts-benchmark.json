@@ -1,0 +1,2020 @@
+{
+  "voice": "o0SveC0zgHFuCsEO3vHR",
+  "seed": 12345,
+  "models": [
+    "eleven_multilingual_v2",
+    "eleven_v4",
+    "eleven_flash_v2_5"
+  ],
+  "account_characters_before": 1919,
+  "account_characters_after": 3426,
+  "account_characters_used": 1507,
+  "summary": {
+    "eleven_multilingual_v2/normalized": {
+      "takes": 6,
+      "billed": 614,
+      "integrity_flags": 0,
+      "recognizers": {
+        "deepgram": {
+          "reference_words": 250,
+          "recognized_words": 0,
+          "substitutions": 2,
+          "deletions": 0,
+          "insertions": 1,
+          "wer": 0.012,
+          "segments": 6,
+          "segments_with_errors": 1,
+          "verified": 5
+        },
+        "elevenlabs": {
+          "reference_words": 250,
+          "recognized_words": 0,
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "wer": 0.004,
+          "segments": 6,
+          "segments_with_errors": 1,
+          "verified": 5
+        }
+      },
+      "mean_latency": 3.01,
+      "chars_per_second_range": [
+        10.48,
+        12.53
+      ]
+    },
+    "eleven_multilingual_v2/raw": {
+      "takes": 1,
+      "billed": 83,
+      "integrity_flags": 0,
+      "recognizers": {
+        "deepgram": {
+          "reference_words": 42,
+          "recognized_words": 0,
+          "substitutions": 7,
+          "deletions": 1,
+          "insertions": 4,
+          "wer": 0.2857,
+          "segments": 1,
+          "segments_with_errors": 1,
+          "verified": 0
+        },
+        "elevenlabs": {
+          "reference_words": 43,
+          "recognized_words": 0,
+          "substitutions": 2,
+          "deletions": 2,
+          "insertions": 0,
+          "wer": 0.093,
+          "segments": 1,
+          "segments_with_errors": 1,
+          "verified": 0
+        }
+      },
+      "mean_latency": 3.28,
+      "chars_per_second_range": [
+        13.58,
+        13.58
+      ]
+    },
+    "eleven_v4/normalized": {
+      "takes": 6,
+      "billed": 614,
+      "integrity_flags": 0,
+      "recognizers": {
+        "deepgram": {
+          "reference_words": 250,
+          "recognized_words": 0,
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "wer": 0.004,
+          "segments": 6,
+          "segments_with_errors": 1,
+          "verified": 5
+        },
+        "elevenlabs": {
+          "reference_words": 250,
+          "recognized_words": 0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "wer": 0.0,
+          "segments": 6,
+          "segments_with_errors": 0,
+          "verified": 6
+        }
+      },
+      "mean_latency": 4.51,
+      "chars_per_second_range": [
+        11.54,
+        13.24
+      ]
+    },
+    "eleven_v4/raw": {
+      "takes": 1,
+      "billed": 83,
+      "integrity_flags": 0,
+      "recognizers": {
+        "deepgram": {
+          "reference_words": 43,
+          "recognized_words": 0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "wer": 0.0,
+          "segments": 1,
+          "segments_with_errors": 0,
+          "verified": 1
+        },
+        "elevenlabs": {
+          "reference_words": 43,
+          "recognized_words": 0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "wer": 0.0,
+          "segments": 1,
+          "segments_with_errors": 0,
+          "verified": 1
+        }
+      },
+      "mean_latency": 7.34,
+      "chars_per_second_range": [
+        12.02,
+        12.02
+      ]
+    },
+    "eleven_flash_v2_5/normalized": {
+      "takes": 6,
+      "billed": 309,
+      "integrity_flags": 1,
+      "recognizers": {
+        "deepgram": {
+          "reference_words": 250,
+          "recognized_words": 0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "wer": 0.0,
+          "segments": 6,
+          "segments_with_errors": 0,
+          "verified": 6
+        },
+        "elevenlabs": {
+          "reference_words": 250,
+          "recognized_words": 0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "wer": 0.0,
+          "segments": 6,
+          "segments_with_errors": 0,
+          "verified": 6
+        }
+      },
+      "mean_latency": 1.2,
+      "chars_per_second_range": [
+        8.26,
+        12.12
+      ]
+    },
+    "eleven_flash_v2_5/raw": {
+      "takes": 1,
+      "billed": 42,
+      "integrity_flags": 0,
+      "recognizers": {
+        "deepgram": {
+          "reference_words": 42,
+          "recognized_words": 0,
+          "substitutions": 7,
+          "deletions": 2,
+          "insertions": 6,
+          "wer": 0.3571,
+          "segments": 1,
+          "segments_with_errors": 1,
+          "verified": 0
+        },
+        "elevenlabs": {
+          "reference_words": 42,
+          "recognized_words": 0,
+          "substitutions": 3,
+          "deletions": 0,
+          "insertions": 0,
+          "wer": 0.0714,
+          "segments": 1,
+          "segments_with_errors": 1,
+          "verified": 0
+        }
+      },
+      "mean_latency": 1.48,
+      "chars_per_second_range": [
+        11.68,
+        11.68
+      ]
+    }
+  },
+  "takes": [
+    {
+      "passage": "narrativa",
+      "category": "narrative",
+      "model": "eleven_multilingual_v2",
+      "variant": "normalized",
+      "audio": "eleven_multilingual_v2__narrativa__normalized.mp3",
+      "latency_seconds": 2.81,
+      "characters_sent": 243,
+      "characters_billed": 97,
+      "request_id": "QaqGu5SW2OtCf9mOIrOO",
+      "integrity": "passed",
+      "integrity_reasons": [],
+      "duration_seconds": 18.599,
+      "chars_per_second": 10.97,
+      "signal": {
+        "duration_seconds": 18.548,
+        "leading_silence_seconds": 0.04,
+        "trailing_silence_seconds": 0.36,
+        "longest_internal_silence_seconds": 1.24,
+        "clipped_sample_ratio": 0.0,
+        "rms_dbfs": -19.9,
+        "peak": 23544,
+        "final_30ms_dbfs": -92.1
+      },
+      "recognizers": {
+        "deepgram": {
+          "engine": "deepgram-nova-3",
+          "transcript": "Aquella mañana de otoño, la niebla subía despacio desde el puerto y se quedaba enredada en los tejados de pizarra. Inés cerró la puerta de la librería, guardó la llave en el bolsillo del abrigo y echó antana en Navandar hacia la estación sin mirar atrás.",
+          "verdict": "likely_error",
+          "reference": "spoken",
+          "confidence": 0.9333333333333333,
+          "wer": 0.0667,
+          "cer": 0.046,
+          "substitutions": 2,
+          "deletions": 0,
+          "insertions": 1,
+          "reference_words": 45,
+          "issues": [
+            {
+              "kind": "replace",
+              "expected": "a andar",
+              "recognized": "antana en Navandar",
+              "category": "likely_mismatch",
+              "reason": "Diferencia amplia respecto al texto revisado."
+            }
+          ],
+          "latency_seconds": 1.43,
+          "timing_anomalies": []
+        },
+        "elevenlabs": {
+          "engine": "elevenlabs-scribe_v2",
+          "transcript": "Aquella mañana de otoño, la niebla subía despacio desde el puerto y se quedaba enredada en los tejados de pizarra. Inés cerró la puerta de la librería, guardó la llave en el bolsillo del abrigo y echó a andar hacia la estación sin mirar atrás",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 45,
+          "issues": [],
+          "latency_seconds": 1.39,
+          "timing_anomalies": [
+            {
+              "word": "andar",
+              "start": 14.94,
+              "end": 16.239,
+              "seconds": 1.299,
+              "expected_seconds": 0.456,
+              "ratio": 2.85
+            }
+          ]
+        }
+      }
+    },
+    {
+      "passage": "dialogo",
+      "category": "dialogue",
+      "model": "eleven_multilingual_v2",
+      "variant": "normalized",
+      "audio": "eleven_multilingual_v2__dialogo__normalized.mp3",
+      "latency_seconds": 2.16,
+      "characters_sent": 175,
+      "characters_billed": 70,
+      "request_id": "AXVyTqbIpm8zHuvujs9i",
+      "integrity": "passed",
+      "integrity_reasons": [],
+      "duration_seconds": 14.602,
+      "chars_per_second": 10.48,
+      "signal": {
+        "duration_seconds": 14.551,
+        "leading_silence_seconds": 0.12,
+        "trailing_silence_seconds": 0.4,
+        "longest_internal_silence_seconds": 1.48,
+        "clipped_sample_ratio": 0.0,
+        "rms_dbfs": -19.6,
+        "peak": 24461,
+        "final_30ms_dbfs": -91.4
+      },
+      "recognizers": {
+        "deepgram": {
+          "engine": "deepgram-nova-3",
+          "transcript": "¿De verdad piensas irte esta noche? Preguntó Julián sin levantar la vista del periódico. No me queda otro remedio, respondió ella. Si espero a mañana, ya no tendré valor.",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 29,
+          "issues": [],
+          "latency_seconds": 1.37,
+          "timing_anomalies": []
+        },
+        "elevenlabs": {
+          "engine": "elevenlabs-scribe_v2",
+          "transcript": "¿De verdad piensas irte esta noche? Preguntó Julián sin levantar la vista del periódico. No me queda otro remedio, respondió ella. Si espero a mañana, ya no tendré valor",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 29,
+          "issues": [],
+          "latency_seconds": 1.21,
+          "timing_anomalies": []
+        }
+      }
+    },
+    {
+      "passage": "nombres",
+      "category": "names_places",
+      "model": "eleven_multilingual_v2",
+      "variant": "normalized",
+      "audio": "eleven_multilingual_v2__nombres__normalized.mp3",
+      "latency_seconds": 2.29,
+      "characters_sent": 213,
+      "characters_billed": 85,
+      "request_id": "pE5QusmZEjMBGLi5Gaoq",
+      "integrity": "passed",
+      "integrity_reasons": [],
+      "duration_seconds": 14.838,
+      "chars_per_second": 12.53,
+      "signal": {
+        "duration_seconds": 14.786,
+        "leading_silence_seconds": 0.04,
+        "trailing_silence_seconds": 0.38,
+        "longest_internal_silence_seconds": 1.06,
+        "clipped_sample_ratio": 0.0,
+        "rms_dbfs": -19.9,
+        "peak": 23195,
+        "final_30ms_dbfs": -92.1
+      },
+      "recognizers": {
+        "deepgram": {
+          "engine": "deepgram-nova-3",
+          "transcript": "Desde Cáceres, viajaron a Jerez de la Frontera, y luego a Guadalajara, donde los esperaba Ximena Gutiérrez con su sobrino Íñigo. El abuelo, Ezequiel Zubizarreta, había nacido en Llanes y vivido siempre en Zaragoza.",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 34,
+          "issues": [],
+          "latency_seconds": 1.03,
+          "timing_anomalies": []
+        },
+        "elevenlabs": {
+          "engine": "elevenlabs-scribe_v2",
+          "transcript": "Desde Cáceres viajaron a Jerez de la Frontera y luego a Guadalajara, donde los esperaba Jimena Gutiérrez con su sobrino Íñigo. El abuelo, Ezequiel Zubizarreta, había nacido en Llanes y vivido siempre en Zaragoza",
+          "verdict": "ambiguous",
+          "reference": "spoken",
+          "confidence": 0.9705882352941176,
+          "wer": 0.0294,
+          "cer": 0.0048,
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 34,
+          "issues": [
+            {
+              "kind": "replace",
+              "expected": "Ximena",
+              "recognized": "Jimena",
+              "category": "ambiguous_expression",
+              "reason": "Palabras casi homófonas; puede ser un fallo del reconocedor y no de la locución."
+            }
+          ],
+          "latency_seconds": 1.49,
+          "timing_anomalies": []
+        }
+      }
+    },
+    {
+      "passage": "cifras",
+      "category": "numbers_dates_abbreviations",
+      "model": "eleven_multilingual_v2",
+      "variant": "normalized",
+      "audio": "eleven_multilingual_v2__cifras__normalized.mp3",
+      "latency_seconds": 4.43,
+      "characters_sent": 374,
+      "characters_billed": 150,
+      "request_id": "zUIDJ2bcVRZU2x6jE3Ni",
+      "integrity": "passed",
+      "integrity_reasons": [],
+      "duration_seconds": 27.794,
+      "chars_per_second": 11.58,
+      "signal": {
+        "duration_seconds": 27.743,
+        "leading_silence_seconds": 0.06,
+        "trailing_silence_seconds": 0.92,
+        "longest_internal_silence_seconds": 1.38,
+        "clipped_sample_ratio": 0.0,
+        "rms_dbfs": -19.7,
+        "peak": 23602,
+        "final_30ms_dbfs": -120.0
+      },
+      "recognizers": {
+        "deepgram": {
+          "engine": "deepgram-nova-3",
+          "transcript": "El 12 de marzo de 2024, a las 18 30 horas, el señor García pagó 3 coma 50 euros por el billete. El tren recorrió 245 kilómetros a 120 kilómetros por hora, y el precio subió un 2 coma 5 por 100. En la página 23 se cita a Felipe 2º y al siglo 16. Asistieron 1200 personas.",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.232,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 43,
+          "issues": [],
+          "latency_seconds": 1.82,
+          "timing_anomalies": [
+            {
+              "word": "2024",
+              "start": 1.12,
+              "end": 2.4,
+              "seconds": 1.28,
+              "expected_seconds": 0.345,
+              "ratio": 3.71
+            },
+            {
+              "word": "245",
+              "start": 9.84,
+              "end": 11.04,
+              "seconds": 1.2,
+              "expected_seconds": 0.259,
+              "ratio": 4.63
+            },
+            {
+              "word": "120",
+              "start": 12.24,
+              "end": 13.12,
+              "seconds": 0.88,
+              "expected_seconds": 0.259,
+              "ratio": 3.4
+            },
+            {
+              "word": "16",
+              "start": 23.265,
+              "end": 24.145,
+              "seconds": 0.88,
+              "expected_seconds": 0.173,
+              "ratio": 5.1
+            },
+            {
+              "word": "1200",
+              "start": 25.345,
+              "end": 26.225,
+              "seconds": 0.88,
+              "expected_seconds": 0.345,
+              "ratio": 2.55
+            }
+          ]
+        },
+        "elevenlabs": {
+          "engine": "elevenlabs-scribe_v2",
+          "transcript": "El 12 de marzo de 2024, a las 18:30 horas, el señor García pagó 3,50 euros por el billete. El tren recorrió 245 kilómetros a 120 kilómetros por hora y el precio subió un 2,5 %. En la página 23 se cita a Felipe II y al siglo XVI. Asistieron 1200 personas.",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0833,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 43,
+          "issues": [],
+          "latency_seconds": 1.65,
+          "timing_anomalies": [
+            {
+              "word": "2024",
+              "start": 1.2,
+              "end": 2.12,
+              "seconds": 0.92,
+              "expected_seconds": 0.345,
+              "ratio": 2.66
+            },
+            {
+              "word": "3,50",
+              "start": 6.06,
+              "end": 6.98,
+              "seconds": 0.92,
+              "expected_seconds": 0.345,
+              "ratio": 2.66
+            },
+            {
+              "word": "245",
+              "start": 10.0,
+              "end": 11.0,
+              "seconds": 1.0,
+              "expected_seconds": 0.259,
+              "ratio": 3.86
+            },
+            {
+              "word": "2,5",
+              "start": 16.079,
+              "end": 17.54,
+              "seconds": 1.461,
+              "expected_seconds": 0.259,
+              "ratio": 5.64
+            }
+          ]
+        }
+      }
+    },
+    {
+      "passage": "cifras",
+      "category": "numbers_dates_abbreviations",
+      "model": "eleven_multilingual_v2",
+      "variant": "raw",
+      "audio": "eleven_multilingual_v2__cifras__raw.mp3",
+      "latency_seconds": 3.28,
+      "characters_sent": 208,
+      "characters_billed": 83,
+      "request_id": "fwn5KYBCuwCqTf5IzmhK",
+      "integrity": "passed",
+      "integrity_reasons": [],
+      "duration_seconds": 23.275,
+      "chars_per_second": 13.58,
+      "signal": {
+        "duration_seconds": 23.224,
+        "leading_silence_seconds": 0.06,
+        "trailing_silence_seconds": 0.34,
+        "longest_internal_silence_seconds": 0.92,
+        "clipped_sample_ratio": 0.0,
+        "rms_dbfs": -19.4,
+        "peak": 21878,
+        "final_30ms_dbfs": -88.8
+      },
+      "recognizers": {
+        "deepgram": {
+          "engine": "deepgram-nova-3",
+          "transcript": "El 12 Zero 3 2024, a las 18 30 h, el señor García pagó 3 coma 50 por el billete. El tren recorrió 245 un kilometros a 120 kilometro, y el precio subió un 2 coma 5 por 100. En la página 23 se cita a Felipe II y al Sebati Seasing, asistieron 1200 personas.",
+          "verdict": "likely_error",
+          "reference": "source",
+          "confidence": 0.6428571428571428,
+          "wer": 0.2857,
+          "cer": 0.3413,
+          "substitutions": 7,
+          "deletions": 1,
+          "insertions": 4,
+          "reference_words": 42,
+          "issues": [
+            {
+              "kind": "replace",
+              "expected": "12/03/2024",
+              "recognized": "12 Zero 3 2024",
+              "category": "likely_mismatch",
+              "reason": "La cantidad, hora, fecha o unidad pronunciada no coincide con el texto."
+            },
+            {
+              "kind": "replace",
+              "expected": "Sr",
+              "recognized": "señor",
+              "category": "likely_mismatch",
+              "reason": "Diferencia amplia respecto al texto revisado."
+            },
+            {
+              "kind": "replace",
+              "expected": "3,50 €",
+              "recognized": "3 coma 50",
+              "category": "likely_mismatch",
+              "reason": "La cantidad, hora, fecha o unidad pronunciada no coincide con el texto."
+            },
+            {
+              "kind": "replace",
+              "expected": "245 km",
+              "recognized": "245 un kilometros",
+              "category": "likely_mismatch",
+              "reason": "La cantidad, hora, fecha o unidad pronunciada no coincide con el texto."
+            },
+            {
+              "kind": "delete",
+              "expected": "h",
+              "recognized": "",
+              "category": "likely_mismatch",
+              "reason": "Diferencia amplia respecto al texto revisado."
+            },
+            {
+              "kind": "replace",
+              "expected": "pág",
+              "recognized": "página",
+              "category": "likely_mismatch",
+              "reason": "Diferencia amplia respecto al texto revisado."
+            },
+            {
+              "kind": "replace",
+              "expected": "s. XVI",
+              "recognized": "Sebati Seasing",
+              "category": "likely_mismatch",
+              "reason": "Diferencia amplia respecto al texto revisado."
+            }
+          ],
+          "latency_seconds": 1.09,
+          "timing_anomalies": [
+            {
+              "word": "2024",
+              "start": 1.04,
+              "end": 2.16,
+              "seconds": 1.12,
+              "expected_seconds": 0.295,
+              "ratio": 3.8
+            },
+            {
+              "word": "245",
+              "start": 8.96,
+              "end": 9.92,
+              "seconds": 0.96,
+              "expected_seconds": 0.221,
+              "ratio": 4.35
+            },
+            {
+              "word": "1200",
+              "start": 21.194,
+              "end": 22.234,
+              "seconds": 1.04,
+              "expected_seconds": 0.295,
+              "ratio": 3.53
+            }
+          ]
+        },
+        "elevenlabs": {
+          "engine": "elevenlabs-scribe_v2",
+          "transcript": "El 12/03/2024 a las 18:30 h, el señor García pagó 3,50 € por el billete. El tren recorrió 245 kilómetros a 120 km/h y el precio subió un 2,5 %. En la página 23 se cita a Felipe II y al Sebasislin asistieron 1200 personas.",
+          "verdict": "likely_error",
+          "reference": "spoken",
+          "confidence": 0.9069767441860466,
+          "wer": 0.093,
+          "cer": 0.0556,
+          "substitutions": 2,
+          "deletions": 2,
+          "insertions": 0,
+          "reference_words": 43,
+          "issues": [
+            {
+              "kind": "replace",
+              "expected": "por hora",
+              "recognized": "h",
+              "category": "likely_mismatch",
+              "reason": "Diferencia amplia respecto al texto revisado."
+            },
+            {
+              "kind": "replace",
+              "expected": "siglo dieciséis",
+              "recognized": "Sebasislin",
+              "category": "likely_mismatch",
+              "reason": "La cantidad, hora, fecha o unidad pronunciada no coincide con el texto."
+            }
+          ],
+          "latency_seconds": 2.01,
+          "timing_anomalies": [
+            {
+              "word": "3,50",
+              "start": 5.36,
+              "end": 6.24,
+              "seconds": 0.88,
+              "expected_seconds": 0.295,
+              "ratio": 2.99
+            },
+            {
+              "word": "1200",
+              "start": 21.28,
+              "end": 22.26,
+              "seconds": 0.98,
+              "expected_seconds": 0.295,
+              "ratio": 3.33
+            }
+          ]
+        }
+      }
+    },
+    {
+      "passage": "consonantes",
+      "category": "difficult_consonants_accents",
+      "model": "eleven_multilingual_v2",
+      "variant": "normalized",
+      "audio": "eleven_multilingual_v2__consonantes__normalized.mp3",
+      "latency_seconds": 2.29,
+      "characters_sent": 203,
+      "characters_billed": 81,
+      "request_id": "rckWwU561A6p4nauBSnR",
+      "integrity": "passed",
+      "integrity_reasons": [],
+      "duration_seconds": 14.733,
+      "chars_per_second": 11.74,
+      "signal": {
+        "duration_seconds": 14.682,
+        "leading_silence_seconds": 0.06,
+        "trailing_silence_seconds": 0.4,
+        "longest_internal_silence_seconds": 0.58,
+        "clipped_sample_ratio": 0.0,
+        "rms_dbfs": -19.1,
+        "peak": 22453,
+        "final_30ms_dbfs": -89.1
+      },
+      "recognizers": {
+        "deepgram": {
+          "engine": "deepgram-nova-3",
+          "transcript": "El jilguero gorjeaba junto al cerezo mientras el zapatero cosía, con paciencia y precisión, el cuero de unos zapatos. Ahí había un hombre que ahorraba, y, aun así, no halló el álbum ni el búho que buscaba.",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 37,
+          "issues": [],
+          "latency_seconds": 1.12,
+          "timing_anomalies": []
+        },
+        "elevenlabs": {
+          "engine": "elevenlabs-scribe_v2",
+          "transcript": "El jilguero gorjeaba junto al cerezo mientras el zapatero cosía, con paciencia y precisión, el cuero de unos zapatos. Ahí había un hombre que ahorraba y aun así no halló el álbum ni el búho que buscaba",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 37,
+          "issues": [],
+          "latency_seconds": 1.48,
+          "timing_anomalies": []
+        }
+      }
+    },
+    {
+      "passage": "frase_larga",
+      "category": "long_sentence_punctuation",
+      "model": "eleven_multilingual_v2",
+      "variant": "normalized",
+      "audio": "eleven_multilingual_v2__frase_larga__normalized.mp3",
+      "latency_seconds": 4.09,
+      "characters_sent": 328,
+      "characters_billed": 131,
+      "request_id": "uzwei6urY0xSX4WeTMWG",
+      "integrity": "passed",
+      "integrity_reasons": [],
+      "duration_seconds": 23.798,
+      "chars_per_second": 11.45,
+      "signal": {
+        "duration_seconds": 23.746,
+        "leading_silence_seconds": 0.08,
+        "trailing_silence_seconds": 0.34,
+        "longest_internal_silence_seconds": 1.18,
+        "clipped_sample_ratio": 0.0,
+        "rms_dbfs": -19.8,
+        "peak": 22507,
+        "final_30ms_dbfs": -117.1
+      },
+      "recognizers": {
+        "deepgram": {
+          "engine": "deepgram-nova-3",
+          "transcript": "Cuando por fin llegó la carta, 3 semanas después de lo prometido, con el sello medio despegado y la letra temblorosa de quien escribe a la luz de una vela, nadie en la casa se atrevió a abrirla. La dejaron sobre la mesa del comedor, junto al jarrón de lirios, como si el simple hecho de mirarla pudiera cambiar lo que decía.",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 62,
+          "issues": [],
+          "latency_seconds": 1.07,
+          "timing_anomalies": []
+        },
+        "elevenlabs": {
+          "engine": "elevenlabs-scribe_v2",
+          "transcript": "Cuando por fin llegó la carta, tres semanas después de lo prometido, con el sello medio despegado y la letra temblorosa de quien escribe a la luz de una vela, nadie en la casa se atrevió a abrirla. La dejaron sobre la mesa del comedor, junto al jarrón de lirios, como si el simple hecho de mirarla pudiera cambiar lo que decía",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 62,
+          "issues": [],
+          "latency_seconds": 1.97,
+          "timing_anomalies": []
+        }
+      }
+    },
+    {
+      "passage": "narrativa",
+      "category": "narrative",
+      "model": "eleven_v4",
+      "variant": "normalized",
+      "audio": "eleven_v4__narrativa__normalized.mp3",
+      "latency_seconds": 4.23,
+      "characters_sent": 243,
+      "characters_billed": 97,
+      "request_id": "UJ5VPHwTo39aGJlTdDiw",
+      "integrity": "passed",
+      "integrity_reasons": [],
+      "duration_seconds": 15.83,
+      "chars_per_second": 12.81,
+      "signal": {
+        "duration_seconds": 15.779,
+        "leading_silence_seconds": 0.04,
+        "trailing_silence_seconds": 0.2,
+        "longest_internal_silence_seconds": 0.98,
+        "clipped_sample_ratio": 0.0,
+        "rms_dbfs": -20.6,
+        "peak": 21560,
+        "final_30ms_dbfs": -92.1
+      },
+      "recognizers": {
+        "deepgram": {
+          "engine": "deepgram-nova-3",
+          "transcript": "Aquella mañana de otoño, la niebla subía despacio desde el puerto y se quedaba enredada en los tejados de pizarra. Inés cerró la puerta de la librería, guardó la llave en el bolsillo del abrigo y echó a andar hacia la estación sin mirar atrás.",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 45,
+          "issues": [],
+          "latency_seconds": 1.4,
+          "timing_anomalies": []
+        },
+        "elevenlabs": {
+          "engine": "elevenlabs-scribe_v2",
+          "transcript": "Aquella mañana de otoño, la niebla subía despacio desde el puerto y se quedaba enredada en los tejados de pizarra. Inés cerró la puerta de la librería, guardó la llave en el bolsillo del abrigo y echó a andar hacia la estación sin mirar atrás.",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 45,
+          "issues": [],
+          "latency_seconds": 1.26,
+          "timing_anomalies": []
+        }
+      }
+    },
+    {
+      "passage": "dialogo",
+      "category": "dialogue",
+      "model": "eleven_v4",
+      "variant": "normalized",
+      "audio": "eleven_v4__dialogo__normalized.mp3",
+      "latency_seconds": 3.22,
+      "characters_sent": 175,
+      "characters_billed": 70,
+      "request_id": "LrXo3ePstDfGK7dS87ME",
+      "integrity": "passed",
+      "integrity_reasons": [],
+      "duration_seconds": 12.147,
+      "chars_per_second": 12.4,
+      "signal": {
+        "duration_seconds": 12.096,
+        "leading_silence_seconds": 0.02,
+        "trailing_silence_seconds": 0.22,
+        "longest_internal_silence_seconds": 0.66,
+        "clipped_sample_ratio": 0.0,
+        "rms_dbfs": -20.7,
+        "peak": 20759,
+        "final_30ms_dbfs": -90.6
+      },
+      "recognizers": {
+        "deepgram": {
+          "engine": "deepgram-nova-3",
+          "transcript": "¿De verdad piensas irte esta noche? Preguntó Julián, sin levantar la vista del periódico. No me queda otro remedio, respondió ella. Si espero a mañana, ya no tendré valor.",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 29,
+          "issues": [],
+          "latency_seconds": 1.37,
+          "timing_anomalies": []
+        },
+        "elevenlabs": {
+          "engine": "elevenlabs-scribe_v2",
+          "transcript": "¿De verdad piensas irte esta noche? Preguntó Julián sin levantar la vista del periódico. No me queda otro remedio, respondió ella. Si espero a mañana, ya no tendré valor",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 29,
+          "issues": [],
+          "latency_seconds": 1.15,
+          "timing_anomalies": []
+        }
+      }
+    },
+    {
+      "passage": "nombres",
+      "category": "names_places",
+      "model": "eleven_v4",
+      "variant": "normalized",
+      "audio": "eleven_v4__nombres__normalized.mp3",
+      "latency_seconds": 4.06,
+      "characters_sent": 213,
+      "characters_billed": 85,
+      "request_id": "z77XMy4n87FjJInPtm0p",
+      "integrity": "passed",
+      "integrity_reasons": [],
+      "duration_seconds": 14.864,
+      "chars_per_second": 12.39,
+      "signal": {
+        "duration_seconds": 14.812,
+        "leading_silence_seconds": 0.04,
+        "trailing_silence_seconds": 0.24,
+        "longest_internal_silence_seconds": 0.92,
+        "clipped_sample_ratio": 0.0,
+        "rms_dbfs": -20.3,
+        "peak": 21508,
+        "final_30ms_dbfs": -89.8
+      },
+      "recognizers": {
+        "deepgram": {
+          "engine": "deepgram-nova-3",
+          "transcript": "Desde Cáceres, viajaron a Jerez de la Frontera, y luego a Guadalajara, donde los esperaba Ximena Gutiérrez con su sobrino Íñigo. El abuelo, Ezequiel Zubizarreta, había nacido en Llanes y vivido siempre en Zaragoza.",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 34,
+          "issues": [],
+          "latency_seconds": 1.13,
+          "timing_anomalies": []
+        },
+        "elevenlabs": {
+          "engine": "elevenlabs-scribe_v2",
+          "transcript": "Desde Cáceres viajaron a Jerez de la Frontera y luego a Guadalajara, donde los esperaba Ximena Gutiérrez con su sobrino Íñigo. El abuelo, Ezequiel Zubizarreta, había nacido en Llanes y vivido siempre en Zaragoza",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 34,
+          "issues": [],
+          "latency_seconds": 1.8,
+          "timing_anomalies": []
+        }
+      }
+    },
+    {
+      "passage": "cifras",
+      "category": "numbers_dates_abbreviations",
+      "model": "eleven_v4",
+      "variant": "normalized",
+      "audio": "eleven_v4__cifras__normalized.mp3",
+      "latency_seconds": 6.0,
+      "characters_sent": 374,
+      "characters_billed": 150,
+      "request_id": "IkssAHRq5wfzPql7MZf7",
+      "integrity": "passed",
+      "integrity_reasons": [],
+      "duration_seconds": 25.757,
+      "chars_per_second": 12.17,
+      "signal": {
+        "duration_seconds": 25.706,
+        "leading_silence_seconds": 0.02,
+        "trailing_silence_seconds": 0.22,
+        "longest_internal_silence_seconds": 1.02,
+        "clipped_sample_ratio": 0.0,
+        "rms_dbfs": -20.1,
+        "peak": 19474,
+        "final_30ms_dbfs": -98.4
+      },
+      "recognizers": {
+        "deepgram": {
+          "engine": "deepgram-nova-3",
+          "transcript": "El 12 de marzo de 2024, a las 18 30 horas, el señor García pagó 3 coma 50 euros por el billete. El tren recorrió 245 kilómetros a 120 kilómetros por hora, y el precio subió un 2 coma 5 por 100. En la página 23 se cita a Felipe 2º y al siglo 16. Asistieron 1200 personas.",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.232,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 43,
+          "issues": [],
+          "latency_seconds": 1.98,
+          "timing_anomalies": [
+            {
+              "word": "2024",
+              "start": 1.2,
+              "end": 2.4,
+              "seconds": 1.2,
+              "expected_seconds": 0.329,
+              "ratio": 3.65
+            },
+            {
+              "word": "245",
+              "start": 9.76,
+              "end": 11.2,
+              "seconds": 1.44,
+              "expected_seconds": 0.246,
+              "ratio": 5.84
+            },
+            {
+              "word": "120",
+              "start": 12.16,
+              "end": 12.96,
+              "seconds": 0.8,
+              "expected_seconds": 0.246,
+              "ratio": 3.25
+            },
+            {
+              "word": "16",
+              "start": 21.835,
+              "end": 22.715,
+              "seconds": 0.88,
+              "expected_seconds": 0.164,
+              "ratio": 5.36
+            },
+            {
+              "word": "1200",
+              "start": 23.835,
+              "end": 24.795,
+              "seconds": 0.96,
+              "expected_seconds": 0.329,
+              "ratio": 2.92
+            }
+          ]
+        },
+        "elevenlabs": {
+          "engine": "elevenlabs-scribe_v2",
+          "transcript": "El 12 de marzo de 2024, a las 18:30 horas, el señor García pagó 3,50 euros por el billete. El tren recorrió 245 kilómetros a 120 kilómetros por hora y el precio subió un 2,5 %. En la página 23 se cita a Felipe II y al siglo XVI. Asistieron 1200 personas",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0833,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 43,
+          "issues": [],
+          "latency_seconds": 1.53,
+          "timing_anomalies": [
+            {
+              "word": "2024",
+              "start": 1.22,
+              "end": 2.16,
+              "seconds": 0.94,
+              "expected_seconds": 0.329,
+              "ratio": 2.86
+            },
+            {
+              "word": "3,50",
+              "start": 6.06,
+              "end": 6.96,
+              "seconds": 0.9,
+              "expected_seconds": 0.329,
+              "ratio": 2.74
+            },
+            {
+              "word": "245",
+              "start": 9.98,
+              "end": 11.18,
+              "seconds": 1.2,
+              "expected_seconds": 0.246,
+              "ratio": 4.87
+            },
+            {
+              "word": "1200",
+              "start": 23.9,
+              "end": 24.82,
+              "seconds": 0.92,
+              "expected_seconds": 0.329,
+              "ratio": 2.8
+            }
+          ]
+        }
+      }
+    },
+    {
+      "passage": "cifras",
+      "category": "numbers_dates_abbreviations",
+      "model": "eleven_v4",
+      "variant": "raw",
+      "audio": "eleven_v4__cifras__raw.mp3",
+      "latency_seconds": 7.34,
+      "characters_sent": 208,
+      "characters_billed": 83,
+      "request_id": "WTS1Azd8XgvWNqjuOphQ",
+      "integrity": "passed",
+      "integrity_reasons": [],
+      "duration_seconds": 26.07,
+      "chars_per_second": 12.02,
+      "signal": {
+        "duration_seconds": 26.019,
+        "leading_silence_seconds": 0.04,
+        "trailing_silence_seconds": 0.18,
+        "longest_internal_silence_seconds": 1.0,
+        "clipped_sample_ratio": 0.0,
+        "rms_dbfs": -20.1,
+        "peak": 21481,
+        "final_30ms_dbfs": -90.3
+      },
+      "recognizers": {
+        "deepgram": {
+          "engine": "deepgram-nova-3",
+          "transcript": "El 12 de marzo de 2024, a las 18 30 horas, el señor García pagó 3 euros con 50 céntimos por el billete. El tren recorrió 245 kilómetros a 120 kilómetros por hora, y el precio subió un 2 coma 5 por 100. En la página 23 se cita a Felipe 2º y al siglo 16. Asistieron 1200 personas.",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.2614,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 43,
+          "issues": [],
+          "latency_seconds": 1.61,
+          "timing_anomalies": [
+            {
+              "word": "2024",
+              "start": 1.2,
+              "end": 2.4,
+              "seconds": 1.2,
+              "expected_seconds": 0.333,
+              "ratio": 3.6
+            },
+            {
+              "word": "245",
+              "start": 10.32,
+              "end": 11.76,
+              "seconds": 1.44,
+              "expected_seconds": 0.25,
+              "ratio": 5.77
+            },
+            {
+              "word": "120",
+              "start": 12.72,
+              "end": 13.52,
+              "seconds": 0.8,
+              "expected_seconds": 0.25,
+              "ratio": 3.2
+            },
+            {
+              "word": "16",
+              "start": 22.305,
+              "end": 23.185,
+              "seconds": 0.88,
+              "expected_seconds": 0.166,
+              "ratio": 5.29
+            },
+            {
+              "word": "1200",
+              "start": 24.225,
+              "end": 25.185,
+              "seconds": 0.96,
+              "expected_seconds": 0.333,
+              "ratio": 2.88
+            }
+          ]
+        },
+        "elevenlabs": {
+          "engine": "elevenlabs-scribe_v2",
+          "transcript": "El 12 de marzo de 2024, a las 18:30 horas, el señor García pagó tres euros con cincuenta céntimos por el billete. El tren recorrió doscientos cuarenta y cinco kilómetros a ciento veinte kilómetros por hora y el precio subió un 2,5 %. En la página veintitrés se cita a Felipe II y al siglo XVI. Asistieron 1200 personas",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.1706,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 43,
+          "issues": [],
+          "latency_seconds": 2.04,
+          "timing_anomalies": [
+            {
+              "word": "2024",
+              "start": 1.28,
+              "end": 2.16,
+              "seconds": 0.88,
+              "expected_seconds": 0.333,
+              "ratio": 2.64
+            },
+            {
+              "word": "1200",
+              "start": 24.34,
+              "end": 25.2,
+              "seconds": 0.86,
+              "expected_seconds": 0.333,
+              "ratio": 2.58
+            }
+          ]
+        }
+      }
+    },
+    {
+      "passage": "consonantes",
+      "category": "difficult_consonants_accents",
+      "model": "eleven_v4",
+      "variant": "normalized",
+      "audio": "eleven_v4__consonantes__normalized.mp3",
+      "latency_seconds": 4.38,
+      "characters_sent": 203,
+      "characters_billed": 81,
+      "request_id": "DWRP5WhLg3UKME5gPLYN",
+      "integrity": "passed",
+      "integrity_reasons": [],
+      "duration_seconds": 14.785,
+      "chars_per_second": 11.54,
+      "signal": {
+        "duration_seconds": 14.734,
+        "leading_silence_seconds": 0.02,
+        "trailing_silence_seconds": 0.24,
+        "longest_internal_silence_seconds": 1.0,
+        "clipped_sample_ratio": 0.0,
+        "rms_dbfs": -19.9,
+        "peak": 22415,
+        "final_30ms_dbfs": -90.9
+      },
+      "recognizers": {
+        "deepgram": {
+          "engine": "deepgram-nova-3",
+          "transcript": "El jilguero borgeaba junto al cerezo mientras el zapatero cosía, con paciencia y precisión, el cuero de unos zapatos. Ahí había un hombre que ahorraba, y, aun así, no halló el álbum ni el búho que buscaba.",
+          "verdict": "likely_error",
+          "reference": "spoken",
+          "confidence": 0.972972972972973,
+          "wer": 0.027,
+          "cer": 0.01,
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 37,
+          "issues": [
+            {
+              "kind": "replace",
+              "expected": "gorjeaba",
+              "recognized": "borgeaba",
+              "category": "likely_mismatch",
+              "reason": "Diferencia amplia respecto al texto revisado."
+            }
+          ],
+          "latency_seconds": 1.03,
+          "timing_anomalies": []
+        },
+        "elevenlabs": {
+          "engine": "elevenlabs-scribe_v2",
+          "transcript": "El jilguero gorjeaba junto al cerezo mientras el zapatero cosía, con paciencia y precisión, el cuero de unos zapatos. Ahí había un hombre que ahorraba y aun así no halló el álbum ni el búho que buscaba",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 37,
+          "issues": [],
+          "latency_seconds": 1.38,
+          "timing_anomalies": []
+        }
+      }
+    },
+    {
+      "passage": "frase_larga",
+      "category": "long_sentence_punctuation",
+      "model": "eleven_v4",
+      "variant": "normalized",
+      "audio": "eleven_v4__frase_larga__normalized.mp3",
+      "latency_seconds": 5.18,
+      "characters_sent": 328,
+      "characters_billed": 131,
+      "request_id": "LT6TPLKizuvXUT0PCxoH",
+      "integrity": "passed",
+      "integrity_reasons": [],
+      "duration_seconds": 20.532,
+      "chars_per_second": 13.24,
+      "signal": {
+        "duration_seconds": 20.481,
+        "leading_silence_seconds": 0.1,
+        "trailing_silence_seconds": 0.22,
+        "longest_internal_silence_seconds": 0.56,
+        "clipped_sample_ratio": 0.0,
+        "rms_dbfs": -20.8,
+        "peak": 20700,
+        "final_30ms_dbfs": -86.5
+      },
+      "recognizers": {
+        "deepgram": {
+          "engine": "deepgram-nova-3",
+          "transcript": "Cuando por fin llegó la carta, 3 semanas después de lo prometido, con el sello medio despegado y la letra temblorosa de quien escribe a la luz de una vela, nadie en la casa se atrevió a abrirla. La dejaron sobre la mesa del comedor, junto al jarrón de lirios, como si el simple hecho de mirarla pudiera cambiar lo que decía.",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 62,
+          "issues": [],
+          "latency_seconds": 1.12,
+          "timing_anomalies": []
+        },
+        "elevenlabs": {
+          "engine": "elevenlabs-scribe_v2",
+          "transcript": "Cuando por fin llegó la carta, tres semanas después de lo prometido, con el sello medio despegado y la letra temblorosa de quien escribe a la luz de una vela, nadie en la casa se atrevió a abrirla. La dejaron sobre la mesa del comedor, junto al jarrón de lirios, como si el simple hecho de mirarla pudiera cambiar lo que decía",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 62,
+          "issues": [],
+          "latency_seconds": 1.72,
+          "timing_anomalies": []
+        }
+      }
+    },
+    {
+      "passage": "narrativa",
+      "category": "narrative",
+      "model": "eleven_flash_v2_5",
+      "variant": "normalized",
+      "audio": "eleven_flash_v2_5__narrativa__normalized.mp3",
+      "latency_seconds": 1.86,
+      "characters_sent": 243,
+      "characters_billed": 49,
+      "request_id": "EpszyMyou9fcecccxVBx",
+      "integrity": "passed",
+      "integrity_reasons": [],
+      "duration_seconds": 17.946,
+      "chars_per_second": 11.32,
+      "signal": {
+        "duration_seconds": 17.895,
+        "leading_silence_seconds": 0.02,
+        "trailing_silence_seconds": 0.3,
+        "longest_internal_silence_seconds": 1.0,
+        "clipped_sample_ratio": 0.0,
+        "rms_dbfs": -19.0,
+        "peak": 25542,
+        "final_30ms_dbfs": -114.1
+      },
+      "recognizers": {
+        "deepgram": {
+          "engine": "deepgram-nova-3",
+          "transcript": "Aquella mañana de otoño, la niebla subía despacio desde el puerto y se quedaba enredada en los tejados de pizarra. Inés cerró la puerta de la librería, guardó la llave en el bolsillo del abrigo y echó a andar hacia la estación sin mirar atrás.",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 45,
+          "issues": [],
+          "latency_seconds": 1.7,
+          "timing_anomalies": []
+        },
+        "elevenlabs": {
+          "engine": "elevenlabs-scribe_v2",
+          "transcript": "Aquella mañana de otoño, la niebla subía despacio desde el puerto y se quedaba enredada en los tejados de pizarra. Inés cerró la puerta de la librería, guardó la llave en el bolsillo del abrigo y echó a andar hacia la estación sin mirar atrás",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 45,
+          "issues": [],
+          "latency_seconds": 1.61,
+          "timing_anomalies": []
+        }
+      }
+    },
+    {
+      "passage": "dialogo",
+      "category": "dialogue",
+      "model": "eleven_flash_v2_5",
+      "variant": "normalized",
+      "audio": "eleven_flash_v2_5__dialogo__normalized.mp3",
+      "latency_seconds": 0.98,
+      "characters_sent": 175,
+      "characters_billed": 35,
+      "request_id": "Ucg8I4l23Pa0FdXMaR09",
+      "integrity": "needs_review",
+      "integrity_reasons": [
+        "abnormal_silence"
+      ],
+      "duration_seconds": 18.181,
+      "chars_per_second": 8.26,
+      "signal": {
+        "duration_seconds": 18.13,
+        "leading_silence_seconds": 0.0,
+        "trailing_silence_seconds": 0.34,
+        "longest_internal_silence_seconds": 2.88,
+        "clipped_sample_ratio": 0.0,
+        "rms_dbfs": -19.6,
+        "peak": 24816,
+        "final_30ms_dbfs": -120.0
+      },
+      "recognizers": {
+        "deepgram": {
+          "engine": "deepgram-nova-3",
+          "transcript": "¿De verdad piensas irte esta noche? Preguntó Julián, sin levantar la vista del periódico. No me queda otro remedio, respondió ella. Si espero a mañana, ya no tendré valor.",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 29,
+          "issues": [],
+          "latency_seconds": 1.83,
+          "timing_anomalies": []
+        },
+        "elevenlabs": {
+          "engine": "elevenlabs-scribe_v2",
+          "transcript": "¿De verdad piensas irte esta noche? Preguntó Julián sin levantar la vista del periódico. No me queda otro remedio, respondió ella. Si espero a mañana, ya no tendré valor",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 29,
+          "issues": [],
+          "latency_seconds": 1.61,
+          "timing_anomalies": []
+        }
+      }
+    },
+    {
+      "passage": "nombres",
+      "category": "names_places",
+      "model": "eleven_flash_v2_5",
+      "variant": "normalized",
+      "audio": "eleven_flash_v2_5__nombres__normalized.mp3",
+      "latency_seconds": 0.93,
+      "characters_sent": 213,
+      "characters_billed": 43,
+      "request_id": "c2TJFBhDjFrqPWgd1iXP",
+      "integrity": "passed",
+      "integrity_reasons": [],
+      "duration_seconds": 15.856,
+      "chars_per_second": 11.62,
+      "signal": {
+        "duration_seconds": 15.805,
+        "leading_silence_seconds": 0.0,
+        "trailing_silence_seconds": 0.32,
+        "longest_internal_silence_seconds": 0.66,
+        "clipped_sample_ratio": 0.0,
+        "rms_dbfs": -18.8,
+        "peak": 25020,
+        "final_30ms_dbfs": -114.1
+      },
+      "recognizers": {
+        "deepgram": {
+          "engine": "deepgram-nova-3",
+          "transcript": "Desde Cáceres viajaron a Jerez de la Frontera, y luego a Guadalajara, donde los esperaba Ximena Gutiérrez con su sobrino Íñigo. El abuelo, Ezequiel Zubizarreta, había nacido en Llanes y vivido siempre en Zaragoza.",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 34,
+          "issues": [],
+          "latency_seconds": 1.42,
+          "timing_anomalies": []
+        },
+        "elevenlabs": {
+          "engine": "elevenlabs-scribe_v2",
+          "transcript": "Desde Cáceres viajaron a Jerez de la Frontera y luego a Guadalajara, donde los esperaba Ximena Gutiérrez con su sobrino Íñigo. El abuelo, Ezequiel Zubizarreta, había nacido en Llanes y vivido siempre en Zaragoza",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 34,
+          "issues": [],
+          "latency_seconds": 1.22,
+          "timing_anomalies": []
+        }
+      }
+    },
+    {
+      "passage": "cifras",
+      "category": "numbers_dates_abbreviations",
+      "model": "eleven_flash_v2_5",
+      "variant": "normalized",
+      "audio": "eleven_flash_v2_5__cifras__normalized.mp3",
+      "latency_seconds": 1.32,
+      "characters_sent": 374,
+      "characters_billed": 75,
+      "request_id": "Soa3DUMoit7ieBwYO65K",
+      "integrity": "passed",
+      "integrity_reasons": [],
+      "duration_seconds": 27.429,
+      "chars_per_second": 11.41,
+      "signal": {
+        "duration_seconds": 27.377,
+        "leading_silence_seconds": 0.04,
+        "trailing_silence_seconds": 0.16,
+        "longest_internal_silence_seconds": 1.02,
+        "clipped_sample_ratio": 0.0,
+        "rms_dbfs": -19.2,
+        "peak": 24584,
+        "final_30ms_dbfs": -120.0
+      },
+      "recognizers": {
+        "deepgram": {
+          "engine": "deepgram-nova-3",
+          "transcript": "El 12 de marzo de 2024, a las 18 30 horas, el señor García pagó 3 coma 50 euros por el billete. El tren recorrió 245 kilómetros a 120 kilómetros por hora, y el precio subió un 2 coma 5 por 100. En la página 23 se cita a Felipe 2º y al siglo 16. Asistieron 1200 personas.",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.232,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 43,
+          "issues": [],
+          "latency_seconds": 1.44,
+          "timing_anomalies": [
+            {
+              "word": "2024",
+              "start": 1.36,
+              "end": 2.72,
+              "seconds": 1.36,
+              "expected_seconds": 0.351,
+              "ratio": 3.88
+            },
+            {
+              "word": "245",
+              "start": 10.8,
+              "end": 12.08,
+              "seconds": 1.28,
+              "expected_seconds": 0.263,
+              "ratio": 4.87
+            },
+            {
+              "word": "23",
+              "start": 19.425,
+              "end": 20.305,
+              "seconds": 0.88,
+              "expected_seconds": 0.175,
+              "ratio": 5.02
+            },
+            {
+              "word": "2º",
+              "start": 21.505,
+              "end": 22.305,
+              "seconds": 0.8,
+              "expected_seconds": 0.175,
+              "ratio": 4.56
+            },
+            {
+              "word": "16",
+              "start": 23.265,
+              "end": 24.225,
+              "seconds": 0.96,
+              "expected_seconds": 0.175,
+              "ratio": 5.48
+            },
+            {
+              "word": "1200",
+              "start": 25.505,
+              "end": 26.545,
+              "seconds": 1.04,
+              "expected_seconds": 0.351,
+              "ratio": 2.97
+            }
+          ]
+        },
+        "elevenlabs": {
+          "engine": "elevenlabs-scribe_v2",
+          "transcript": "El 12 de marzo de 2024, a las 18:30 horas, el señor García pagó 3,50 euros por el billete. El tren recorrió 245 kilómetros a 120 kilómetros por hora y el precio subió un 2,5 %. En la página 23 se cita a Felipe II y al siglo XVI. Asistieron 1200 personas",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0833,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 43,
+          "issues": [],
+          "latency_seconds": 1.86,
+          "timing_anomalies": [
+            {
+              "word": "2024",
+              "start": 1.48,
+              "end": 2.46,
+              "seconds": 0.98,
+              "expected_seconds": 0.351,
+              "ratio": 2.79
+            },
+            {
+              "word": "3,50",
+              "start": 6.66,
+              "end": 7.66,
+              "seconds": 1.0,
+              "expected_seconds": 0.351,
+              "ratio": 2.85
+            },
+            {
+              "word": "245",
+              "start": 11.04,
+              "end": 12.08,
+              "seconds": 1.04,
+              "expected_seconds": 0.263,
+              "ratio": 3.95
+            },
+            {
+              "word": "1200",
+              "start": 25.62,
+              "end": 26.52,
+              "seconds": 0.9,
+              "expected_seconds": 0.351,
+              "ratio": 2.57
+            }
+          ]
+        }
+      }
+    },
+    {
+      "passage": "cifras",
+      "category": "numbers_dates_abbreviations",
+      "model": "eleven_flash_v2_5",
+      "variant": "raw",
+      "audio": "eleven_flash_v2_5__cifras__raw.mp3",
+      "latency_seconds": 1.48,
+      "characters_sent": 208,
+      "characters_billed": 42,
+      "request_id": "i0EgNfK84B1yKXre6CDW",
+      "integrity": "passed",
+      "integrity_reasons": [],
+      "duration_seconds": 26.958,
+      "chars_per_second": 11.68,
+      "signal": {
+        "duration_seconds": 26.907,
+        "leading_silence_seconds": 0.04,
+        "trailing_silence_seconds": 0.32,
+        "longest_internal_silence_seconds": 1.2,
+        "clipped_sample_ratio": 0.0,
+        "rms_dbfs": -20.6,
+        "peak": 25194,
+        "final_30ms_dbfs": -120.0
+      },
+      "recognizers": {
+        "deepgram": {
+          "engine": "deepgram-nova-3",
+          "transcript": "El 12 0 3, 2024, a las 18 30, el señor García pagó 3 150 euros por el billete. El tren recorrió 245 kilometer a 120 kiulite klon lotchas, y el precio subió un 2 coma 5 por 100 en la. 23 se cita a Felipe 2º y al 16. Asistieron 1200 personas.",
+          "verdict": "likely_error",
+          "reference": "source",
+          "confidence": 0.5952380952380952,
+          "wer": 0.3571,
+          "cer": 0.381,
+          "substitutions": 7,
+          "deletions": 2,
+          "insertions": 6,
+          "reference_words": 42,
+          "issues": [
+            {
+              "kind": "replace",
+              "expected": "12/03/2024",
+              "recognized": "12 0 3, 2024",
+              "category": "likely_mismatch",
+              "reason": "La cantidad, hora, fecha o unidad pronunciada no coincide con el texto."
+            },
+            {
+              "kind": "replace",
+              "expected": "Sr",
+              "recognized": "señor",
+              "category": "likely_mismatch",
+              "reason": "Diferencia amplia respecto al texto revisado."
+            },
+            {
+              "kind": "replace",
+              "expected": "3,50 €",
+              "recognized": "3 150 euros",
+              "category": "likely_mismatch",
+              "reason": "La cantidad, hora, fecha o unidad pronunciada no coincide con el texto."
+            },
+            {
+              "kind": "replace",
+              "expected": "245 km",
+              "recognized": "245 kilometer",
+              "category": "likely_mismatch",
+              "reason": "La cantidad, hora, fecha o unidad pronunciada no coincide con el texto."
+            },
+            {
+              "kind": "replace",
+              "expected": "120 km/h",
+              "recognized": "120 kiulite klon lotchas",
+              "category": "likely_mismatch",
+              "reason": "La cantidad, hora, fecha o unidad pronunciada no coincide con el texto."
+            },
+            {
+              "kind": "delete",
+              "expected": "pág",
+              "recognized": "",
+              "category": "likely_mismatch",
+              "reason": "Diferencia amplia respecto al texto revisado."
+            },
+            {
+              "kind": "replace",
+              "expected": "s. XVI",
+              "recognized": "16",
+              "category": "likely_mismatch",
+              "reason": "La cantidad, hora, fecha o unidad pronunciada no coincide con el texto."
+            }
+          ],
+          "latency_seconds": 1.56,
+          "timing_anomalies": [
+            {
+              "word": "2024",
+              "start": 1.12,
+              "end": 2.24,
+              "seconds": 1.12,
+              "expected_seconds": 0.343,
+              "ratio": 3.27
+            },
+            {
+              "word": "18",
+              "start": 2.56,
+              "end": 3.44,
+              "seconds": 0.88,
+              "expected_seconds": 0.171,
+              "ratio": 5.14
+            },
+            {
+              "word": "el",
+              "start": 4.88,
+              "end": 5.76,
+              "seconds": 0.88,
+              "expected_seconds": 0.171,
+              "ratio": 5.14
+            },
+            {
+              "word": "245",
+              "start": 10.4,
+              "end": 11.6,
+              "seconds": 1.2,
+              "expected_seconds": 0.257,
+              "ratio": 4.67
+            },
+            {
+              "word": "16",
+              "start": 22.765,
+              "end": 23.725,
+              "seconds": 0.96,
+              "expected_seconds": 0.171,
+              "ratio": 5.61
+            }
+          ]
+        },
+        "elevenlabs": {
+          "engine": "elevenlabs-scribe_v2",
+          "transcript": "El 12/03/2024 a las 18:30, el señor García pagó 350 € por el billete. El tren recorrió 245 km a 120 km/h y el precio subió un 2,5 %. En la página 23 se cita a Felipe II y al S XVI asistieron 1200 personas",
+          "verdict": "likely_error",
+          "reference": "source",
+          "confidence": 0.9047619047619048,
+          "wer": 0.0714,
+          "cer": 0.0397,
+          "substitutions": 3,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 42,
+          "issues": [
+            {
+              "kind": "replace",
+              "expected": "Sr",
+              "recognized": "señor",
+              "category": "likely_mismatch",
+              "reason": "Diferencia amplia respecto al texto revisado."
+            },
+            {
+              "kind": "replace",
+              "expected": "3,50 €",
+              "recognized": "350 €",
+              "category": "likely_mismatch",
+              "reason": "La cantidad, hora, fecha o unidad pronunciada no coincide con el texto."
+            },
+            {
+              "kind": "replace",
+              "expected": "pág",
+              "recognized": "página",
+              "category": "likely_mismatch",
+              "reason": "Diferencia amplia respecto al texto revisado."
+            }
+          ],
+          "latency_seconds": 2.0,
+          "timing_anomalies": [
+            {
+              "word": "18:30",
+              "start": 2.56,
+              "end": 4.7,
+              "seconds": 2.14,
+              "expected_seconds": 0.428,
+              "ratio": 5.0
+            },
+            {
+              "word": "245",
+              "start": 10.72,
+              "end": 11.54,
+              "seconds": 0.82,
+              "expected_seconds": 0.257,
+              "ratio": 3.19
+            }
+          ]
+        }
+      }
+    },
+    {
+      "passage": "consonantes",
+      "category": "difficult_consonants_accents",
+      "model": "eleven_flash_v2_5",
+      "variant": "normalized",
+      "audio": "eleven_flash_v2_5__consonantes__normalized.mp3",
+      "latency_seconds": 0.93,
+      "characters_sent": 203,
+      "characters_billed": 41,
+      "request_id": "nOQWIqBdCc2IEDrYXT4J",
+      "integrity": "passed",
+      "integrity_reasons": [],
+      "duration_seconds": 16.144,
+      "chars_per_second": 10.59,
+      "signal": {
+        "duration_seconds": 16.093,
+        "leading_silence_seconds": 0.02,
+        "trailing_silence_seconds": 0.3,
+        "longest_internal_silence_seconds": 1.48,
+        "clipped_sample_ratio": 0.0,
+        "rms_dbfs": -19.2,
+        "peak": 24746,
+        "final_30ms_dbfs": -120.0
+      },
+      "recognizers": {
+        "deepgram": {
+          "engine": "deepgram-nova-3",
+          "transcript": "El jilguero gorjeaba junto al cerezo mientras el zapatero cosía con paciencia y precisión el cuero de unos zapatos. Ahí había un hombre que ahorraba, y aun así no halló el álbum ni el búho que buscaba.",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 37,
+          "issues": [],
+          "latency_seconds": 1.74,
+          "timing_anomalies": []
+        },
+        "elevenlabs": {
+          "engine": "elevenlabs-scribe_v2",
+          "transcript": "El jilguero gorjeaba junto al cerezo mientras el zapatero cosía con paciencia y precisión el cuero de unos zapatos. Ahí había un hombre que ahorraba y aun así no halló el álbum ni el búho que buscaba",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 37,
+          "issues": [],
+          "latency_seconds": 1.5,
+          "timing_anomalies": []
+        }
+      }
+    },
+    {
+      "passage": "frase_larga",
+      "category": "long_sentence_punctuation",
+      "model": "eleven_flash_v2_5",
+      "variant": "normalized",
+      "audio": "eleven_flash_v2_5__frase_larga__normalized.mp3",
+      "latency_seconds": 1.2,
+      "characters_sent": 328,
+      "characters_billed": 66,
+      "request_id": "RyrY1X4UHAQC4pUGHTVM",
+      "integrity": "passed",
+      "integrity_reasons": [],
+      "duration_seconds": 22.413,
+      "chars_per_second": 12.12,
+      "signal": {
+        "duration_seconds": 22.362,
+        "leading_silence_seconds": 0.04,
+        "trailing_silence_seconds": 0.3,
+        "longest_internal_silence_seconds": 0.98,
+        "clipped_sample_ratio": 0.0,
+        "rms_dbfs": -17.9,
+        "peak": 28189,
+        "final_30ms_dbfs": -120.0
+      },
+      "recognizers": {
+        "deepgram": {
+          "engine": "deepgram-nova-3",
+          "transcript": "Cuando por fin llegó la carta, 3 semanas después de lo prometido, con el sello medio despegado y la letra temblorosa de quien escribe a la luz de una vela, nadie en la casa se atrevió a abrirla. La dejaron sobre la mesa del comedor, junto al jarrón de lirios, como si el simple hecho de mirarla pudiera cambiar lo que decía.",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 62,
+          "issues": [],
+          "latency_seconds": 2.01,
+          "timing_anomalies": []
+        },
+        "elevenlabs": {
+          "engine": "elevenlabs-scribe_v2",
+          "transcript": "Cuando por fin llegó la carta, tres semanas después de lo prometido, con el sello medio despegado y la letra temblorosa de quien escribe a la luz de una vela, nadie en la casa se atrevió a abrirla. La dejaron sobre la mesa del comedor, junto al jarrón de lirios, como si el simple hecho de mirarla pudiera cambiar lo que decía",
+          "verdict": "verified",
+          "reference": "spoken",
+          "confidence": 1.0,
+          "wer": 0.0,
+          "cer": 0.0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "reference_words": 62,
+          "issues": [],
+          "latency_seconds": 1.86,
+          "timing_anomalies": []
+        }
+      }
+    }
+  ],
+  "rescored": true
+}

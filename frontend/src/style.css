@@ -7,9 +7,8 @@
 .editor-shell.shell{width:100%;max-width:1680px;height:100dvh;min-height:0;overflow:hidden;padding:0 clamp(16px,3vw,48px)}
 .top.editor-top{height:68px;min-height:68px;flex:none}
 .editor-workspace.hero{display:flex;width:100%;max-width:none;height:calc(100dvh - 112px);min-height:0;flex:1;flex-direction:column;gap:10px;margin:0 auto;padding:12px 0 8px;overflow:hidden;text-align:left}
-.shell footer.workspace-action-bar{min-height:62px;margin:0}
 .shell footer.editor-footer{min-height:38px;height:38px;margin-top:0;flex:none}
-@media(max-width:700px){.editor-shell.shell{padding:0 12px}.top.editor-top{height:58px;min-height:58px}.editor-workspace.hero,.editor-shell:has(.workspace-action-bar) .editor-workspace{height:calc(100dvh - 146px);margin:0 auto;padding-top:8px;gap:7px}.shell footer.workspace-action-bar{min-height:54px;margin:0 -12px;padding:7px 12px calc(7px + env(safe-area-inset-bottom))}.shell footer.editor-footer{display:none!important}}
+@media(max-width:700px){.editor-shell.shell{padding:0 12px}.top.editor-top{height:58px;min-height:58px}.editor-workspace.hero{height:calc(100dvh - 146px);margin:0 auto;padding-top:8px;gap:7px}.shell footer.editor-footer{display:none!important}}
 .package-download{width:100%;min-height:48px;margin-top:12px;padding:10px 14px;background:#fff;color:#285c4a;border:1px solid #b8cbbd;border-radius:10px;display:flex;align-items:center;justify-content:center;gap:9px;font:600 14px 'DM Sans',sans-serif;cursor:pointer;transition:background .15s,border-color .15s}.package-download:hover:not(:disabled){background:#f1f5ef;border-color:#789b83}.package-download:disabled{opacity:.72;cursor:wait}.package-download:focus-visible{outline:3px solid #c17e36;outline-offset:3px}
 .narration-outline { width: min(100%, 58rem); margin: 1.5rem auto; padding: 1.25rem; border: 1px solid var(--line, #d9e2e8); border-radius: 1rem; background: #fff; }
 .narration-outline h3 { margin: 0 0 .35rem; }
@@ -27,11 +26,10 @@
 .editor-shell.shell { width: 100%; max-width: none; height: 100dvh; min-height: 0; padding: 0 clamp(12px, 1.5vw, 24px); overflow: hidden; }
 .top.editor-top { height: 58px; min-height: 58px; }
 .editor-workspace.hero { width: 100%; max-width: none; height: auto; min-height: 0; flex: 1 1 auto; margin: 0; padding: 8px 0 0; overflow: hidden; }
-.editor-shell:has(.workspace-action-bar) .editor-workspace { height: auto; }
 @media (max-width: 700px) {
   .editor-shell.shell { padding: 0 12px; }
   .top.editor-top { height: 54px; min-height: 54px; }
-  .editor-workspace.hero,.editor-shell:has(.workspace-action-bar) .editor-workspace { height: auto; padding-top: 6px; }
+  .editor-workspace.hero { height: auto; padding-top: 6px; }
 }
 .workspace-titlebar {
   display: grid;

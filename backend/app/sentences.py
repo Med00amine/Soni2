@@ -6,7 +6,8 @@ import hashlib
 import re
 from typing import Mapping
 
-from app.spanish_speech import spell_numbers_for_speech
+from app.spanish_speech import spell_numbers_for_speech  # noqa: F401  (kept for callers)
+from app.spanish_text_normalizer import SpokenText, normalize_for_speech
 
 
 _ABBREVIATIONS = {
@@ -105,14 +106,25 @@ def _period_ends_sentence(text: str, position: int) -> bool:
     return True
 
 
+def build_spoken_text(text: str) -> SpokenText:
+    """What a Peninsular narrator says for ``text``, with every change recorded.
+
+    This is also what speech review compares the recognizer against: the
+    expected spoken form, not the written one.
+    """
+    return normalize_for_speech(text)
+
+
 def build_synthesis_text(text: str, lexicon: Mapping[str, str]) -> str:
     """Prepare the narration copy of a sentence; the source text is unchanged.
 
-    Spanish number formats the voice misreads are spelled out first, then the
-    reviewer's pronunciation lexicon is applied, so an operator entry always
-    wins over the automatic rewrite.
+    The text is first normalized into its spoken Spanish form (dates, times,
+    amounts, abbreviations…), then the reviewer's pronunciation lexicon is
+    applied, so an operator entry always wins over the automatic rewrite.
+    Lexicon respellings are phonetic hints for the voice, which is why speech
+    review compares against the spoken form *before* them.
     """
-    return apply_pronunciation_lexicon(spell_numbers_for_speech(text), lexicon)
+    return apply_pronunciation_lexicon(normalize_for_speech(text).spoken, lexicon)
 
 
 def apply_pronunciation_lexicon(text: str, lexicon: Mapping[str, str]) -> str:

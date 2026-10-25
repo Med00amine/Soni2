@@ -114,9 +114,15 @@ def test_a_wrong_chapter_number_is_still_caught() -> None:
 def test_numerals_outside_a_heading_are_not_treated_as_numbers() -> None:
     from app import qa_review
 
-    # A century and a regnal name are not chapter numbers.
-    assert qa_review.evaluate("Siglo XX", "Siglo 20")[0] == "likely_error"
+    # A century is a number however it is written: measured on ElevenLabs, a
+    # correctly narrated "siglo dieciséis" came back as "siglo 16" from
+    # Deepgram and "siglo XVI" from Scribe. A wrong century is still wrong.
+    assert qa_review.evaluate("Siglo XX", "Siglo 20")[0] == "verified"
+    assert qa_review.evaluate("Siglo XX", "Siglo 21")[0] == "likely_error"
+    # A regnal numeral is an ordinal: "Juan Carlos 1" is not "Juan Carlos primero".
     assert qa_review.evaluate("Juan Carlos I", "Juan Carlos 1")[0] == "likely_error"
+    assert qa_review.evaluate("Felipe II", "Felipe segundo")[0] == "verified"
+    assert qa_review.evaluate("Felipe II", "Felipe 2º")[0] == "verified"
 
 
 # --------------------------------------------------------------------------- #

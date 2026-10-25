@@ -12,3 +12,6 @@ outputs/
 *.wav
 *.db
 .DS_Store
+# Output of backend/tools (benchmarks and end-to-end runs: audio, caches, databases)
+e2e-results/
+benchmark-results/

@@ -247,6 +247,10 @@ def normalize_loudness(audio: bytes, *, target_lufs: float = -18.0) -> Mastering
         destination = root / "output.mp3"
         result = _run([executable, "-hide_banner", "-v", "error", "-y", "-i", str(source),
                        "-af", f"loudnorm=I={target_lufs}:TP=-2.0:LRA=11:{settings}:linear=true",
+                       # loudnorm works at 192 kHz; without this the encoder
+                       # picks 48 kHz, and a chapter whose levelling was kept
+                       # ended up in a different format from one where it was not.
+                       "-ar", "44100",
                        "-c:a", "libmp3lame", "-q:a", "2", "-write_xing", "0", str(destination)])
         if result.returncode != 0 or not destination.is_file() or destination.stat().st_size == 0:
             return MasteringResult(audio, False, "ffmpeg no pudo ajustar el volumen.")
@@ -270,7 +274,19 @@ def measure_loudness_lufs(audio: bytes) -> float | None:
 
 
 def duration_seconds(audio: bytes) -> float | None:
-    """Decoded length of some audio, for checking pauses and pacing."""
+    """Exact length of some audio, for checking pauses, pacing and sync.
+
+    MP3 is measured by counting its frames. ffprobe's format duration is only
+    an estimate from the file size for a VBR stream without a Xing header,
+    which is what the passages are encoded as, and in the Docker image (where
+    ffprobe exists) those estimates put every SMIL clip of a chapter up to a
+    quarter of a second away from its speech.
+    """
+    from app.audio_integrity import inspect_stream
+
+    stream = inspect_stream(audio) if audio else None
+    if stream and stream["frames"] and not set(stream["errors"]) - {"truncated_final_frame"}:
+        return stream["duration_seconds"]
     probe = shutil.which("ffprobe")
     executable = probe or ffmpeg_path()
     if executable is None or not audio:

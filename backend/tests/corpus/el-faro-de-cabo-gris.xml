@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dtbook PUBLIC "-//NISO//DTD dtbook 2005-3//EN" "http://www.daisy.org/z3986/2005/dtbook-2005-3.dtd">
+<dtbook xmlns="http://www.daisy.org/z3986/2005/dtbook/" version="2005-3" xml:lang="es-ES">
+  <head>
+    <meta name="dtb:uid" content="soni2-corpus-faro-cabo-gris"/>
+    <meta name="dc:Title" content="El faro de Cabo Gris"/>
+    <meta name="dc:Creator" content="Equipo Soni2"/>
+    <meta name="dc:Publisher" content="Corpus de pruebas de Soni2"/>
+    <meta name="dc:Date" content="2026"/>
+    <meta name="dc:Language" content="es-ES"/>
+  </head>
+  <book>
+    <frontmatter>
+      <doctitle>El faro de Cabo Gris</doctitle>
+      <docauthor>Equipo Soni2</docauthor>
+    </frontmatter>
+    <bodymatter>
+      <level1 id="cap1">
+        <pagenum page="normal" id="page-1">1</pagenum>
+        <h1>Capítulo 1. La llegada</h1>
+        <p>El autobús dejó a Lucía Ferrández en la plaza de Cabo Gris a las 7:15 de la tarde, cuando la luz empezaba a volverse naranja sobre los acantilados. Llevaba una maleta pequeña, un cuaderno de tapas azules y la dirección del faro escrita a lápiz en un billete de 20 €.</p>
+        <p>—¿Viene usted por el puesto de farera? —le preguntó el Sr. Arrieta, el dueño de la única tienda del pueblo, mientras se secaba las manos en el delantal.</p>
+        <p>—Vengo a sustituir a don Ezequiel durante el invierno —respondió ella—. Me dijeron que la llave estaría aquí.</p>
+        <p>El hombre buscó en un cajón lleno de facturas y le entregó una llave de hierro, larga como una mano. Le explicó que el faro estaba a 3,5 km del pueblo, que el camino subía unos 120 m y que, con viento del norte, era mejor no cruzar el puente de madera.</p>
+        <pagenum page="normal" id="page-2">2</pagenum>
+        <p>Antes de despedirse, el Sr. Arrieta le dio una lista escrita a mano con lo que nunca debía faltar en el faro:</p>
+        <list type="ul">
+          <li>dos bidones de queroseno para el generador;</li>
+          <li>pilas para la radio de onda corta;</li>
+          <li>el cuaderno de registro, firmado cada noche a las 23:00.</li>
+        </list>
+        <p>Lucía guardó la lista en el bolsillo y empezó a subir. Cuando llegó arriba ya era de noche, y la linterna giraba despacio sobre el mar, como un pensamiento que no termina nunca.</p>
+      </level1>
+      <level1 id="cap2">
+        <pagenum page="normal" id="page-3">3</pagenum>
+        <h1>Capítulo 2. El cuaderno de registro</h1>
+        <p>El cuaderno de registro empezaba el 02/01/1987. La letra de don Ezequiel era pequeña y ordenada; anotaba la presión, la dirección del viento y los barcos que pasaban, con nombres como Santa Marta, Galerna o Virgen del Carmen.</p>
+        <p>El 14 de febrero de 1993 había escrito: «Temporal del noroeste. Olas de 9 m. A las 4:30 se apagó la luz durante doce minutos; la encendí a mano<noteref idref="nota1">1</noteref>.» Debajo, con otra tinta, alguien había añadido una sola palabra: «Gracias».</p>
+        <note id="nota1"><p>1. Hasta 1995 el faro no tuvo un generador automático; la lámpara se encendía con una manivela.</p></note>
+        <p>Lucía pasó las páginas hasta el final. La última entrada, de hacía apenas una semana, decía que el precio del queroseno había subido un 12 % y que el Ayuntamiento había prometido pagar la mitad de la factura, unos 1.250 euros.</p>
+        <pagenum page="normal" id="page-4">4</pagenum>
+        <p>En la contraportada había una copla escrita a lápiz, con la misma letra pequeña:</p>
+        <poem>
+          <linegroup>
+            <line>Quien guarda la luz del faro</line>
+            <line>no duerme, pero descansa:</line>
+            <line>sabe que el mar es un libro</line>
+            <line>que nadie lee del todo.</line>
+          </linegroup>
+        </poem>
+      </level1>
+      <level1 id="cap3">
+        <pagenum page="normal" id="page-5">5</pagenum>
+        <h1>Capítulo 3. La visita</h1>
+        <p>El sábado subió al faro una mujer mayor con un abrigo verde y un paraguas que el viento había doblado por la mitad. Se presentó como Ximena Zubizarreta, sobrina de don Ezequiel, y traía un termo de café y una caja de galletas de Llanes.</p>
+        <p>—Mi tío llegó aquí en 1962, con veinticuatro años —contó, sentada junto a la ventana—. Decía que en Cabo Gris había aprendido tres cosas: a escuchar el mar, a no fiarse del barómetro y a escribirlo todo.</p>
+        <p>Antes de irse, Ximena le pidió a Lucía que siguiera anotando cada noche, aunque nadie fuera a leerlo. Lucía prometió que lo haría. Aquella misma noche, a las 23:00, abrió el cuaderno y escribió con letra cuidadosa: «Viento del sur. Mar en calma. Todo en orden».</p>
+      </level1>
+    </bodymatter>
+  </book>
+</dtbook>
