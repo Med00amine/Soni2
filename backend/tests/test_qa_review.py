@@ -402,3 +402,46 @@ def test_something_added_after_the_last_word_is_not_a_minor_slip() -> None:
     assert state == "likely_error"
     assert any(issue.get("trailing_addition") for issue in found)
     assert accept_reason(LONG, heard) == ""
+
+
+# --------------------------------------------------------------------------- #
+# ONCE's own wording, measured on the first real ONCE-structured book
+# --------------------------------------------------------------------------- #
+#
+# Every ONCE audiobook carries the legal notice and the production line. On the
+# first real run the voice read them correctly and the comparison still sent
+# the production line to a person after two paid retakes.
+
+@pytest.mark.parametrize("source,heard", [
+    # The acronym ONCE is said like the number eleven; Deepgram writes "11".
+    # "y ha sido" after it used to parse as "11 hectares".
+    ("la Organización Nacional de Ciegos Españoles (ONCE) y ha sido realizada",
+     "la Organización Nacional de Ciegos Españoles, 11, y ha sido realizada"),
+    ("Llegaron once y ha empezado a llover", "Llegaron 11 y ha empezado a llover"),
+    # "S.L." read as "Sociedad Limitada"; "S-2" written "S2" or "S 2".
+    ("para el Servicio Bibliográfico de la ONCE, Sonidos S-2 Productions, S.L. octubre de 2026",
+     "para el servicio bibliográfico de la 11. Sonidos S 2 productions, sociedad limitada. Octubre de 2026."),
+    ("Sonidos S-2 Productions, S.L. octubre de 2026", "Sonidos S2 Productions, Sociedad Limitada, octubre de 2026"),
+    ("Editorial Planeta, S.A.", "Editorial Planeta, sociedad anónima"),
+    ("Grabaciones Norte, S.L.U.", "Grabaciones Norte, sociedad limitada unipersonal"),
+])
+def test_once_wording_read_correctly_is_not_an_error(source, heard) -> None:
+    assert verdict(source, heard) == "verified", issues(source, heard)
+
+
+@pytest.mark.parametrize("source,heard", [
+    ("Sonidos S-2 Productions, S.L.", "Sonidos S 3 productions, sociedad limitada"),
+    ("Editorial Planeta, S.A.", "Editorial Planeta, sociedad limitada"),
+    ("caminó a 2 metros de la casa", "caminó a 3 metros de la casa"),
+])
+def test_a_wrong_code_or_company_form_is_still_an_error(source, heard) -> None:
+    assert verdict(source, heard) == "likely_error"
+
+
+def test_a_number_does_not_swallow_the_y_that_follows_it() -> None:
+    from app.spanish_normalization import comparison_tokens
+
+    assert [token.value for token in comparison_tokens("once y ha sido")] == ["num:11", "y", "ha", "sido"]
+    assert [token.value for token in comparison_tokens("treinta y dos")] == ["num:32"]
+    # A unit after a number is still a unit.
+    assert [token.value for token in comparison_tokens("cuatro hectáreas")] == ["measure:4:ha"]

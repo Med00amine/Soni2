@@ -40,8 +40,13 @@ class BookChapter:
     # True when the extractor invented the title; it is navigation, not text.
     title_generated: bool = False
     # Where each paragraph came from, parallel to ``paragraphs`` when known:
-    # {"page": 12, "element": "p", "method": "pdf-layout"}.
+    # {"page": 12, "element": "p", "method": "pdf-layout"}. A heading inside
+    # the chapter carries "element": "heading" and its "heading_level"; a
+    # paragraph at which a page of the original begins lists that page in
+    # "page_breaks".
     sources: list[dict] = field(default_factory=list)
+    # The same, for the chapter's own title.
+    title_source: dict = field(default_factory=dict)
 
     def source_of(self, index: int) -> dict:
         return self.sources[index] if len(self.sources) == len(self.paragraphs) else {}
@@ -138,44 +143,78 @@ class _Flattener:
     out of the flow and read at the end of their chapter.
     """
 
-    def __init__(self, report: ExtractionReport, location: str, page: str = "") -> None:
+    def __init__(self, report: ExtractionReport, location: str, page: str = "",
+                 pending_pages: list[str] | None = None) -> None:
         self.report = report
         self.location = location
         self.page = page
         self.blocks: list[tuple[str, str, dict]] = []  # (kind, text, provenance)
         self.notes: list[str] = []
+        # Pages of the original that began since the last block: they begin at
+        # the next block, which is where a page marker belongs.
+        self.pending_pages: list[str] = list(pending_pages or [])
+        # How deep the enclosing <levelN> is, for a <hd> that says no number.
+        self.level_depth = 0
         self._current: list[str] = []
         self._open: list[str] = []
+        self._levels: list[int | None] = []
 
     def text(self, value: str | None) -> None:
         if value:
             self._current.append(value)
 
-    def open(self, kind: str) -> None:
+    def open(self, kind: str, level: int | None = None) -> None:
         self.flush()
         self._open.append(kind)
+        self._levels.append(level)
 
     def close(self) -> None:
         self.flush()
         if self._open:
             self._open.pop()
+            self._levels.pop()
+
+    def page_break(self, label: str) -> None:
+        """A page of the original begins here (a DTBook pagenum, an EPUB pagebreak)."""
+        if label:
+            self.page = label
+            self.pending_pages.append(label)
 
     def flush(self) -> None:
         text = _spoken("".join(self._current))
         self._current = []
         if text:
             kind = self._open[-1] if self._open else "p"
-            provenance = {"element": kind}
+            provenance: dict = {"element": kind}
+            level = self._levels[-1] if self._levels else None
+            if kind == "heading" and level:
+                provenance["heading_level"] = level
             if self.page:
                 provenance["page"] = self.page
+            if self.pending_pages:
+                provenance["page_breaks"] = self.pending_pages
+                self.pending_pages = []
             self.blocks.append((kind, text, provenance))
 
     def note(self, text: str) -> None:
-        text = _spoken(text)
-        if not text:
-            return
-        match = re.match(r"^\s*\[?(\d{1,3})\]?[.)\s]+(.*)$", text, flags=re.S)
-        self.notes.append(f"Nota {match.group(1)}. {match.group(2).strip()}" if match else f"Nota. {text}")
+        value = note_text(text)
+        if value:
+            self.notes.append(value)
+
+
+def note_text(text: str) -> str:
+    """A note as it is read: "Nota 1. …", from the note's own number.
+
+    A note that already says "Nota 1." keeps it: prefixing it again read
+    "Nota. Nota 1." aloud.
+    """
+    text = _spoken(text)
+    if not text:
+        return ""
+    if re.match(r"^nota\s+\d{1,3}\s*[.:]", text, flags=re.I):
+        return text
+    match = re.match(r"^\s*\[?(\d{1,3})\]?[.)\s]+(.*)$", text, flags=re.S)
+    return f"Nota {match.group(1)}. {match.group(2).strip()}" if match else f"Nota. {text}"
 
 
 _HEADINGS = {"h1", "h2", "h3", "h4", "h5", "h6", "hd", "levelhd", "bridgehead"}
@@ -197,7 +236,7 @@ def _walk_xml(element: ET.Element, flat: _Flattener) -> None:
         flat.text(element.tail)
         return
     if name == "pagenum":
-        flat.page = _spoken("".join(element.itertext())) or flat.page
+        flat.page_break(_spoken("".join(element.itertext())))
         flat.report.drop("page_number", "".join(element.itertext()), "Número de página del original: marca la "
                          "posición, no se narra.", f"página {flat.page}")
         flat.text(element.tail)
@@ -218,29 +257,45 @@ def _walk_xml(element: ET.Element, flat: _Flattener) -> None:
         flat.text(element.tail)
         return
     block = name in _XML_BLOCKS
+    depth = int(name[5]) if re.fullmatch(r"level[1-6]", name) else None
     if block:
-        flat.open("heading" if name in _HEADINGS or name == "title" else name)
+        flat.open("heading" if name in _HEADINGS or name == "title" else name, _heading_level(name, flat.level_depth))
+    outer_depth = flat.level_depth
+    if depth:
+        flat.level_depth = depth
     flat.text(element.text)
     for child in element:
         _walk_xml(child, flat)
         if _local_name(child.tag).lower() in _XML_CELLS:
             flat.text("; ")
+    flat.level_depth = outer_depth
     if block:
         flat.close()
     flat.text(element.tail)
 
 
+def _heading_level(name: str, level_depth: int) -> int | None:
+    """The outline level a heading element states: h2 → 2, a DTBook hd → its level's depth."""
+    if re.fullmatch(r"h[1-6]", name):
+        return int(name[1])
+    if name == "hd" and level_depth:
+        return level_depth
+    return None
+
+
 def _chapter_from_blocks(flat: _Flattener, fallback_title: str, method: str) -> BookChapter:
     blocks = list(flat.blocks)
     title, generated = fallback_title, True
+    title_source: dict = {}
     if blocks and blocks[0][0] == "heading":
         title, generated = blocks[0][1], False
+        title_source = {**blocks[0][2], "method": method}
         blocks = blocks[1:]
     paragraphs = [text for _kind, text, _source in blocks]
     sources = [{**source, "method": method} for _kind, _text, source in blocks]
     paragraphs += flat.notes
     sources += [{"element": "note", "method": method} for _ in flat.notes]
-    return BookChapter(title, paragraphs, title_generated=generated, sources=sources)
+    return BookChapter(title, paragraphs, title_generated=generated, sources=sources, title_source=title_source)
 
 
 # --------------------------------------------------------------------------- #
@@ -303,14 +358,19 @@ def _from_xml(content: bytes, result: BookStructure, fallback_text: str, report:
                              "Hay texto fuera de los capítulos del libro que no se narrará.", text=own)
 
     page = ""
+    pending: list[str] = []
     for index, chapter in enumerate(top_level, 1):
-        flat = _Flattener(report, f"capítulo {index}", page)
+        flat = _Flattener(report, f"capítulo {index}", page, pending)
+        depth = _local_name(chapter.tag).lower()
+        flat.level_depth = int(depth[5]) if re.fullmatch(r"level[1-6]", depth) else 1
         flat.open("chapter")
         flat.text(chapter.text)
         for child in chapter:
             _walk_xml(child, flat)
         flat.close()
         page = flat.page
+        # A page that begins after the chapter's last block begins with the next chapter.
+        pending = flat.pending_pages
         result.chapters.append(_chapter_from_blocks(flat, f"Capítulo {index}", report.method))
 
     if not result.chapters or not any(chapter.paragraphs for chapter in result.chapters):
@@ -370,8 +430,7 @@ def _walk_html(node: Tag, flat: _Flattener, title_heading: list) -> None:
                              "se genera a partir de los capítulos.", flat.location)
             continue
         if "pagebreak" in semantics:
-            flat.page = child.get("title", "") or child.get_text("").strip() or child.get("aria-label", "") \
-                or flat.page
+            flat.page_break(child.get("title", "") or child.get_text("").strip() or child.get("aria-label", ""))
             flat.report.drop("page_number", child.get_text(" ") or child.get("title", ""),
                              "Marca de página del original; no se narra.", flat.location)
             continue
@@ -399,7 +458,8 @@ def _walk_html(node: Tag, flat: _Flattener, title_heading: list) -> None:
             continue
         block = name in _HTML_BLOCKS
         if block:
-            flat.open("heading" if name in _HTML_HEADINGS else name)
+            flat.open("heading" if name in _HTML_HEADINGS else name,
+                      int(name[1]) if name in _HTML_HEADINGS else None)
             if name in _HTML_HEADINGS and not title_heading and not flat.blocks:
                 title_heading.append(name)
         _walk_html(child, flat, title_heading)
@@ -457,6 +517,8 @@ def _from_epub(filename: str, content: bytes, result: BookStructure, fallback_te
     result.publication_year = _epub_metadata(book, "date")
     result.publisher = _epub_metadata(book, "publisher")
     toc_titles = _epub_toc_titles(book)
+    page = ""
+    pending: list[str] = []
     for index, (item_id, _linear) in enumerate(book.spine, 1):
         item = book.get_item_with_id(item_id)
         if item is None or item.get_type() != ebooklib.ITEM_DOCUMENT:
@@ -473,10 +535,12 @@ def _from_epub(filename: str, content: bytes, result: BookStructure, fallback_te
             raw.append(raw_text)
             continue
         raw.append(raw_text)
-        flat = _Flattener(report, item_name)
+        flat = _Flattener(report, item_name, page, pending)
         title_heading: list = []
         _walk_html(root, flat, title_heading)
         flat.flush()
+        # Page numbering runs on across the spine documents.
+        page, pending = flat.page, flat.pending_pages
         if not flat.blocks and not flat.notes:
             continue
         fallback = toc_titles.get(item_name) or toc_titles.get(Path(item_name).name) or f"Capítulo {index}"
@@ -505,8 +569,26 @@ def _from_docx(content: bytes, result: BookStructure, fallback_text: str, report
     result.title = document.core_properties.title or result.title
     result.author = document.core_properties.author or ""
     raw.append(" ".join(node.text or "" for node in document.element.body.iter(qn("w:t"))))
+    # Word keeps footnotes and endnotes in parts of their own. They were never
+    # read, and the word count above did not see them either, so a note's text
+    # disappeared without a warning. They are read at the end of the chapter
+    # that refers to them, "Nota 1. …", like the notes of every other format.
+    note_texts = {kind: _docx_notes(document, kind) for kind in ("footnote", "endnote")}
+    for texts in note_texts.values():
+        raw.extend(texts.values())
+    note_numbers: dict[tuple[str, str], int] = {}
     chapters: list[BookChapter] = []
     active = BookChapter(result.title, title_generated=True)
+    active_notes: list[str] = []
+    pending_pages: list[str] = []
+
+    def close_chapter() -> None:
+        nonlocal active_notes
+        for note in active_notes:
+            active.paragraphs.append(note)
+            active.sources.append({"element": "note", "method": "docx"})
+        active_notes = []
+
     for element in document.element.body.iterchildren():
         if element.tag == qn("w:tbl"):
             # Tables used to be skipped entirely: python-docx's paragraph list
@@ -519,22 +601,46 @@ def _from_docx(content: bytes, result: BookStructure, fallback_text: str, report
                         cells.append(text)
                 if cells:
                     active.paragraphs.append("; ".join(cells))
-                    active.sources.append({"element": "table-row", "method": "docx"})
+                    source = {"element": "table-row", "method": "docx"}
+                    if pending_pages:
+                        source["page_breaks"], pending_pages = pending_pages, []
+                    active.sources.append(source)
             continue
         if element.tag != qn("w:p"):
             continue
         paragraph = Paragraph(element, document._body)
-        text = _spoken(paragraph.text)
+        text, pages = _docx_paragraph_text(paragraph)
+        for page in pages:
+            report.drop("page_number", page, "Número de página del original (estilo Page Number DAISY): marca "
+                        "la posición, no se narra.", f"página {page}")
+        pending_pages.extend(pages)
+        text = _spoken(text)
+        for kind, reference in _docx_note_references(element):
+            body = note_texts[kind].get(reference, "")
+            if body and (kind, reference) not in note_numbers:
+                note_numbers[(kind, reference)] = len(note_numbers) + 1
+                active_notes.append(note_text(f"{note_numbers[(kind, reference)]}. {body}"))
         if not text:
             continue
-        if paragraph.style and paragraph.style.name.lower() in {"heading 1", "título 1", "titulo 1"}:
+        level = _docx_heading_level(paragraph)
+        page_source = {"page_breaks": pending_pages} if pending_pages else {}
+        if level == 1:
+            close_chapter()
             if active.paragraphs:
                 chapters.append(active)
-            active = BookChapter(text)
+            active = BookChapter(text, title_source={"element": "heading", "heading_level": 1,
+                                                     "method": "docx", **page_source})
+        elif level:
+            # Título 2 and below stay in place and are read where they are; the
+            # level lets the audiobook's outline nest them under the chapter.
+            active.paragraphs.append(text)
+            active.sources.append({"element": "heading", "heading_level": level, "method": "docx", **page_source})
         else:
-            for part in _paragraphs(text):
+            for index, part in enumerate(_paragraphs(text)):
                 active.paragraphs.append(part)
-                active.sources.append({"element": "p", "method": "docx"})
+                active.sources.append({"element": "p", "method": "docx", **(page_source if index == 0 else {})})
+        pending_pages = []
+    close_chapter()
     if active.paragraphs or not chapters:
         chapters.append(active)
     result.chapters = chapters
@@ -547,6 +653,85 @@ def _from_docx(content: bytes, result: BookStructure, fallback_text: str, report
             report.drop("page_margin", text, f"Texto de {label} del documento; no se narra.", label)
     if not any(chapter.paragraphs for chapter in result.chapters):
         result.chapters = [BookChapter(result.title, _paragraphs(fallback_text), title_generated=True)]
+
+
+_DOCX_RELATIONSHIPS = {
+    "footnote": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes",
+    "endnote": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes",
+}
+_WORD_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
+
+def _docx_notes(document, kind: str) -> dict[str, str]:
+    """Footnote or endnote id -> its text. Word's separator entries are left out."""
+    for relationship in document.part.rels.values():
+        if relationship.reltype != _DOCX_RELATIONSHIPS[kind] or relationship.is_external:
+            continue
+        try:
+            root = ET.fromstring(relationship.target_part.blob)
+        except ET.ParseError:
+            return {}
+        notes: dict[str, str] = {}
+        for note in root.iter(f"{_WORD_NS}{kind}"):
+            if note.get(f"{_WORD_NS}type") in {"separator", "continuationSeparator", "continuationNotice"}:
+                continue
+            paragraphs = ["".join(node.text or "" for node in paragraph.iter(f"{_WORD_NS}t"))
+                          for paragraph in note.iter(f"{_WORD_NS}p")]
+            text = _spoken(" ".join(paragraph for paragraph in paragraphs if paragraph.strip()))
+            if text:
+                notes[note.get(f"{_WORD_NS}id", "")] = text
+        return notes
+    return {}
+
+
+def _docx_note_references(paragraph_element) -> list[tuple[str, str]]:
+    """The footnotes and endnotes a paragraph refers to, in order."""
+    references = []
+    for node in paragraph_element.iter(f"{_WORD_NS}footnoteReference", f"{_WORD_NS}endnoteReference"):
+        kind = "footnote" if node.tag.endswith("footnoteReference") else "endnote"
+        references.append((kind, node.get(f"{_WORD_NS}id", "")))
+    return references
+
+
+def _is_daisy_page_number(style) -> bool:
+    """Save as DAISY's "Page Number DAISY" style marks a page number of the original."""
+    if style is None:
+        return False
+    names = {getattr(style, "name", "") or "", getattr(style, "style_id", "") or ""}
+    return any(re.sub(r"[^a-z]", "", name.casefold()) == "pagenumberdaisy" for name in names)
+
+
+def _docx_paragraph_text(paragraph) -> tuple[str, list[str]]:
+    """A paragraph's text without its page numbers, and those page numbers.
+
+    Only a paragraph that uses the Save as DAISY page-number style is taken
+    apart run by run; every other paragraph is read exactly as before.
+    """
+    if _is_daisy_page_number(paragraph.style):
+        return "", [label for label in [_spoken(paragraph.text)] if label]
+    try:
+        items = list(paragraph.iter_inner_content())
+    except AttributeError:  # an older python-docx
+        return paragraph.text, []
+    if not any(_is_daisy_page_number(getattr(item, "style", None)) for item in items if hasattr(item, "style")):
+        return paragraph.text, []
+    pages: list[str] = []
+    parts: list[str] = []
+    for item in items:
+        if hasattr(item, "style") and _is_daisy_page_number(item.style):
+            label = _spoken(item.text)
+            if label:
+                pages.append(label)
+            continue
+        parts.append(item.text)
+    return "".join(parts), pages
+
+
+def _docx_heading_level(paragraph) -> int | None:
+    """1 for Título 1 / Heading 1, 2 for Título 2, and so on; None for body text."""
+    name = (paragraph.style.name if paragraph.style is not None else "") or ""
+    match = re.fullmatch(r"(?:heading|t[ií]tulo)\s+([1-9])", name.strip().lower())
+    return int(match.group(1)) if match else None
 
 
 # --------------------------------------------------------------------------- #
@@ -698,7 +883,8 @@ def _pdf_page_chapters(profiles: list[dict], ocr_pages: dict[int, ocr.OcrPage],
                                     sources=[{"page": str(number), "method": method} for _ in paragraphs]))
     for chapter in chapters:
         if len(chapter.sources) != len(chapter.paragraphs):
-            chapter.sources = [chapter.sources[0] if chapter.sources else {} for _ in chapter.paragraphs]
+            chapter.sources = [dict(chapter.sources[0]) if chapter.sources else {} for _ in chapter.paragraphs]
+    mark_page_starts(chapters)
     return chapters
 
 
@@ -1030,7 +1216,9 @@ def _pdf_layout_chapters(pdf, pages: tuple[int, int] | None, *, ocr_pages: dict 
             if following and following["kind"] == "heading" and following["page"] == block["page"]:
                 continue  # a title set over several blocks
             close_chapter()
-            current = BookChapter(_heading_text(pending_heading))
+            current = BookChapter(_heading_text(pending_heading),
+                                  title_source={"element": "heading", "heading_level": 1,
+                                                "page": str(block["page"]), "method": "pdf-layout"})
             pending_heading = []
             continue
         if block["kind"] == "footnote":
@@ -1063,7 +1251,27 @@ def _pdf_layout_chapters(pdf, pages: tuple[int, int] | None, *, ocr_pages: dict 
     for chapter in result:
         if not chapter.title:
             chapter.title_generated = True
+    mark_page_starts(result)
     return result
+
+
+def mark_page_starts(chapters: list[BookChapter]) -> None:
+    """Note where each page begins, for sources that only say which page they are on.
+
+    A PDF paragraph knows its page, so a page begins at the first paragraph
+    (or heading) found on it. A page that only continues a paragraph from the
+    one before has no paragraph of its own to begin at and gets no marker:
+    placing one elsewhere would point at the wrong text.
+    """
+    previous = ""
+    for chapter in chapters:
+        entries = ([chapter.title_source] if chapter.title_source and not chapter.title_generated else []) + [
+            source for source in chapter.sources]
+        for source in entries:
+            page = str(source.get("page") or "")
+            if page and page != previous and source.get("element") not in {"footnote", "note"}:
+                source["page_breaks"] = [page]
+                previous = page
 
 
 def _first_body_on_page(blocks: list[dict], page: int) -> dict | None:

@@ -1,5 +1,11 @@
 # Soni2 — providers, cost control, output layout, logs and reports
 
+> **2026-10-28:** books can be produced with the **ONCE structure** (initial
+> files 1–3 from a planilla, chapters and level-2 subchapters each in their own
+> MP3, silent page markers, "Nota N." … "Fin de nota N.", the closing phrase),
+> and step 2 is an audiobook editor. See [once-structure.md](once-structure.md).
+> Without a planilla, everything on this page holds unchanged.
+
 > **2026-10-25:** the quality system — what is verified, how errors are
 > diagnosed and repaired, the release gate and the measured results — is in
 > [quality-system.md](quality-system.md). Changes to this page's statements:

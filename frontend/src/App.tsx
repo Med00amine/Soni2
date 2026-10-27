@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { BookOpen, Upload, Download, Volume2, CheckCircle2 } from 'lucide-react'
 import './production-status.css'
 // Loaded after, so the modern tokens win over the older hardcoded palette.
 import './export-modern.css'
+import AudiobookEditor, { KIND_LABEL, formatClock, type EditorModel, type EditorSection, type EditorUnit } from './AudiobookEditor'
 
 const API = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '')
 
@@ -44,7 +45,26 @@ type VoiceOption = { voice_id: string; name: string; provider?: string; language
 type QaIssue = { kind: string; category?: string; difference_type?: string; expected?: string; recognized?: string; detail?: string; reason?: string; expected_start?: number; expected_end?: number; recognized_start?: number; recognized_end?: number; audio_start?: number; audio_end?: number; chapter_time?: number; book_time?: number | null }
 type AudioReview = { recognized_text: string; recognizer?: string; verdict?: string; confidence?: number; issues: QaIssue[]; review_note: string }
 type Diagnosis = { origin?: string; severity?: string; action?: string; recommendation?: string; reasons?: string[] }
-type ProductionSentence = { sentence_id: string; chapter_index: number; chapter_title: string; sequence: number; text: string; state: string; recognized_text: string; issues: QaIssue[]; audio_path?: string | null; quality_retakes: number; technical_attempts: number; last_error: string; reused_audio?: number | boolean; updated_at?: string; spoken_text?: string; diagnosis?: Diagnosis; verification?: string }
+type UnitProvenance = { role?: string; page_breaks?: string[]; note?: number | null; kind?: string; level?: number; source?: { chapter: number; paragraph: number } | null; page?: string }
+type ProductionSentence = { sentence_id: string; chapter_index: number; chapter_title: string; sequence: number; text: string; state: string; recognized_text: string; issues: QaIssue[]; audio_path?: string | null; quality_retakes: number; technical_attempts: number; last_error: string; reused_audio?: number | boolean; updated_at?: string; spoken_text?: string; diagnosis?: Diagnosis; verification?: string; is_heading?: number | boolean; provenance?: UnitProvenance; acoustic?: { duration_seconds?: number; stream?: { duration_seconds?: number } } }
+// The ONCE production sheet. Only what the reader sets is sent; the server
+// fills the rest with MODELO ONCE's rules (legal text, production line...).
+type Planilla = Partial<{
+  absys: string; legal_text: string; bibliographic_heading: string; edition_line: string; publisher_line: string
+  isbn: string; production_line: string; production_date: string; file1_page: string; file2_page: string
+  index_page: string; index_depth: number; closing: string; note_open: string; note_close: string
+  index_heading: string; index_end: string; chapter_pages: Record<string, string>
+  expected_files: { number: number; heading: string }[]
+}>
+type ResolvedPlanilla = Planilla & { title?: string; author?: string; missing?: string[] }
+type OutlineUnit = { role: string; text: string; page_breaks: string[]; note?: number | null; source?: { chapter: number; paragraph: number } | null }
+type OutlineSection = { index: number; key: string; kind: string; level: number; title: string; heading_spoken: boolean; page_start: string; page_end: string; units: OutlineUnit[] }
+type EditorWarning = { code: string; message: string; section?: number | null }
+type BookOutline = { once: boolean; title: string; author: string; edition: string; publication_year: string; publisher: string; chapters: BookChapter[]; sections: OutlineSection[]; warnings: EditorWarning[]; planilla?: ResolvedPlanilla | null }
+type StructureUnit = { sentence_id: string; role: string; text: string; state: string; page_breaks: string[]; note?: number | null; source?: { chapter: number; paragraph: number } | null; duration?: number | null; clip?: [number, number] | null; issues: number; has_audio: boolean; updated_at?: string; editable: boolean }
+type StructureSection = { index: number; file_number: number; key: string; kind: string; level: number; title: string; heading_spoken: boolean; page_start: string; page_end: string; status: string; duration?: number | null; duration_final: boolean; audio_url?: string | null; units: StructureUnit[] }
+type AudioFormatInfo = { codec: string; sample_rate: number; channels: number; bitrate_kbps?: number[] | null }
+type JobStructure = { job_id: string; state: string; once: boolean; planilla?: ResolvedPlanilla | null; warnings: EditorWarning[]; assembled: boolean; total_duration?: number | null; pages: number; audio_format?: { segments?: AudioFormatInfo | null; final?: AudioFormatInfo | null }; sections: StructureSection[] }
 type ExtractionWarning = { id: string; code: string; message: string; location?: string; text?: string }
 type ReleaseStatus = {
   state: string
@@ -175,6 +195,122 @@ function qaIssueLabel(category?: string, kind?: string) {
   return kind === 'insert' ? 'Posible palabra añadida' : kind === 'delete' ? 'Posible palabra omitida' : 'Posible sustitución'
 }
 
+function isOutline(value: unknown): value is BookOutline {
+  const outline = value as BookOutline | undefined
+  return Boolean(outline && typeof outline === 'object' && Array.isArray(outline.sections) && Array.isArray(outline.chapters)
+    && outline.sections.every(section => section && Array.isArray(section.units)))
+}
+
+function isStructure(value: unknown): value is JobStructure {
+  const structure = value as JobStructure | undefined
+  return Boolean(structure && typeof structure === 'object' && Array.isArray(structure.sections)
+    && structure.sections.every(section => section && Array.isArray(section.units)))
+}
+
+function countPages(sections: EditorSection[]) {
+  return sections.reduce((sum, section) => sum + section.units.reduce((total, unit) => total + unit.pageBreaks.length, 0), 0)
+}
+
+// The editor before production: the structure the server will narrate.
+function modelFromOutline(outline: BookOutline): EditorModel {
+  const sections: EditorSection[] = outline.sections.map((section, index) => ({
+    index, chapterIndex: section.index, fileNumber: index + 1, key: section.key, kind: section.kind,
+    level: section.level, title: section.title, headingSpoken: section.heading_spoken,
+    pageStart: section.page_start ?? '', pageEnd: section.page_end ?? '', status: 'planned',
+    units: section.units.map((unit, position) => ({
+      key: `${section.key}:${position}`, role: unit.role, text: unit.text, pageBreaks: unit.page_breaks ?? [],
+      note: unit.note, source: unit.source ?? null, editable: Boolean(unit.source),
+    })),
+  }))
+  return { mode: 'outline', once: outline.once, sections, warnings: outline.warnings ?? [], pages: countPages(sections) }
+}
+
+// Without the server's outline the chapters the preview returned still give a
+// usable, if flatter, view of the book.
+function modelFromChapters(chapters: BookChapter[]): EditorModel {
+  const sections: EditorSection[] = chapters.map((chapter, index) => ({
+    index, chapterIndex: index, fileNumber: index + 1, key: `chapter-${index + 1}`, kind: 'chapter', level: 1,
+    title: chapter.title || `Sección ${index + 1}`, headingSpoken: false, pageStart: '', pageEnd: '', status: 'planned',
+    units: chapter.paragraphs.map((text, paragraph) => ({
+      key: `chapter-${index + 1}:${paragraph}`, role: 'text', text, pageBreaks: [],
+      source: { chapter: index, paragraph }, editable: true,
+    })),
+  }))
+  return { mode: 'outline', once: false, sections, warnings: [], pages: 0 }
+}
+
+function unitDuration(sentence?: ProductionSentence) {
+  return sentence?.acoustic?.stream?.duration_seconds ?? sentence?.acoustic?.duration_seconds ?? null
+}
+
+function sectionStatus(states: string[]) {
+  if (states.includes('failed')) return 'failed'
+  if (states.some(state => state === 'needs_human_review' || state === 'unresolved')) return 'needs_review'
+  if (states.includes('generating')) return 'generating'
+  if (states.includes('pending')) return 'pending'
+  return 'verified'
+}
+
+// The editor during and after production. The job's structure gives the files,
+// pages and measured clips; the job's own status, polled every second, gives
+// each unit's state the moment it changes.
+function modelFromJob(job: ProductionJob, structure?: JobStructure): EditorModel {
+  const live = new Map(job.sentences.map(sentence => [sentence.sentence_id, sentence]))
+  if (structure && isStructure(structure) && structure.job_id === job.job_id) {
+    const sections: EditorSection[] = structure.sections.map((section, index) => {
+      const units = section.units.map((unit, position) => {
+        const current = live.get(unit.sentence_id)
+        return {
+          key: unit.sentence_id || `${section.key}:${position}`, role: unit.role, text: current?.text ?? unit.text,
+          pageBreaks: unit.page_breaks ?? [], note: unit.note, source: unit.source ?? null, sentenceId: unit.sentence_id,
+          state: current?.state ?? unit.state, duration: unitDuration(current) ?? unit.duration ?? null,
+          // A clip belongs to the audio it was measured in: a unit narrated
+          // again since then is played on its own until the section is rebuilt.
+          clip: current?.updated_at && unit.updated_at && current.updated_at !== unit.updated_at ? null : unit.clip ?? null,
+          issues: current ? current.issues.length : unit.issues, hasAudio: current ? Boolean(current.audio_path) : unit.has_audio,
+          editable: unit.editable, updatedAt: current?.updated_at ?? unit.updated_at,
+        }
+      })
+      const final = Boolean(section.audio_url && units.every(unit => unit.clip))
+      return {
+        index, chapterIndex: section.index, fileNumber: section.file_number ?? index + 1, key: section.key,
+        kind: section.kind, level: section.level, title: section.title, headingSpoken: section.heading_spoken,
+        pageStart: section.page_start ?? '', pageEnd: section.page_end ?? '', status: sectionStatus(units.map(unit => unit.state ?? 'pending')),
+        duration: final ? section.duration : units.every(unit => !unit.hasAudio || unit.duration)
+          ? units.reduce((sum, unit) => sum + (unit.duration ?? 0), 0) || null : section.duration,
+        durationFinal: final, audioUrl: final ? section.audio_url : null, units,
+      }
+    })
+    const format = structure.audio_format?.final ?? structure.audio_format?.segments ?? null
+    return {
+      mode: 'job', once: structure.once, sections, warnings: structure.warnings ?? [], pages: structure.pages,
+      totalDuration: sections.every(section => section.duration) ? sections.reduce((sum, section) => sum + (section.duration ?? 0), 0) : null,
+      audioFormat: format, audioFormatFinal: Boolean(structure.audio_format?.final), assembled: structure.assembled,
+    }
+  }
+  // The job's own units, grouped by section, when its structure is not available.
+  const groups = new Map<number, ProductionSentence[]>()
+  for (const sentence of job.sentences) groups.set(sentence.chapter_index, [...(groups.get(sentence.chapter_index) ?? []), sentence])
+  const sections: EditorSection[] = [...groups.entries()].sort(([left], [right]) => left - right).map(([chapterIndex, units], index) => {
+    const provenance = units[0]?.provenance ?? {}
+    return {
+      index, chapterIndex, fileNumber: index + 1, key: `chapter-${chapterIndex + 1}`, kind: provenance.kind ?? 'chapter',
+      level: provenance.level ?? 1, title: units[0]?.chapter_title || `Sección ${index + 1}`,
+      headingSpoken: units.some(unit => unit.is_heading), pageStart: '', pageEnd: '',
+      status: sectionStatus(units.map(unit => unit.state)),
+      duration: units.every(unit => !unit.audio_path || unitDuration(unit)) ? units.reduce((sum, unit) => sum + (unitDuration(unit) ?? 0), 0) || null : null,
+      units: units.map(unit => ({
+        key: unit.sentence_id, role: unit.provenance?.role ?? (unit.is_heading ? 'heading' : 'text'), text: unit.text,
+        pageBreaks: unit.provenance?.page_breaks ?? [], note: unit.provenance?.note, sentenceId: unit.sentence_id,
+        state: unit.state, duration: unitDuration(unit), issues: unit.issues.length, hasAudio: Boolean(unit.audio_path),
+        editable: !['legal', 'bibliographic', 'index_entry', 'closing'].includes(unit.provenance?.role ?? ''),
+        updatedAt: unit.updated_at,
+      })),
+    }
+  })
+  return { mode: 'job', once: sections.some(section => section.kind.startsWith('once_')), sections, warnings: [], pages: countPages(sections) }
+}
+
 // The server marks each voice the provider documents as Spain Spanish; the
 // name is only a fallback for an older response without the flag.
 function isSpanishFromSpain(voice: VoiceOption) {
@@ -199,10 +335,6 @@ export default function App() {
   const [sourceBookChapters, setSourceBookChapters] = useState<BookChapter[]>([])
   const [originalBookChapters, setOriginalBookChapters] = useState<BookChapter[]>([])
   const [hasManualSections, setHasManualSections] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [reviewChapterIndex, setReviewChapterIndex] = useState(0)
-  const [reviewPageIndex, setReviewPageIndex] = useState(0)
-  const [reviewSidebarOpen, setReviewSidebarOpen] = useState(true)
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('upload')
   const [book, setBook] = useState('')
   const [bookMetadata, setBookMetadata] = useState<BookMetadata>({ title: '', author: '', edition: '', publication_year: '', publisher: '' })
@@ -231,7 +363,6 @@ export default function App() {
   const [pronCustom, setPronCustom] = useState('')
   const [pronBusy, setPronBusy] = useState('')
   const [pronSaved, setPronSaved] = useState<Record<string, string>>({})
-  const pronPlayer = useRef<HTMLAudioElement>(null)
   const [sentenceCorrections, setSentenceCorrections] = useState<Record<string, string>>({})
   // Paragraphs narrated again from the review queue. They stay on screen with
   // their new reading, even once it passes, so the reviewer can hear it.
@@ -249,6 +380,24 @@ export default function App() {
   const [review, setReview] = useState<AudioReview>()
   const [reviewBusy, setReviewBusy] = useState(false)
   const [retakeBusy, setRetakeBusy] = useState(false)
+  // The ONCE structure, from the book's planilla. On by default: Soni2
+  // produces for ONCE. Only the values the reader sets are kept here; the
+  // server fills the rest with MODELO ONCE's rules.
+  const [onceEnabled, setOnceEnabled] = useState(true)
+  const [planillaValues, setPlanillaValues] = useState<Planilla>({})
+  const [planillaDefaults, setPlanillaDefaults] = useState<Planilla>()
+  const [planillaWarnings, setPlanillaWarnings] = useState<string[]>([])
+  const [planillaBusy, setPlanillaBusy] = useState(false)
+  const [planillaStatus, setPlanillaStatus] = useState('')
+  const [showPlanilla, setShowPlanilla] = useState(false)
+  // What step 2 shows: the outline before production, the job's structure after.
+  const [outline, setOutline] = useState<BookOutline>()
+  const [outlineLoading, setOutlineLoading] = useState(false)
+  const [outlineError, setOutlineError] = useState('')
+  const [jobStructure, setJobStructure] = useState<JobStructure>()
+  const outlineVersion = useRef(0)
+  const outlineChaptersKey = useRef('')
+  const structureTimer = useRef<number>()
 
   async function refreshCapabilities() {
     setCapabilityError('')
@@ -288,6 +437,18 @@ export default function App() {
 
   useEffect(() => { void refreshCapabilities() }, [])
 
+  // MODELO ONCE's rules, to show in the planilla before the reader changes them.
+  useEffect(() => {
+    void fetch(`${API}/api/planilla/defaults`, { cache: 'no-store' })
+      .then(response => response.ok ? response.json() : undefined)
+      .then((body?: { planilla?: Planilla; production_date?: string }) => {
+        if (body?.planilla && typeof body.planilla.legal_text === 'string') {
+          setPlanillaDefaults({ ...body.planilla, production_date: body.production_date ?? '' })
+        }
+      })
+      .catch(() => undefined)
+  }, [])
+
   // Every visit starts with an empty workspace. A production run left behind by
   // a closed or reloaded page is stopped rather than restored, so it neither
   // reappears in the Export step nor keeps narrating (and spending) unseen.
@@ -307,6 +468,50 @@ export default function App() {
     if (playerRef.current) playerRef.current.playbackRate = playbackRate
   }, [audio, playbackRate])
 
+  // Keep the outline in step with the planilla, the bibliographic data and the
+  // sections chosen; a pause in typing is waited for.
+  const outlineInputs = JSON.stringify([onceEnabled, planillaValues, bookMetadata, hasManualSections, pageRange,
+    selectedNarrationIds])
+  useEffect(() => {
+    if (!selectedFile || structureLoading || !selectedNarrationIds.length) return
+    const timer = window.setTimeout(() => void refreshOutline(), outline ? 700 : 0)
+    return () => window.clearTimeout(timer)
+    // refreshOutline reads the state of this render, which is what changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outlineInputs, selectedFile, structureLoading])
+
+  // The job's structure (files, pages, measured clips) follows its progress,
+  // at most once every second or so; the units' states arrive with the job.
+  const latestJobId = useRef<string>()
+  latestJobId.current = productionJob?.job_id
+  const newestUpdate = productionJob?.sentences.reduce((latest, item) => (item.updated_at ?? '') > latest ? item.updated_at ?? '' : latest, '') ?? ''
+  const jobSignature = productionJob
+    ? `${productionJob.job_id}|${productionJob.state}|${JSON.stringify(productionJob.progress ?? {})}|${productionJob.sentences.length}|${newestUpdate}`
+    : ''
+  useEffect(() => {
+    if (!jobSignature) {
+      setJobStructure(undefined)
+      return
+    }
+    if (structureTimer.current) return
+    // The first look at a job is immediate; after that, at most about once a second.
+    const delay = jobStructure?.job_id === productionJob?.job_id ? 1200 : 0
+    structureTimer.current = window.setTimeout(async () => {
+      structureTimer.current = undefined
+      const jobId = latestJobId.current
+      if (!jobId) return
+      try {
+        const response = await fetch(`${API}/api/jobs/${encodeURIComponent(jobId)}/structure`, { cache: 'no-store' })
+        const body = await response.json().catch(() => undefined)
+        if (response.ok && isStructure(body) && body.job_id === jobId && latestJobId.current === jobId) setJobStructure(body)
+      } catch {
+        // The job's own units still show its structure.
+      }
+    }, delay)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobSignature])
+  useEffect(() => () => window.clearTimeout(structureTimer.current), [])
+
   async function selectBook(file?: File, pages = pageRange) {
     if (!file) return
     const selectionVersion = ++bookSelectionVersion.current
@@ -321,6 +526,15 @@ export default function App() {
     window.localStorage.removeItem(PACKAGE_TASK_KEY)
     if (previousPackageTask) void cancelPackageTask(previousPackageTask)
     setProductionJob(undefined)
+    setJobStructure(undefined)
+    setOutline(undefined)
+    setOutlineError('')
+    outlineChaptersKey.current = ''
+    // A planilla belongs to one book.
+    setPlanillaValues({})
+    setPlanillaWarnings([])
+    setPlanillaStatus('')
+    setShowPlanilla(false)
     setReviewingSentence('')
     setSentenceCorrections({})
     setRenarrated({})
@@ -331,7 +545,7 @@ export default function App() {
     if (previousJobId) void cancelProductionJob(previousJobId, selectionVersion)
     setSelectedFile(file)
     setNarrationSections([]); setSelectedNarrationIds([]); setStructureLoading(true)
-    setAudio(''); setTranscript(''); setBookChapters([]); setSourceBookChapters([]); setOriginalBookChapters([]); setHasManualSections(false); setSearchQuery(''); setReviewChapterIndex(0); setReviewPageIndex(0); setReviewSidebarOpen(true); setWorkspaceTab('upload'); setAlignment([]); setCurrentPhrase(-1); setReview(undefined); setBookMetadata({ title: '', author: '', edition: '', publication_year: '', publisher: '' }); setBook(file.name); setMessage('Libro cargado. Elige una voz y pulsa «Generar vista previa».')
+    setAudio(''); setTranscript(''); setBookChapters([]); setSourceBookChapters([]); setOriginalBookChapters([]); setHasManualSections(false); setWorkspaceTab('upload'); setAlignment([]); setCurrentPhrase(-1); setReview(undefined); setBookMetadata({ title: '', author: '', edition: '', publication_year: '', publisher: '' }); setBook(file.name); setMessage('Libro cargado. Elige una voz y pulsa «Generar vista previa».')
     const form = new FormData(); form.append('file', file); form.append('pages', pages)
     try {
       const response = await fetch(`${API}/api/books/structure`, { method: 'POST', body: form })
@@ -446,18 +660,79 @@ export default function App() {
     )
     form.append('metadata_json', JSON.stringify(metadata))
     form.append('narration_plan_json', JSON.stringify({ selected_ids: selectedNarrationIds }))
+    form.append('corrections_json', JSON.stringify(paragraphCorrections()))
+    form.append('create_navigation_sections', String(hasManualSections))
+    form.append('planilla_json', planillaJson())
+    return form
+  }
+
+  // The paragraphs the reader changed, by their position in the selected chapters.
+  function paragraphCorrections(chapters = bookChapters, originals = originalBookChapters) {
     const corrections: Record<string, string> = {}
-    const originalParagraphs = originalBookChapters.flatMap((chapter, chapterIndex) => chapter.paragraphs.map((text, paragraphIndex) => ({ chapterIndex, paragraphIndex, text })))
-    const currentParagraphs = bookChapters.flatMap(chapter => chapter.paragraphs)
+    const originalParagraphs = originals.flatMap((chapter, chapterIndex) => chapter.paragraphs.map((text, paragraphIndex) => ({ chapterIndex, paragraphIndex, text })))
+    const currentParagraphs = chapters.flatMap(chapter => chapter.paragraphs)
     currentParagraphs.forEach((paragraph, flatIndex) => {
       const original = originalParagraphs[flatIndex]
       if (original && paragraph !== original.text) {
         corrections[`${original.chapterIndex}:${original.paragraphIndex}`] = paragraph
       }
     })
-    form.append('corrections_json', JSON.stringify(corrections))
-    form.append('create_navigation_sections', String(hasManualSections))
-    return form
+    return corrections
+  }
+
+  // An empty planilla still means "ONCE structure, with the model's rules".
+  function planillaJson(values = planillaValues, enabled = onceEnabled) {
+    return enabled ? JSON.stringify(values) : ''
+  }
+
+  // The structure step 2 shows before anything is narrated. Nothing is paid for.
+  async function refreshOutline() {
+    const file = selectedFile
+    if (!file || !selectedNarrationIds.length) return
+    const version = ++outlineVersion.current
+    const selection = bookSelectionVersion.current
+    const chaptersKey = `${file.name}|${file.size}|${pageRange}|${selectedNarrationIds.join(',')}`
+    // Another selection of sections is another text: earlier corrections were
+    // made to paragraphs that are no longer in the same place.
+    const sameText = outlineChaptersKey.current === chaptersKey
+    const form = new FormData()
+    form.append('file', file)
+    form.append('pages', pageRange)
+    form.append('narration_plan_json', JSON.stringify({ selected_ids: selectedNarrationIds }))
+    form.append('metadata_json', JSON.stringify(Object.fromEntries(Object.entries(bookMetadata).filter(([, value]) => value.trim()))))
+    form.append('corrections_json', JSON.stringify(sameText && !hasManualSections ? paragraphCorrections() : {}))
+    form.append('create_navigation_sections', String(hasManualSections && sameText))
+    form.append('planilla_json', planillaJson())
+    setOutlineLoading(true)
+    try {
+      const response = await fetch(`${API}/api/books/outline`, { method: 'POST', body: form })
+      const body = await response.json().catch(() => ({})) as BookOutline & { detail?: string }
+      if (version !== outlineVersion.current || selection !== bookSelectionVersion.current) return
+      if (!response.ok) throw new Error(errorDetail(body.detail, 'No se ha podido preparar la estructura del audiolibro.'))
+      if (!isOutline(body)) throw new Error('El servidor no ha devuelto la estructura del audiolibro.')
+      setOutline(body)
+      setOutlineError('')
+      if (!sameText) {
+        outlineChaptersKey.current = chaptersKey
+        // The editable text starts from the book itself (a preview, if one is
+        // made, starts it again from the same chapters).
+        if (!transcript) {
+          setBookChapters(body.chapters)
+          setSourceBookChapters(body.chapters)
+          setOriginalBookChapters(body.chapters)
+          setHasManualSections(false)
+        }
+        setBookMetadata(current => ({
+          title: current.title || body.title || '', author: current.author || body.author || '',
+          edition: current.edition || body.edition || '', publication_year: current.publication_year || body.publication_year || '',
+          publisher: current.publisher || body.publisher || '',
+        }))
+      }
+    } catch (error) {
+      if (version === outlineVersion.current) setOutlineError(error instanceof Error ? error.message : 'No se ha podido preparar la estructura.')
+    } finally {
+      if (version === outlineVersion.current) setOutlineLoading(false)
+    }
   }
 
   // The download carries the book's own title, «El faro de Cabo Gris.zip»,
@@ -703,8 +978,10 @@ export default function App() {
     } finally { setPronBusy('') }
   }
 
-  async function hearRespelling(respelling: string, sentence: string) {
-    if (!pronWord || !respelling.trim()) return
+  // The candidate, read inside its sentence. The caller plays it in its own
+  // player, so the editor in step 2 and the queue in step 3 never share one.
+  async function hearRespelling(respelling: string, sentence: string): Promise<string | undefined> {
+    if (!pronWord || !respelling.trim()) return undefined
     setPronBusy(`hear:${respelling}`)
     try {
       const response = await fetch(`${API}/api/pronunciation/preview`, {
@@ -715,13 +992,11 @@ export default function App() {
       if (!response.ok || !body.audio_base64) throw new Error(body.detail || 'No se pudo generar la muestra.')
       const bytes = Uint8Array.from(atob(body.audio_base64), character => character.charCodeAt(0))
       const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }))
-      if (pronPlayer.current) {
-        pronPlayer.current.src = url
-        void pronPlayer.current.play().catch(() => undefined)
-      }
       window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      return url
     } catch (error) {
       setMessage(error instanceof Error ? publicCopy(error.message) : 'No se pudo generar la muestra.')
+      return undefined
     } finally { setPronBusy('') }
   }
 
@@ -829,46 +1104,7 @@ export default function App() {
   const pendingReview = reviewQueue.filter(sentence => sentence.state !== 'verified').length
   const inFlightSentences = ['pending', 'generating']
     .reduce((sum, state) => sum + (productionJob?.progress?.[state] ?? 0), 0)
-  const normalizedSearch = searchQuery.trim().toLocaleLowerCase()
-  const chapterSearchResults = bookChapters.map((chapter, chapterIndex) => ({
-    ...chapter,
-    chapterIndex,
-    matchingParagraphs: chapter.paragraphs
-      .map((text, paragraphIndex) => ({ text, paragraphIndex }))
-      .filter(paragraph => !normalizedSearch || paragraph.text.toLocaleLowerCase().includes(normalizedSearch)),
-  })).filter(chapter => !normalizedSearch || chapter.matchingParagraphs.length > 0)
-  const matchingParagraphCount = chapterSearchResults.reduce((count, chapter) => count + chapter.matchingParagraphs.length, 0)
   const totalParagraphCount = bookChapters.reduce((count, chapter) => count + chapter.paragraphs.length, 0)
-  const totalWordCount = bookChapters.reduce((count, chapter) => count + chapter.paragraphs.join(' ').split(/\s+/).filter(Boolean).length, 0)
-  const helperSearchResults = normalizedSearch
-    ? chapterSearchResults.flatMap(chapter => chapter.matchingParagraphs.map(paragraph => ({
-      ...paragraph,
-      chapterIndex: chapter.chapterIndex,
-      chapterTitle: chapter.title,
-    }))).slice(0, 8)
-    : []
-  const reviewPages = bookChapters.flatMap((chapter, chapterIndex) => {
-    const pageSize = 12
-    const pageCount = Math.max(1, Math.ceil(chapter.paragraphs.length / pageSize))
-    return Array.from({ length: pageCount }, (_, pageIndex) => ({
-      chapterIndex,
-      chapterTitle: chapter.title,
-      pageIndex,
-      pageCount,
-      start: pageIndex * pageSize,
-      paragraphs: chapter.paragraphs.slice(pageIndex * pageSize, (pageIndex + 1) * pageSize),
-    }))
-  })
-  const foundReviewPageIndex = reviewPages.findIndex(page => page.chapterIndex === reviewChapterIndex && page.pageIndex === reviewPageIndex)
-  const currentReviewPageIndex = Math.max(0, foundReviewPageIndex)
-  const currentReviewPage = reviewPages[currentReviewPageIndex]
-
-  function navigateReviewPage(offset: number) {
-    const nextPage = reviewPages[currentReviewPageIndex + offset]
-    if (!nextPage) return
-    setReviewChapterIndex(nextPage.chapterIndex)
-    setReviewPageIndex(nextPage.pageIndex)
-  }
 
   function createNavigationSections() {
     const sourceChapter = sourceBookChapters[0]
@@ -906,17 +1142,6 @@ export default function App() {
     setOriginalBookChapters(sourceBookChapters)
     setHasManualSections(false)
     setMessage('Se ha restaurado la estructura detectada en el archivo original.')
-  }
-
-  function openParagraphForEditing(chapterIndex: number, paragraphIndex: number) {
-    setReviewChapterIndex(chapterIndex)
-    setReviewPageIndex(Math.floor(paragraphIndex / 12))
-    setReviewSidebarOpen(true)
-    window.requestAnimationFrame(() => {
-      const paragraph = document.getElementById(`book-paragraph-${chapterIndex}-${paragraphIndex}`)
-      paragraph?.focus({ preventScroll: true })
-      paragraph?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    })
   }
 
   async function reviewPreview() {
@@ -969,6 +1194,236 @@ export default function App() {
     } finally { setRetakeBusy(false) }
   }
 
+  function pronunciationEditor(sentence: ProductionSentence) {
+    return <PronunciationEditor sentence={sentence} open={pronSentence === sentence.sentence_id} word={pronWord}
+      analysis={pronSentence === sentence.sentence_id ? pronAnalysis : undefined} custom={pronCustom} busy={pronBusy}
+      saved={pronSaved} onAnalyse={word => void analysePronunciation(word, sentence.sentence_id)}
+      onHear={respelling => hearRespelling(respelling, sentence.text)} onSave={respelling => void saveRespelling(respelling)}
+      onCustom={setPronCustom}/>
+  }
+
+  const editParagraph = useCallback((chapter: number, paragraph: number, text: string) => {
+    setBookChapters(current => current.map((item, index) => index !== chapter ? item
+      : { ...item, paragraphs: item.paragraphs.map((value, part) => part === paragraph ? text : value) }))
+  }, [])
+
+  // A planilla written like MODELO ONCE.docx fills the form; a person checks it
+  // before anything is narrated.
+  async function importPlanilla(file?: File) {
+    if (!file) return
+    setPlanillaBusy(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const response = await fetch(`${API}/api/planilla/parse`, { method: 'POST', body: form })
+      const body = await response.json().catch(() => ({})) as { planilla?: Planilla & { title?: string; author?: string }; warnings?: string[]; detail?: unknown }
+      if (!response.ok || !body.planilla) throw new Error(errorDetail(body.detail, 'No se ha podido leer la planilla.'))
+      const { title, author, ...values } = body.planilla
+      setPlanillaValues(current => ({ ...current, ...values }))
+      if (title || author) setBookMetadata(current => ({ ...current, title: title || current.title, author: author ?? current.author }))
+      setOnceEnabled(true)
+      setPlanillaWarnings(body.warnings ?? [])
+      setPlanillaStatus(`Planilla «${file.name}» leída. Revisa los datos antes de producir el audiolibro.`)
+    } catch (error) {
+      setPlanillaStatus(error instanceof Error ? error.message : 'No se ha podido leer la planilla.')
+    } finally { setPlanillaBusy(false) }
+  }
+
+  function planillaText(name: keyof Planilla): string {
+    const value = planillaValues[name]
+    if (typeof value === 'string') return value
+    const resolved = outline?.planilla?.[name] ?? planillaDefaults?.[name]
+    return typeof resolved === 'string' ? resolved : ''
+  }
+
+  function setPlanillaText(name: keyof Planilla, value: string) {
+    setPlanillaValues(current => ({ ...current, [name]: value }))
+  }
+
+  const editorModel = useMemo<EditorModel | undefined>(() => {
+    if (productionJob && (productionJob.sentences.length || jobStructure)) return modelFromJob(productionJob, jobStructure)
+    if (outline) return modelFromOutline(outline)
+    if (bookChapters.length) return modelFromChapters(bookChapters)
+    return undefined
+  }, [productionJob, jobStructure, outline, bookChapters])
+
+  const processedSentences = Object.entries(productionJob?.progress ?? {})
+    .reduce((sum, [state, count]) => sum + (['pending', 'generating'].includes(state) ? 0 : count), 0)
+
+  const verificationLabel: Record<string, string> = {
+    asr_primary: 'Comprobada con el reconocimiento automático.',
+    asr_secondary: 'Confirmada por un segundo reconocedor.',
+    auto_accepted: 'Aceptada automáticamente con una duda menor: conviene escucharla.',
+    human: 'Aceptada por una persona.',
+  }
+
+  function renderInspector(unit: EditorUnit, section: EditorSection, seek: (seconds: number) => void): ReactNode {
+    const sentence = productionJob?.sentences.find(item => item.sentence_id === unit.sentenceId)
+    const position = section.units.indexOf(unit) + 1
+    if (!sentence) {
+      return <div className="ed-detail"><h3>Frase {position}</h3>
+        <p className="ed-hint">Esta frase todavía no tiene datos de producción.</p></div>
+    }
+    const needsDecision = ['needs_human_review', 'unresolved', 'failed'].includes(sentence.state)
+    const busyHere = reviewingSentence === sentence.sentence_id
+    const fresh = Boolean(renarrated[sentence.sentence_id])
+    const expectedRanges = sentence.issues.map(issue => ({ start: issue.expected_start, end: issue.expected_end }))
+    const recognizedRanges = sentence.issues.map(issue => ({ start: issue.recognized_start, end: issue.recognized_end }))
+    const editable = unit.editable !== false
+    const actions = <>
+      {editable && <label className="qa-correction">Texto corregido (sólo si vas a corregirlo)
+        <textarea rows={3} value={sentenceCorrections[sentence.sentence_id] ?? sentence.text}
+          onChange={event => setSentenceCorrections(current => ({ ...current, [sentence.sentence_id]: event.target.value }))}/>
+      </label>}
+      {!editable && <p className="ed-hint">Este texto viene de la planilla o del índice: se corrige en la planilla y se vuelve a producir.</p>}
+      <div className="review-controls">
+        {needsDecision && <button type="button" className="package-download" disabled={Boolean(reviewingSentence) || !sentence.audio_path}
+          onClick={() => void decideSentence(sentence, 'accept')}>{busyHere ? 'Guardando…' : 'La locución es correcta'}</button>}
+        <button type="button" className="package-download" disabled={Boolean(reviewingSentence)}
+          onClick={() => void decideSentence(sentence, 'retry')}>Volver a narrarla</button>
+        {editable && <button type="button" className="package-download" disabled={Boolean(reviewingSentence)}
+          onClick={() => void decideSentence(sentence, 'correct')}>Corregir el texto y narrarla</button>}
+      </div>
+      {pronunciationEditor(sentence)}
+    </>
+    return <div className="ed-detail" aria-live="polite">
+      <div className="ed-detail-head">
+        <span className={`qa-badge qa-${sentence.state}`}>{fresh && sentence.state === 'verified' ? 'Corregida y comprobada' : sentenceStateLabel(sentence.state)}</span>
+        <span className="ed-hint">Archivo {section.fileNumber} · {KIND_LABEL[section.kind] ?? 'Sección'} · frase {position}</span>
+      </div>
+      <h3>Frase {position}{unit.role === 'note' && unit.note ? ` · Nota ${unit.note}` : ''}</h3>
+      <dl className="ed-detail-facts">
+        <dt>Duración</dt><dd>{formatClock(unit.duration)}</dd>
+        {unit.clip && <><dt>En el archivo</dt><dd>{formatClock(unit.clip[0])} – {formatClock(unit.clip[1])}</dd></>}
+        {unit.pageBreaks.length > 0 && <><dt>Página</dt><dd>Empieza la página {unit.pageBreaks.join(', ')}</dd></>}
+        <dt>Intentos</dt><dd>{sentence.technical_attempts} técnicos · {sentence.quality_retakes} retomas</dd>
+      </dl>
+      {busyHere && <p className="production-working" role="status"><span className="spinner" aria-hidden="true"/>Narrando la nueva versión de la frase…</p>}
+      {needsDecision ? <>
+        <div className="qa-compare">
+          <section><h5>Texto del libro</h5><p>{highlightDifferences(sentence.text, expectedRanges)}</p></section>
+          <section><h5>Lo que se oye en el audio</h5><p>{sentence.recognized_text
+            ? highlightDifferences(sentence.recognized_text, recognizedRanges)
+            : <em>No se obtuvo transcripción de esta frase.</em>}</p></section>
+        </div>
+        {sentence.issues.length > 0 && <ul className="qa-issue-list">{sentence.issues.map((issue, index) =>
+          <li key={`${issue.kind}-${index}`}><strong>{qaIssueLabel(issue.category, issue.kind)}.</strong>{issue.reason ? ` ${issue.reason}` : ''}
+            {typeof issue.audio_start === 'number' && <span className="qa-issue-time">
+              {' '}Se oye en el segundo {issue.audio_start.toFixed(1).replace('.', ',')} de la frase.
+              {sentence.audio_path && <button type="button" className="qa-seek" onClick={() => seek(
+                unit.clip && typeof issue.chapter_time === 'number' ? issue.chapter_time - unit.clip[0] : issue.audio_start ?? 0)}>
+                Escuchar desde ahí</button>}
+            </span>}</li>)}</ul>}
+        {sentence.diagnosis?.recommendation && <p className="qa-diagnosis"><strong>
+          {sentence.diagnosis.origin ? `Origen probable: ${originLabel(sentence.diagnosis.origin)}. ` : ''}</strong>
+          {sentence.diagnosis.recommendation}</p>}
+        {sentence.last_error && <p className="qa-note">{publicCopy(sentence.last_error)}</p>}
+        {!sentence.audio_path && <p className="qa-note">No hay audio guardado para esta frase, así que hay que volver a narrarla.</p>}
+        {actions}
+      </> : <>
+        <p className="ed-detail-text">{sentence.text}</p>
+        {sentence.state === 'verified' && <p className="ed-hint">{verificationLabel[sentence.verification ?? ''] ?? 'Correcta.'}
+          {sentence.last_error && sentence.verification === 'auto_accepted' ? ` ${publicCopy(sentence.last_error)}` : ''}</p>}
+        {['pending', 'generating'].includes(sentence.state) && <p className="ed-hint">{sentence.state === 'generating' ? 'Narrando y comprobando esta frase…' : 'En cola para narrarse.'}</p>}
+        {sentence.state === 'verified' && <details className="ed-change">
+          <summary>Cambiar esta frase</summary>
+          <p className="ed-hint">Si al escucharla oyes algo mal que la comprobación no detectó, puedes narrarla de nuevo (tiene coste) o corregir su texto.</p>
+          {actions}
+        </details>}
+      </>}
+    </div>
+  }
+
+  const idlePanel = <div className="ed-idle">
+    <section className="ed-detail">
+      <h3>Antes de producir</h3>
+      <p>Así quedará el audiolibro: {editorModel?.sections.length ?? 0} archivos de audio, con sus niveles, páginas y notas.
+         Nada se narra ni se paga hasta que pulses «Producir el audiolibro con revisión».</p>
+      <label className="planilla-toggle"><input type="checkbox" checked={onceEnabled} onChange={event => setOnceEnabled(event.target.checked)}/>
+        Estructura ONCE (archivos iniciales, índice, notas y frase final)</label>
+      {onceEnabled && <button type="button" className="ed-secondary" onClick={() => setShowPlanilla(true)}>Revisar la planilla de producción</button>}
+      {onceEnabled && (outline?.planilla?.missing?.length ?? 0) > 0 && <p className="ed-hint">Falta en la planilla: {outline?.planilla?.missing?.join(', ')}.</p>}
+      {(outline?.warnings?.length ?? 0) > 0 && <ul className="ed-warnings">{outline?.warnings.map(warning =>
+        <li key={`${warning.code}-${warning.message}`}>{warning.message}</li>)}</ul>}
+    </section>
+    {audio && <section id="listen-section" className="player workflow-card" aria-labelledby="player-title"><div className="player-heading"><span className="player-icon" aria-hidden="true"><Volume2 size={21}/></span><div className="player-title"><h2 id="player-title">Vista previa de audio</h2><span>{bookMetadata.title || book} · Español</span></div></div><audio ref={playerRef} controls src={audio} onTimeUpdate={trackPlayback} onSeeked={trackPlayback} aria-label={`Escuchar la vista previa narrada de ${bookMetadata.title || book}`}/><div className="player-playback"><label htmlFor="playback-speed">Velocidad<select id="playback-speed" value={playbackRate} onChange={event => setPlaybackRate(Number(event.target.value))}><option value={0.75}>0,75×</option><option value={1}>1×</option><option value={1.25}>1,25×</option><option value={1.5}>1,5×</option><option value={1.75}>1,75×</option><option value={2}>2×</option></select></label></div><a className="download" href={audio} download={`${(bookMetadata.title || book).replace(/.[^.]+$/, '')}-vista-previa.mp3`}><Download size={17} aria-hidden="true"/>Descargar muestra MP3</a></section>}
+    {transcript && <section className="transcript workflow-card audio-transcript" aria-labelledby="transcript-title"><h2 id="transcript-title">Texto de la muestra</h2><details><summary>Mostrar texto sincronizado</summary>{alignment.length > 0 ? <div className="timed-transcript" aria-live="off">{alignedParagraphs.map((paragraph, paragraphIndex) => <p key={`paragraph-${paragraphIndex}`}>{paragraph.map(phrase => { const index = alignment.indexOf(phrase); const active = index === currentPhrase; return <span key={`${phrase.text_start}-${index}`} className={active ? 'timed-phrase is-speaking' : 'timed-phrase'} aria-current={active ? 'true' : undefined}>{phrase.text} </span>})}</p>)}</div> : <><p className="sync-note">{'No se pudieron obtener tiempos para sincronizar esta muestra. El texto sigue disponible por parrafos.'}</p>{transcript.split(/\n{2,}/).map((paragraph, index) => <p key={`${index}-${paragraph.slice(0, 24)}`}>{paragraph}</p>)}</>}</details>
+      {capabilities?.audio_review_configured && <div className="review-controls"><button type="button" className="package-download" onClick={reviewPreview} disabled={reviewBusy || !audio}>{reviewBusy ? 'Revisando el audio…' : 'Revisar calidad del audio'}</button><small>Las diferencias son avisos para que una persona las revise.</small></div>}
+      {review && <section className="review-results" aria-labelledby="review-title"><h3 id="review-title">{review.verdict === 'verified' ? 'El audio coincide con el texto' : review.verdict === 'ambiguous' ? 'Diferencias ambiguas: requieren tu criterio' : `Diferencias detectadas: ${review.issues.length}`}</h3><p>{publicCopy(review.review_note)}</p>{review.issues.length > 0 && <ul>{review.issues.map((issue, index) => <li key={`${issue.kind}-${index}`}><strong>{qaIssueLabel(issue.category, issue.kind)}:</strong> {issue.expected ? `Texto: “${issue.expected}”. ` : ''}{issue.recognized ? `Audio: “${issue.recognized}”.` : ''}{issue.reason ? <small> {issue.reason}</small> : null}</li>)}</ul>}<label htmlFor="retake-text">Edita el texto de esta muestra<textarea id="retake-text" value={transcript} onChange={event => setTranscript(event.target.value)} rows={5}/></label><button type="button" className="package-download" onClick={regenerateRetake} disabled={retakeBusy}>{retakeBusy ? 'Generando…' : 'Generar muestra corregida'}</button></section>}</section>}
+  </div>
+
+  const pair = (bookMetadata.title || outline?.title || '').trim()
+  const titleLine = bookMetadata.author.trim() ? `${pair}, De ${bookMetadata.author.trim()}` : pair
+  const planillaPanel = <div className="planilla-panel" aria-labelledby="planilla-title">
+    <header>
+      <div>
+        <h2 id="planilla-title">Planilla de producción ONCE</h2>
+        <p>Los datos de esta planilla forman los archivos 1, 2 y 3 del audiolibro y la frase final. Puedes importar la
+           planilla de la ONCE (.docx) o escribirlos aquí; el texto legal y la línea de producción vienen de la planilla modelo.</p>
+      </div>
+      <div className="planilla-import">
+        <label className="ed-secondary">{planillaBusy ? 'Leyendo…' : 'Importar planilla (.docx)'}
+          <input type="file" accept=".docx" className="visually-hidden" disabled={planillaBusy}
+            onChange={event => { const file = event.target.files?.[0]; event.currentTarget.value = ''; void importPlanilla(file) }}/></label>
+        <button type="button" className="ed-secondary" onClick={() => setShowPlanilla(false)}>Volver a la estructura</button>
+      </div>
+    </header>
+    {planillaStatus && <p className="ed-notice" role="status" aria-live="polite">{planillaStatus}</p>}
+    {planillaWarnings.length > 0 && <ul className="ed-warnings" aria-label="Avisos al leer la planilla">{planillaWarnings.map(warning => <li key={warning}>{warning}</li>)}</ul>}
+    <label className="planilla-toggle"><input type="checkbox" checked={onceEnabled} onChange={event => setOnceEnabled(event.target.checked)}/>
+      Producir con la estructura ONCE</label>
+    <fieldset disabled={!onceEnabled}>
+      <legend>Archivo 1 · Título, autor y aviso legal</legend>
+      <div className="planilla-row">
+        <label>Título<input value={bookMetadata.title} maxLength={500} onChange={event => setBookMetadata(current => ({ ...current, title: event.target.value }))}/></label>
+        <label>Autor<input value={bookMetadata.author} maxLength={500} onChange={event => setBookMetadata(current => ({ ...current, author: event.target.value }))}/></label>
+      </div>
+      <div className="planilla-row">
+        <label>Número ABSYS<small>Identifica el audiolibro; va en los metadatos, no se narra.</small><input value={planillaText('absys')} maxLength={120} onChange={event => setPlanillaText('absys', event.target.value)}/></label>
+        <label>Página del archivo 1<small>El archivo 1 acaba siempre en la página 1.</small><input inputMode="numeric" value={planillaText('file1_page')} maxLength={8} onChange={event => setPlanillaText('file1_page', event.target.value)}/></label>
+      </div>
+      <p className="planilla-preview">Se lee: «{titleLine || 'Título, De Autor'}», y a continuación el aviso legal.</p>
+      <label>Texto legal de la ONCE<small>Tal como lo da la planilla modelo; no se resume ni se cambia.</small>
+        <textarea rows={7} value={planillaText('legal_text')} onChange={event => setPlanillaText('legal_text', event.target.value)}/></label>
+      {planillaValues.legal_text !== undefined && <button type="button" className="ed-secondary" onClick={() => setPlanillaValues(current => {
+        const next = { ...current }; delete next.legal_text; return next })}>Restaurar el texto de la planilla modelo</button>}
+    </fieldset>
+    <fieldset disabled={!onceEnabled}>
+      <legend>Archivo 2 · Datos bibliográficos</legend>
+      <div className="planilla-row">
+        <label>Edición y publicación<small>Por ejemplo «PRIMERA EDICIÓN MADRID, FEBRERO DE 2026».</small><input value={planillaText('edition_line')} maxLength={500} onChange={event => setPlanillaText('edition_line', event.target.value)}/></label>
+        <label>Editorial<input value={planillaText('publisher_line')} maxLength={500} onChange={event => setPlanillaText('publisher_line', event.target.value)}/></label>
+      </div>
+      <div className="planilla-row">
+        <label>Línea de producción<input value={planillaText('production_line')} maxLength={500} onChange={event => setPlanillaText('production_line', event.target.value)}/></label>
+        <label>Fecha de grabación<input value={planillaText('production_date')} maxLength={60} onChange={event => setPlanillaText('production_date', event.target.value)}/></label>
+      </div>
+      <div className="planilla-row">
+        <label>Página de los datos bibliográficos<small>En el modelo, la 2.</small><input inputMode="numeric" value={planillaText('file2_page')} maxLength={8} onChange={event => setPlanillaText('file2_page', event.target.value)}/></label>
+        <label>ISBN<small>Solo si la planilla lo pide.</small><input value={planillaText('isbn')} maxLength={40} onChange={event => setPlanillaText('isbn', event.target.value)}/></label>
+      </div>
+    </fieldset>
+    <fieldset disabled={!onceEnabled}>
+      <legend>Archivo 3 · Índice</legend>
+      <div className="planilla-row">
+        <label>Página del índice<small>En el modelo, la 3.</small><input inputMode="numeric" value={planillaText('index_page')} maxLength={8} onChange={event => setPlanillaText('index_page', event.target.value)}/></label>
+        <label>El índice incluye<select value={String(planillaValues.index_depth ?? outline?.planilla?.index_depth ?? 2)}
+          onChange={event => setPlanillaValues(current => ({ ...current, index_depth: Number(event.target.value) }))}>
+          <option value="1">Capítulos</option><option value="2">Capítulos y subcapítulos</option></select></label>
+      </div>
+      <p className="planilla-preview">Se genera a partir de los capítulos del libro, con la página en la que empieza cada uno, y termina con «Fin de índice.».</p>
+    </fieldset>
+    <fieldset disabled={!onceEnabled}>
+      <legend>Notas y frase final</legend>
+      <div className="planilla-row">
+        <label>Inicio de nota<input value={planillaText('note_open')} maxLength={80} onChange={event => setPlanillaText('note_open', event.target.value)}/></label>
+        <label>Fin de nota<input value={planillaText('note_close')} maxLength={80} onChange={event => setPlanillaText('note_close', event.target.value)}/></label>
+      </div>
+      <label>Frase final<small>{'{title_and_author}'} es «Título, De Autor».</small><input value={planillaText('closing')} maxLength={600} onChange={event => setPlanillaText('closing', event.target.value)}/></label>
+      <p className="planilla-preview">Se lee al final del último capítulo: «{(planillaText('closing') || 'Aquí finaliza la grabación de {title_and_author}.').replace('{title_and_author}', titleLine || 'Título, De Autor').replace('{title}', pair).replace('{author}', bookMetadata.author)}»</p>
+    </fieldset>
+  </div>
+
   // Step 2 is a screen-sized editor whose columns scroll on their own; the
   // other steps are documents, and the page itself scrolls.
   return <main className={workspaceTab === 'review' ? 'shell editor-shell' : 'shell editor-shell is-document'}>
@@ -977,8 +1432,8 @@ export default function App() {
     <section id="main" className="hero workspace editor-workspace" aria-label="Espacio de trabajo de Soni2">
       <nav className="workspace-tabs" role="tablist" aria-label="Flujo de trabajo del audiolibro">
         <button type="button" role="tab" id="tab-upload" aria-controls="panel-upload" aria-selected={workspaceTab === 'upload'} onClick={() => switchWorkspaceTab('upload')}><span>1</span>Subir libro</button>
-        <button type="button" role="tab" id="tab-review" aria-controls="panel-review" aria-selected={workspaceTab === 'review'} disabled={!transcript} onClick={() => switchWorkspaceTab('review')}><span>2</span>Escuchar y revisar</button>
-        <button type="button" role="tab" id="tab-export" aria-controls="panel-export" aria-selected={workspaceTab === 'export'} disabled={!transcript} onClick={() => switchWorkspaceTab('export')}><span>3</span>Exportar</button>
+        <button type="button" role="tab" id="tab-review" aria-controls="panel-review" aria-selected={workspaceTab === 'review'} disabled={!transcript && !editorModel} onClick={() => switchWorkspaceTab('review')}><span>2</span>Escuchar y revisar</button>
+        <button type="button" role="tab" id="tab-export" aria-controls="panel-export" aria-selected={workspaceTab === 'export'} disabled={!transcript && !editorModel} onClick={() => switchWorkspaceTab('export')}><span>3</span>Exportar</button>
       </nav>
       <section id="panel-upload" className="workspace-panel upload-panel" role="tabpanel" aria-labelledby="tab-upload" hidden={Boolean(selectedFile) && workspaceTab !== 'upload'}>
         <section id="upload-section" className="upload-card workflow-card upload-experience" aria-labelledby="upload-title">
@@ -1008,25 +1463,24 @@ export default function App() {
           </form>}
           {selectedFile && <section className="narration-outline" aria-labelledby="outline-title"><div><h3 id="outline-title">Contenido de la narración</h3><p>Revisa qué partes se incluirán. El índice y la sinopsis se excluyen inicialmente; los prólogos y epílogos se conservan.</p></div>{structureLoading ? <p role="status">Analizando capítulos y secciones…</p> : <ul>{narrationSections.map(section => { const included = selectedNarrationIds.includes(section.id); return <li key={section.id} className={section.needs_review ? 'needs-review' : ''}><label><input type="checkbox" checked={included} onChange={event => setSelectedNarrationIds(current => event.target.checked ? [...current, section.id] : current.filter(id => id !== section.id))}/><span><strong>{section.title}</strong><small>{section.category === 'toc' ? 'Índice' : section.category === 'synopsis' ? 'Sinopsis' : section.category === 'back' ? 'Material complementario' : section.category === 'intro' ? 'Introducción narrativa' : 'Contenido del libro'} · {section.paragraph_count} párrafos · {section.needs_review ? 'Revisar' : included ? 'Incluido' : 'Excluido'}</small></span></label></li>})}</ul>}</section>}
           {selectedFile && <button className="choose generate-preview" type="button" onClick={() => void generatePreview()} disabled={busy || structureLoading || !selectedNarrationIds.length || !canGenerateAudio}>{busy ? <span className="spinner" aria-hidden="true"/> : <Volume2 size={19} aria-hidden="true"/>}{busy ? "Generando la vista previa..." : "Generar vista previa"}</button>}
+          {selectedFile && outline && <button className="helper-secondary view-structure" type="button" onClick={() => switchWorkspaceTab('review')} disabled={structureLoading}>Ver la estructura del audiolibro (sin generar muestra)</button>}
           {message && <p className="upload-status" role="status" aria-live="polite">{publicCopy(message)}</p>}
         </section>
       </section>
       <section id="panel-review" className="workspace-panel review-panel" role="tabpanel" aria-labelledby="tab-review" hidden={workspaceTab !== 'review'}>
-        {(audio || transcript) ? <div className={'review-workspace-grid' + (bookChapters.length === 0 ? ' no-sidebar' : '') + (!reviewSidebarOpen ? ' sidebar-collapsed' : '')}>
-          {bookChapters.length > 0 && <aside className={`workspace-chapter-sidebar${reviewSidebarOpen ? '' : ' sidebar-hidden'}`} aria-label="Navegación del libro"><div className="sidebar-title"><h2>Contenido</h2><button type="button" className="review-sidebar-toggle" aria-label={reviewSidebarOpen ? 'Ocultar capítulos' : 'Mostrar capítulos'} aria-expanded={reviewSidebarOpen} onClick={() => setReviewSidebarOpen(open => !open)}>{reviewSidebarOpen ? 'Ocultar' : 'Mostrar'}</button></div>{reviewSidebarOpen && <nav aria-label="Capítulos y secciones">{bookChapters.map((chapter, chapterIndex) => <div className="review-nav-group" key={`${chapter.title}-${chapterIndex}`}><button type="button" className={`review-chapter-link${chapterIndex === reviewChapterIndex ? ' active' : ''}`} aria-current={chapterIndex === reviewChapterIndex ? 'location' : undefined} onClick={() => { setReviewChapterIndex(chapterIndex); setReviewPageIndex(0) }}><span>{chapter.title}</span><small>{chapter.paragraphs.length} párrafos</small></button>{chapterIndex === reviewChapterIndex && reviewPages.filter(page => page.chapterIndex === chapterIndex).length > 1 && <div className="review-section-links" aria-label={`Secciones de ${chapter.title}`}>{reviewPages.filter(page => page.chapterIndex === chapterIndex).map(page => <button type="button" key={page.pageIndex} className={page.pageIndex === reviewPageIndex ? 'active' : ''} aria-current={page.pageIndex === reviewPageIndex ? 'page' : undefined} onClick={() => setReviewPageIndex(page.pageIndex)}>Sección {page.pageIndex + 1}</button>)}</div>}</div>)}</nav>}</aside>}
-          <section className="book-review-document" aria-label="Editor del libro">
-            <div className="review-document-toolbar"><div><p>REVISIÓN DEL TEXTO</p><h2>{currentReviewPage?.chapterTitle || 'Texto del libro'}</h2></div><div className="review-page-progress">{currentReviewPage ? `Capítulo ${currentReviewPage.chapterIndex + 1} de ${bookChapters.length} · Sección ${currentReviewPage.pageIndex + 1} de ${currentReviewPage.pageCount}` : 'Texto disponible'}</div><button type="button" className="review-sidebar-toggle mobile-chapter-toggle" aria-expanded={reviewSidebarOpen} onClick={() => setReviewSidebarOpen(open => !open)}>{reviewSidebarOpen ? 'Ocultar índice' : 'Ver índice'}</button></div>
-            <div className="book-review-toolbar"><label htmlFor="book-search-input">Buscar en el libro<input id="book-search-input" type="search" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} aria-describedby="book-search-count" placeholder="Palabra, persona o lugar"/></label><span id="book-search-count" role="status" aria-live="polite">{normalizedSearch ? `${matchingParagraphCount} párrafos encontrados` : `${totalParagraphCount} párrafos`}</span></div>
-            <div className="review-document-content" aria-label={currentReviewPage ? `Texto de ${currentReviewPage.chapterTitle}, sección ${currentReviewPage.pageIndex + 1}` : 'Texto del libro'}>{normalizedSearch && <div className="helper-results" aria-label="Resultados de búsqueda">{helperSearchResults.length ? helperSearchResults.map(result => <button type="button" key={`${result.chapterIndex}-${result.paragraphIndex}`} onClick={() => openParagraphForEditing(result.chapterIndex, result.paragraphIndex)}><strong>{result.chapterTitle} · párrafo {result.paragraphIndex + 1}</strong><span>{result.text}</span></button>) : <p>No he encontrado esa palabra en el texto del libro.</p>}</div>}{currentReviewPage ? currentReviewPage.paragraphs.map((text, localIndex) => { const paragraphIndex = currentReviewPage.start + localIndex; return <label className="book-paragraph" key={`${currentReviewPage.chapterIndex}-${paragraphIndex}`} htmlFor={`book-paragraph-${currentReviewPage.chapterIndex}-${paragraphIndex}`}><span>Párrafo {paragraphIndex + 1}</span><textarea id={`book-paragraph-${currentReviewPage.chapterIndex}-${paragraphIndex}`} rows={Math.min(8, Math.max(3, Math.ceil(text.length / 90)))} value={text} onChange={event => setBookChapters(current => current.map((chapter, index) => index !== currentReviewPage.chapterIndex ? chapter : { ...chapter, paragraphs: chapter.paragraphs.map((value, part) => part === paragraphIndex ? event.target.value : value) }))}/></label>}) : <p>No hay capítulos que mostrar en el texto extraído.</p>}</div>
-            {currentReviewPage && <nav className="review-pagination" aria-label="Navegación de secciones"><button type="button" onClick={() => navigateReviewPage(-1)} disabled={currentReviewPageIndex === 0}>Anterior</button><span>Sección {currentReviewPageIndex + 1} de {reviewPages.length}</span><button type="button" onClick={() => navigateReviewPage(1)} disabled={currentReviewPageIndex >= reviewPages.length - 1}>Siguiente</button></nav>}
-          </section>
-          <aside className="audio-preview-panel" aria-label="Reproductor y revisión de audio">
-            {audio && <section id="listen-section" className="player workflow-card" aria-labelledby="player-title"><div className="player-heading"><span className="player-icon" aria-hidden="true"><Volume2 size={21}/></span><div className="player-title"><h2 id="player-title">Vista previa de audio</h2><span>{bookMetadata.title || book} · Español</span></div></div>{message && <p className="player-status" role="status" aria-live="polite" aria-atomic="true"><CheckCircle2 size={17} aria-hidden="true"/>{publicCopy(message)}</p>}<audio ref={playerRef} controls src={audio} onTimeUpdate={trackPlayback} onSeeked={trackPlayback} aria-label={`Escuchar la vista previa narrada de ${bookMetadata.title || book}`}/><div className="player-playback"><label htmlFor="playback-speed">Velocidad<select id="playback-speed" value={playbackRate} onChange={event => setPlaybackRate(Number(event.target.value))}><option value={0.75}>0,75×</option><option value={1}>1×</option><option value={1.25}>1,25×</option><option value={1.5}>1,5×</option><option value={1.75}>1,75×</option><option value={2}>2×</option></select></label></div><a className="download" href={audio} download={`${(bookMetadata.title || book).replace(/.[^.]+$/, '')}-vista-previa.mp3`}><Download size={17} aria-hidden="true"/>Descargar muestra MP3</a></section>}
-            {transcript && <section className="transcript workflow-card audio-transcript" aria-labelledby="transcript-title"><h2 id="transcript-title">Texto de la muestra</h2><details><summary>Mostrar texto sincronizado</summary>{alignment.length > 0 ? <div className="timed-transcript" aria-live="off">{alignedParagraphs.map((paragraph, paragraphIndex) => <p key={`paragraph-${paragraphIndex}`}>{paragraph.map(phrase => { const index = alignment.indexOf(phrase); const active = index === currentPhrase; return <span key={`${phrase.text_start}-${index}`} className={active ? 'timed-phrase is-speaking' : 'timed-phrase'} aria-current={active ? 'true' : undefined}>{phrase.text} </span>})}</p>)}</div> : <><p className="sync-note">{'No se pudieron obtener tiempos para sincronizar esta muestra. El texto sigue disponible por parrafos.'}</p>{transcript.split(/\n{2,}/).map((paragraph, index) => <p key={`${index}-${paragraph.slice(0, 24)}`}>{paragraph}</p>)}</>}</details>
-              {capabilities?.audio_review_configured && <div className="review-controls"><button type="button" className="package-download" onClick={reviewPreview} disabled={reviewBusy || !audio}>{reviewBusy ? 'Revisando el audio…' : 'Revisar calidad del audio'}</button><small>Las diferencias son avisos para que una persona las revise.</small></div>}
-              {review && <section className="review-results" aria-labelledby="review-title"><h3 id="review-title">{review.verdict === 'verified' ? 'El audio coincide con el texto' : review.verdict === 'ambiguous' ? 'Diferencias ambiguas: requieren tu criterio' : `Diferencias detectadas: ${review.issues.length}`}</h3><p>{publicCopy(review.review_note)}</p>{review.issues.length > 0 && <ul>{review.issues.map((issue, index) => <li key={`${issue.kind}-${index}`}><strong>{qaIssueLabel(issue.category, issue.kind)}:</strong> {issue.expected ? `Texto: “${issue.expected}”. ` : ''}{issue.recognized ? `Audio: “${issue.recognized}”.` : ''}{issue.reason ? <small> {issue.reason}</small> : null}</li>)}</ul>}<label htmlFor="retake-text">Edita el texto de esta muestra<textarea id="retake-text" value={transcript} onChange={event => setTranscript(event.target.value)} rows={5}/></label><button type="button" className="package-download" onClick={regenerateRetake} disabled={retakeBusy}>{retakeBusy ? 'Generando…' : 'Generar muestra corregida'}</button></section>}</section>}
-          </aside>
-        </div> : <div className="workspace-empty"><Volume2 size={24}/><h2>La muestra todavía no está lista</h2><p>Vuelve a Subir libro para generar una vista previa.</p><button type="button" className="helper-secondary" onClick={() => setWorkspaceTab('upload')}>Ir a Subir libro</button></div>}
+        <AudiobookEditor model={editorModel} loading={structureLoading || (outlineLoading && !outline && !bookChapters.length)}
+          error={editorModel ? '' : outlineError} apiBase={API} jobId={productionJob?.job_id} jobState={productionJob?.state}
+          active={workspaceTab === 'review'} bookChapters={bookChapters} onEditParagraph={editParagraph}
+          onEditsDone={() => void refreshOutline()}
+          canProduce={Boolean(selectedFile) && !busy && !packageBusy && !directDownloadBusy && selectedNarrationIds.length > 0 && canGenerateAudio}
+          producing={packageBusy && !productionJob} onProduce={() => void startReviewedProduction()}
+          progress={productionJob ? { done: processedSentences, total: productionJob.total_sentences } : undefined}
+          renderInspector={renderInspector} idlePanel={idlePanel} planillaPanel={planillaPanel}
+          showPlanilla={showPlanilla} onShowPlanilla={() => setShowPlanilla(true)} onHidePlanilla={() => setShowPlanilla(false)}
+          // Before production the panel on the right explains the step; the
+          // app's status line is about the job, its decisions and the download.
+          message={productionJob && message ? publicCopy(message) : ''}
+          statusExtra={productionJob?.release ? <span>Calidad: {productionJob.release.label}</span> : null}/>
       </section>
       <section id="panel-export" className="workspace-panel export-panel" role="tabpanel" aria-labelledby="tab-export" hidden={workspaceTab !== 'export'}>
         <section className="export-workspace workflow-card" aria-labelledby="export-title"><header className="export-workspace-heading"><div><p className="book-review-kicker">PASO 3 DE 3 · ENTREGA</p><h2 id="export-title">Exportar audiolibro</h2><p>Elige abajo cómo generarlo. El paquete DAISY incluye el audio por capítulos, la navegación y el texto sincronizado.</p></div><div className="book-review-stats"><span>{bookChapters.length} capítulos</span><span>{totalParagraphCount} párrafos revisables</span></div></header>
@@ -1083,66 +1537,7 @@ export default function App() {
                           src={`${API}/api/jobs/${productionJob.job_id}/sentences/${encodeURIComponent(sentence.sentence_id)}/audio?v=${version}`}/>
                       </label>
                     : <p className="qa-note">No hay audio guardado para este párrafo, así que hay que volver a narrarlo.</p>}
-                  <details className="pron-editor" open={pronSentence === sentence.sentence_id}>
-                    <summary>Corregir la pronunciación de una palabra</summary>
-                    <p className="pron-help">Pulsa la palabra que suena mal. Verás cómo la lee el español,
-                       podrás escuchar otras formas de escribirla y guardar la que suene bien.</p>
-                    <div className="pron-words">
-                      {Array.from(new Set(sentence.text.split(/\s+/)
-                        .map(part => part.replace(/[^\p{L}\p{N}'-]/gu, ''))
-                        .filter(part => part.length > 1))).map(word =>
-                        <button type="button" key={word}
-                          className={pronSentence === sentence.sentence_id && pronWord === word ? 'pron-word is-active' : 'pron-word'}
-                          onClick={() => void analysePronunciation(word, sentence.sentence_id)}>
-                          {word}{(pronSaved[word] || (pronWord === word && pronAnalysis?.saved_respelling)) ? ' ✓' : ''}
-                        </button>)}
-                    </div>
-                    {pronSentence === sentence.sentence_id && pronBusy === 'analyse' && <p role="status">Analizando «{pronWord}»…</p>}
-                    {pronSentence === sentence.sentence_id && pronAnalysis && <div className="pron-result">
-                      <dl className="pron-facts">
-                        <div><dt>Sílabas</dt><dd>{pronAnalysis.syllables.map((part, index) =>
-                          <span key={index} className={index === pronAnalysis.stressed ? 'pron-stress' : undefined}>{part}</span>)
-                          .reduce<ReactNode[]>((all, part, index) => index ? [...all, '-', part] : [part], [])}</dd></div>
-                        <div><dt>Suena como</dt><dd className="pron-ipa">{pronAnalysis.ipa || '—'}</dd></div>
-                        <div><dt>Escritura</dt><dd>{pronAnalysis.looks_spanish
-                          ? 'El español puede leerla tal cual'
-                          : 'Tiene letras que el español no usa'}</dd></div>
-                      </dl>
-                      {pronAnalysis.saved_respelling && <p className="pron-saved">Guardada ahora como
-                        <strong> {pronAnalysis.saved_respelling}</strong></p>}
-                      <ul className="pron-options">
-                        {pronAnalysis.suggestions.map(option =>
-                          <li key={option.respelling}>
-                            <div><strong>{option.label}:</strong> <span className="pron-try">{option.respelling}</span>
-                              <small>{option.reason}</small></div>
-                            <div className="pron-actions">
-                              <button type="button" disabled={Boolean(pronBusy)}
-                                onClick={() => void hearRespelling(option.respelling, sentence.text)}>
-                                {pronBusy === `hear:${option.respelling}` ? 'Generando…' : 'Escuchar'}</button>
-                              <button type="button" disabled={Boolean(pronBusy)}
-                                onClick={() => void saveRespelling(option.respelling)}>
-                                {pronBusy === `save:${option.respelling}` ? 'Guardando…' : 'Usar esta'}</button>
-                            </div>
-                          </li>)}
-                        <li>
-                          <label className="pron-custom">Escríbela como debe sonar
-                            <input type="text" value={pronCustom} maxLength={200}
-                              placeholder="por ejemplo: guáshinton"
-                              onChange={event => setPronCustom(event.target.value)}/>
-                          </label>
-                          <div className="pron-actions">
-                            <button type="button" disabled={Boolean(pronBusy) || !pronCustom.trim()}
-                              onClick={() => void hearRespelling(pronCustom, sentence.text)}>
-                              {pronBusy === `hear:${pronCustom}` ? 'Generando…' : 'Escuchar'}</button>
-                            <button type="button" disabled={Boolean(pronBusy) || !pronCustom.trim()}
-                              onClick={() => void saveRespelling(pronCustom)}>
-                              {pronBusy === `save:${pronCustom}` ? 'Guardando…' : 'Usar esta'}</button>
-                          </div>
-                        </li>
-                      </ul>
-                      <audio ref={pronPlayer} controls className="pron-player" aria-label="Muestra de pronunciación"/>
-                    </div>}
-                  </details>
+                  {pronunciationEditor(sentence)}
                   <label className="qa-correction">Texto corregido (sólo si vas a corregirlo)
                     <textarea rows={3} value={sentenceCorrections[sentence.sentence_id] ?? sentence.text}
                       onChange={event => setSentenceCorrections(current => ({ ...current, [sentence.sentence_id]: event.target.value }))}/>
@@ -1284,6 +1679,90 @@ export function ReleasePanel({ release, reviewerName, onReviewerName, confirmed,
     <details className="release-uncertainty"><summary>Lo que estas comprobaciones no demuestran</summary>
       <ul>{release.uncertainty.map(note => <li key={note}>{note}</li>)}</ul></details>
   </section>
+}
+
+
+type PronunciationEditorProps = {
+  sentence: ProductionSentence
+  open: boolean
+  word: string
+  analysis?: PronunciationAnalysis
+  custom: string
+  busy: string
+  saved: Record<string, string>
+  onAnalyse: (word: string) => void
+  onHear: (respelling: string) => Promise<string | undefined>
+  onSave: (respelling: string) => void
+  onCustom: (value: string) => void
+}
+
+// A word is read wrong because of how it is spelled, so the repair is a
+// different spelling: how Spanish reads the word now, candidates to hear in
+// the sentence, and the reviewer's own. Each copy plays in its own player.
+export function PronunciationEditor({ sentence, open, word: activeWord, analysis, custom, busy, saved, onAnalyse, onHear, onSave, onCustom }: PronunciationEditorProps) {
+  const player = useRef<HTMLAudioElement>(null)
+  async function hear(respelling: string) {
+    const url = await onHear(respelling)
+    if (url && player.current) {
+      player.current.src = url
+      void player.current.play().catch(() => undefined)
+    }
+  }
+  return <details className="pron-editor" open={open}>
+    <summary>Corregir la pronunciación de una palabra</summary>
+    <p className="pron-help">Pulsa la palabra que suena mal. Verás cómo la lee el español,
+       podrás escuchar otras formas de escribirla y guardar la que suene bien.</p>
+    <div className="pron-words">
+      {Array.from(new Set(sentence.text.split(/\s+/)
+        .map(part => part.replace(/[^\p{L}\p{N}'-]/gu, ''))
+        .filter(part => part.length > 1))).map(word =>
+        <button type="button" key={word}
+          className={open && activeWord === word ? 'pron-word is-active' : 'pron-word'}
+          onClick={() => onAnalyse(word)}>
+          {word}{(saved[word] || (activeWord === word && analysis?.saved_respelling)) ? ' ✓' : ''}
+        </button>)}
+    </div>
+    {open && busy === 'analyse' && <p role="status">Analizando «{activeWord}»…</p>}
+    {open && analysis && <div className="pron-result">
+      <dl className="pron-facts">
+        <div><dt>Sílabas</dt><dd>{analysis.syllables.map((part, index) =>
+          <span key={index} className={index === analysis.stressed ? 'pron-stress' : undefined}>{part}</span>)
+          .reduce<ReactNode[]>((all, part, index) => index ? [...all, '-', part] : [part], [])}</dd></div>
+        <div><dt>Suena como</dt><dd className="pron-ipa">{analysis.ipa || '—'}</dd></div>
+        <div><dt>Escritura</dt><dd>{analysis.looks_spanish
+          ? 'El español puede leerla tal cual'
+          : 'Tiene letras que el español no usa'}</dd></div>
+      </dl>
+      {analysis.saved_respelling && <p className="pron-saved">Guardada ahora como
+        <strong> {analysis.saved_respelling}</strong></p>}
+      <ul className="pron-options">
+        {analysis.suggestions.map(option =>
+          <li key={option.respelling}>
+            <div><strong>{option.label}:</strong> <span className="pron-try">{option.respelling}</span>
+              <small>{option.reason}</small></div>
+            <div className="pron-actions">
+              <button type="button" disabled={Boolean(busy)} onClick={() => void hear(option.respelling)}>
+                {busy === `hear:${option.respelling}` ? 'Generando…' : 'Escuchar'}</button>
+              <button type="button" disabled={Boolean(busy)} onClick={() => onSave(option.respelling)}>
+                {busy === `save:${option.respelling}` ? 'Guardando…' : 'Usar esta'}</button>
+            </div>
+          </li>)}
+        <li>
+          <label className="pron-custom">Escríbela como debe sonar
+            <input type="text" value={custom} maxLength={200} placeholder="por ejemplo: guáshinton"
+              onChange={event => onCustom(event.target.value)}/>
+          </label>
+          <div className="pron-actions">
+            <button type="button" disabled={Boolean(busy) || !custom.trim()} onClick={() => void hear(custom)}>
+              {busy === `hear:${custom}` ? 'Generando…' : 'Escuchar'}</button>
+            <button type="button" disabled={Boolean(busy) || !custom.trim()} onClick={() => onSave(custom)}>
+              {busy === `save:${custom}` ? 'Guardando…' : 'Usar esta'}</button>
+          </div>
+        </li>
+      </ul>
+      <audio ref={player} controls className="pron-player" aria-label="Muestra de pronunciación"/>
+    </div>}
+  </details>
 }
 
 
