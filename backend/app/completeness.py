@@ -115,8 +115,11 @@ def units_to_package(units: list[dict], package: Path) -> list[dict]:
     """Checks 3-5 on a built package directory."""
     checks: list[dict] = []
     _opf_path, opf, dtbook_path, dtbook = _package_files(package)
+    # A page number is a silent marker, not something narrated: it is checked
+    # with the page list (once_validation), not as a unit.
     synchronized = [element for element in dtbook.iter() if element.get("smilref")
-                    and not (element.get("id") or "").startswith("frontmatter-")]
+                    and not (element.get("id") or "").startswith("frontmatter-")
+                    and element.tag != f"{DTBOOK}pagenum"]
     texts = ["".join(element.itertext()).strip() for element in synchronized]
     expected = [unit["text"].strip() for unit in units]
     mismatch = [{"position": index, "expected": expected[index] if index < len(expected) else None,
@@ -207,7 +210,9 @@ def units_to_package(units: list[dict], package: Path) -> list[dict]:
         orders = [int(point.get("playOrder", "0")) for point in ncx.iter(f"{NCX}navPoint")]
         if orders != sorted(orders) or len(set(orders)) != len(orders):
             nav_problems.append("playOrder no es estrictamente creciente")
-        chapter_points = [point for point in ncx.iter(f"{NCX}navPoint") if point.get("class") == "chapter"]
+        # One entry per narrated section, nested or not. Front matter synthesized
+        # outside the units (the legacy ONCE templates) has entries of its own.
+        chapter_points = [point for point in ncx.iter(f"{NCX}navPoint") if point.get("class") != "frontmatter"]
         expected_chapters = len({unit["chapter_index"] for unit in units})
         if len(chapter_points) != expected_chapters:
             nav_problems.append(f"{len(chapter_points)} entradas de capítulo para {expected_chapters} capítulos")
@@ -239,12 +244,17 @@ def _seconds(clock: str) -> float | None:
 
 
 def verify(chapters: list[dict], units: list[dict], job_dir: Path, package: Path | None,
-           corrected_ids: set[str]) -> dict:
+           corrected_ids: set[str], once_plan: dict | None = None) -> dict:
+    """The whole chain; with ``once_plan`` (the resolved planilla) the ONCE structure too."""
     checks = [source_to_units(chapters, units, corrected_ids), units_to_audio(units, job_dir)]
     if package is not None:
         try:
             checks.extend(units_to_package(units, package))
         except (ET.ParseError, StopIteration, KeyError, OSError) as exc:
             checks.append(_check("package_readable", "Paquete legible", "failed", f"No se pudo leer el paquete: {exc}"))
+        if once_plan is not None:
+            from app import once_validation
+
+            checks.extend(once_validation.verify(package, chapters, once_plan))
     failed = [check for check in checks if check["status"] == "failed"]
     return {"status": "failed" if failed else "passed", "checks": checks}

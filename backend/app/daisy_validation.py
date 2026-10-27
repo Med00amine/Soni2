@@ -51,9 +51,20 @@ def validate_daisy_package(package: Path) -> None:
     if not paragraphs:
         raise ValueError("El documento DTBook no contiene párrafos narrables.")
     for paragraph in paragraphs:
+        # Every paragraph with text is read, so it must be synchronized. An
+        # empty one only completes the structure after a lone heading.
+        if not paragraph.get("smilref") and not "".join(paragraph.itertext()).strip():
+            continue
         path, fragment = _split_ref(paragraph.get("smilref", ""))
         if path not in smil_ids or fragment not in smil_ids[path]:
             raise ValueError(f"Referencia smilref no resuelta: {paragraph.get('smilref', '')}")
+    for element in dtbook.iter():
+        # Headings and page markers are synchronized too: their references must resolve.
+        reference = element.get("smilref")
+        if reference:
+            path, fragment = _split_ref(reference)
+            if path not in smil_ids or fragment not in smil_ids[path]:
+                raise ValueError(f"Referencia smilref no resuelta: {reference}")
 
     ncx = ET.parse(package / names["ncx"]).getroot()
     points = ncx.findall(f".//{NCX}navMap/{NCX}navPoint")

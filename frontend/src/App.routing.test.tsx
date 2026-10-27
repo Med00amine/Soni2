@@ -102,7 +102,7 @@ describe('Soni2 audiobook workspace', () => {
     expect(document.body.textContent).toContain('Segunda frase.')
   })
 
-  it('shows long books in navigable sections and keeps the real correction action available', async () => {
+  it('shows a long book phrase by phrase, keeps corrections and sends them with the production', async () => {
     const paragraphs = Array.from({ length: 115 }, (_, index) => `Párrafo de prueba ${index + 1}.`)
     vi.mocked(fetch).mockImplementation(async input => {
       const url = String(input)
@@ -126,44 +126,43 @@ describe('Soni2 audiobook workspace', () => {
     const previewButton = [...document.querySelectorAll('button')].find(button => button.textContent?.includes('Generar vista previa'))!
     await act(async () => previewButton.click())
 
-    expect(document.querySelectorAll('.review-document-content textarea')).toHaveLength(12)
-    expect(document.querySelector('#book-paragraph-0-0')).not.toBeNull()
-    expect(document.querySelector('#book-paragraph-0-12')).toBeNull()
-    expect(document.body.textContent).toContain('Sección 1 de 10')
+    // Every phrase of the chapter is listed in reading order, numbered.
+    const phrases = document.querySelectorAll('#panel-review .ed-phrase')
+    expect(phrases).toHaveLength(115)
+    expect(phrases[0].textContent).toContain('Párrafo de prueba 1.')
+    expect(phrases[114].textContent).toContain('Párrafo de prueba 115.')
+    expect(document.querySelector('#tab-review')?.getAttribute('aria-selected')).toBe('true')
     expect(document.querySelector('.export-actions button')?.textContent).toContain('Descargar audiolibro ahora')
     expect(document.querySelector('.export-actions')?.textContent).toContain('Producir con revisión de calidad')
 
-    const nextButton = document.querySelector<HTMLButtonElement>('.review-pagination button:last-child')!
-    await act(async () => nextButton.click())
-    expect(document.body.textContent).toContain('Sección 2 de 10')
-    expect(document.querySelector('#book-paragraph-0-12')).not.toBeNull()
-    expect(document.querySelector('#book-paragraph-0-0')).toBeNull()
-    expect(document.querySelector('#tab-review')?.getAttribute('aria-selected')).toBe('true')
-
+    // A phrase is corrected in place, before anything is narrated.
+    const edit = document.querySelector<HTMLButtonElement>('button[aria-label="Corregir el texto de la frase 13"]')!
+    await act(async () => edit.click())
     const currentParagraph = document.querySelector<HTMLTextAreaElement>('#book-paragraph-0-12')!
+    expect(currentParagraph.value).toBe('Párrafo de prueba 13.')
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
       setter?.call(currentParagraph, 'Texto corregido de forma persistente.')
       currentParagraph.dispatchEvent(new Event('input', { bubbles: true }))
     })
-    const previousButton = document.querySelector<HTMLButtonElement>('.review-pagination button:first-child')!
-    await act(async () => previousButton.click())
-    await act(async () => document.querySelector<HTMLButtonElement>('.review-pagination button:last-child')!.click())
-    expect(document.querySelector<HTMLTextAreaElement>('#book-paragraph-0-12')?.value).toBe('Texto corregido de forma persistente.')
+    const done = [...document.querySelectorAll<HTMLButtonElement>('.ed-edit button')].find(button => button.textContent === 'Listo')!
+    await act(async () => done.click())
+    expect(document.querySelectorAll('#panel-review .ed-phrase')[12].textContent).toContain('Texto corregido de forma persistente.')
 
-    let paragraphCount = 24
-    while (!document.querySelector<HTMLButtonElement>('.review-pagination button:last-child')!.disabled) {
-      await act(async () => document.querySelector<HTMLButtonElement>('.review-pagination button:last-child')!.click())
-      paragraphCount += document.querySelectorAll('.review-document-content textarea').length
-    }
-    expect(paragraphCount).toBe(115)
-    expect(document.querySelector('#book-paragraph-0-114')).not.toBeNull()
+    // It survives a visit to another step.
+    await act(async () => document.querySelector<HTMLButtonElement>('#tab-export')!.click())
+    await act(async () => document.querySelector<HTMLButtonElement>('#tab-review')!.click())
+    expect(document.querySelectorAll('#panel-review .ed-phrase')[12].textContent).toContain('Texto corregido de forma persistente.')
 
-    // The reviewed production run is now its own action, beside the direct download.
+    // The reviewed production run is its own action, beside the direct
+    // download, and it narrates the corrected text.
     const produce = [...document.querySelectorAll<HTMLButtonElement>('.export-actions button')]
       .find(button => button.textContent?.includes('Producir con revisión de calidad'))!
     await act(async () => produce.click())
-    expect(vi.mocked(fetch)).toHaveBeenCalledWith('/api/books/jobs', expect.objectContaining({ method: 'POST', body: expect.any(FormData) }))
+    const request = vi.mocked(fetch).mock.calls.find(([url]) => String(url) === '/api/books/jobs')!
+    expect(request[1]).toEqual(expect.objectContaining({ method: 'POST', body: expect.any(FormData) }))
+    const body = request[1]!.body as FormData
+    expect(JSON.parse(String(body.get('corrections_json')))).toEqual({ '0:12': 'Texto corregido de forma persistente.' })
   })
 
   it('switches chapters without losing edits and keeps export as a separate workspace tab', async () => {
@@ -191,18 +190,24 @@ describe('Soni2 audiobook workspace', () => {
     const previewButton = [...document.querySelectorAll('button')].find(button => button.textContent?.includes('Generar vista previa'))!
     await act(async () => previewButton.click())
 
-    expect(document.querySelector<HTMLTextAreaElement>('#book-paragraph-0-0')?.value).toBe('Texto del capítulo primero.')
-    await act(async () => document.querySelectorAll<HTMLButtonElement>('.review-chapter-link')[1].click())
-    expect(document.querySelector<HTMLTextAreaElement>('#book-paragraph-1-0')?.value).toBe('Texto del capítulo segundo.')
+    const phraseTexts = () => [...document.querySelectorAll('#panel-review .ed-phrase-text')].map(item => item.textContent)
+    expect(document.querySelector('#ed-section-title')?.textContent).toBe('Capítulo primero')
+    expect(phraseTexts()).toEqual(['Texto del capítulo primero.'])
+    // The structure panel selects a chapter, and its phrases replace the list.
+    await act(async () => document.querySelector<HTMLElement>('#ed-tree-1')!.click())
+    expect(document.querySelector('#ed-section-title')?.textContent).toBe('Capítulo segundo')
+    expect(document.querySelector('#ed-tree-1')?.getAttribute('aria-selected')).toBe('true')
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Corregir el texto de la frase 1"]')!.click())
     const secondChapterInput = document.querySelector<HTMLTextAreaElement>('#book-paragraph-1-0')!
+    expect(secondChapterInput.value).toBe('Texto del capítulo segundo.')
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
       setter?.call(secondChapterInput, 'Capítulo segundo editado.')
       secondChapterInput.dispatchEvent(new Event('input', { bubbles: true }))
     })
-    await act(async () => document.querySelector<HTMLButtonElement>('.review-chapter-link')!.click())
-    await act(async () => document.querySelectorAll<HTMLButtonElement>('.review-chapter-link')[1].click())
-    expect(document.querySelector<HTMLTextAreaElement>('#book-paragraph-1-0')?.value).toBe('Capítulo segundo editado.')
+    await act(async () => document.querySelector<HTMLElement>('#ed-tree-0')!.click())
+    await act(async () => document.querySelector<HTMLElement>('#ed-tree-1')!.click())
+    expect(phraseTexts()).toEqual(['Capítulo segundo editado.'])
 
     await act(async () => document.querySelector<HTMLButtonElement>('#tab-export')!.click())
     expect(document.querySelector('#panel-export')?.hasAttribute('hidden')).toBe(false)
@@ -210,7 +215,7 @@ describe('Soni2 audiobook workspace', () => {
     expect(document.querySelector('.export-actions button')?.textContent).toContain('Descargar audiolibro ahora')
     expect(document.querySelector('.export-actions')?.textContent).toContain('Producir con revisión de calidad')
     await act(async () => document.querySelector<HTMLButtonElement>('#tab-review')!.click())
-    expect(document.querySelector<HTMLTextAreaElement>('#book-paragraph-1-0')?.value).toBe('Capítulo segundo editado.')
+    expect(phraseTexts()).toEqual(['Capítulo segundo editado.'])
   })
 
   it('starts the resumable job and exposes unresolved sentences for human review', async () => {

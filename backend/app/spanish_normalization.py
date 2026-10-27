@@ -175,7 +175,11 @@ def _parse_number_words(words: list[str]) -> tuple[str, int] | None:
             # By value: "dos coma cincuenta" and "2,5" are the same quantity.
             return f"num:{_numeric_value(f'{whole}.{fractional}')}", comma + 1 + used
     # Take the longest valid prefix; surrounding prose remains separately compared.
+    # A number never ends in "y": in "once y ha sido" the "y" joins two clauses,
+    # and taking it made the verb "ha" read as hectares after the number.
     for length in range(min(len(words), 12), 0, -1):
+        if words[length - 1] == "y":
+            continue
         value = _parse_cardinal(words[:length])
         if value is not None:
             return f"num:{value}", length
@@ -508,7 +512,74 @@ def _numeric_tokens(text: str, allow_spoken_time: bool, source_has_time: bool, s
         result.append(Token(_plain(word.group()), original_start, original_end, word.start(), word.end()))
     result.extend(tokens)
     result.sort(key=lambda item: (item.norm_start, item.norm_end))
-    return _fold_spoken_forms(result)
+    return _fold_spoken_forms(_fold_written_forms(result, text))
+
+
+# Company forms a narrator reads out in full: "S.L." is said "sociedad
+# limitada", and a recognizer writes either. Measured on ONCE's production line
+# ("Sonidos S-2 Productions, S.L."), which every ONCE audiobook carries.
+_COMPANY_FORMS = {
+    ("sociedad", "limitada", "unipersonal"): "slu", ("sociedad", "anonima", "unipersonal"): "sau",
+    ("sociedad", "limitada"): "sl", ("sociedad", "anonima"): "sa",
+}
+_COMPANY_ABBREVIATION = re.compile(r"^(s)\s*\.?\s*(l|a)\s*\.?\s*(?:(u)\s*\.?)?$", re.I)
+# A single letter that is not a Spanish word ("a", "e", "o", "u", "y" are).
+_LONE_LETTERS = set("bcdfghjklmnpqrstvwxz")
+
+
+def _fold_written_forms(tokens: list[Token], text: str) -> list[Token]:
+    """Merge what one side writes as one thing and the other as several.
+
+    * A company abbreviation and its spoken form: "S.L." / "SL" / "sociedad
+      limitada" (likewise S.A., S.L.U., S.A.U.).
+    * A letter joined to a number: "S-2", "S2" and "S 2" are one name. Only a
+      letter that is not a Spanish word on its own, so "a 2 metros" is untouched.
+    """
+    merged: list[Token] = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        folded = False
+        for words, form in _COMPANY_FORMS.items():
+            window = tokens[index:index + len(words)]
+            if tuple(item.value for item in window) == words:
+                merged.append(Token(f"org:{form}", token.start, window[-1].end, token.norm_start, window[-1].norm_end))
+                index += len(words)
+                folded = True
+                break
+        if folded:
+            continue
+        for length in (3, 2, 1):
+            window = tokens[index:index + length]
+            if len(window) < length or not all(len(item.value) <= 3 and item.value.isalpha() for item in window):
+                continue
+            match = _COMPANY_ABBREVIATION.match(text[window[0].start:window[-1].end])
+            # Only a written abbreviation: the letters themselves, never a word.
+            if match and (length > 1 or text[window[0].start:window[-1].end].isupper()):
+                form = "".join(part for part in match.groups() if part).lower()
+                merged.append(Token(f"org:{form}", window[0].start, window[-1].end,
+                                    window[0].norm_start, window[-1].norm_end))
+                index += length
+                folded = True
+                break
+        if folded:
+            continue
+        following = tokens[index + 1] if index + 1 < len(tokens) else None
+        # A code keeps its number: "S2" against "S3" is a wrong value, not a slip.
+        if (following is not None and token.value in _LONE_LETTERS and following.value.startswith("num:")
+                and following.value[4:].isdigit() and text[token.end:following.start] in {"", "-", " "}):
+            merged.append(Token(f"code:{token.value}{following.value[4:]}", token.start, following.end,
+                                token.norm_start, following.norm_end))
+            index += 2
+            continue
+        lettered = re.fullmatch(r"([a-z])(\d+)", token.value)
+        if lettered and lettered.group(1) in _LONE_LETTERS:
+            merged.append(Token(f"code:{token.value}", token.start, token.end, token.norm_start, token.norm_end))
+            index += 1
+            continue
+        merged.append(token)
+        index += 1
+    return merged
 
 
 def _fold_spoken_forms(tokens: list[Token]) -> list[Token]:

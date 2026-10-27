@@ -298,12 +298,56 @@ SMIL_DOCTYPE = ('<!DOCTYPE smil PUBLIC "-//NISO//DTD dtbsmil 2005-2//EN" '
                 '"http://www.daisy.org/z3986/2005/dtbsmil-2005-2.dtd">')
 
 
-def _smil_head(smil: ET.Element, book_id: str, title: str, elapsed: float) -> None:
+def _smil_head(smil: ET.Element, book_id: str, title: str, elapsed: float) -> ET.Element:
     """The metadata Z39.86-2005 requires in every SMIL file."""
     head = ET.SubElement(smil, _q(SMIL_NS, "head"))
     for name, content in (("dtb:uid", book_id), ("dtb:generator", "Soni2"),
                           ("dtb:totalElapsedTime", _clock(elapsed)), ("dc:Title", title)):
         ET.SubElement(head, _q(SMIL_NS, "meta"), {"name": name, "content": content})
+    return head
+
+
+# Skippable structures (Z39.86-2005 §7.4.3): page numbers and notes are time
+# containers with a customTest, declared in each SMIL file that uses them and
+# gathered in the NCX head (§8.4.4). A page number is a silent marker, so it is
+# skipped by default; a note is read in place ("Nota 1." … "Fin de nota 1."),
+# so it plays by default, and a listener can turn either off.
+CUSTOM_TESTS = {
+    "pagenum": {"defaultState": "false", "override": "visible", "bookStruct": "PAGE_NUMBER"},
+    "note": {"defaultState": "true", "override": "visible", "bookStruct": "NOTE"},
+}
+# The navigation class of each kind of section in the ONCE structure.
+SECTION_CLASSES = {"once_title": "once-title", "once_bibliographic": "once-bibliographic",
+                   "once_index": "once-index", "chapter": "chapter", "subchapter": "subchapter"}
+INITIAL_SECTION_KINDS = {"once_title", "once_bibliographic", "once_index"}
+
+
+def _declare_custom_tests(head: ET.Element, tests: set[str]) -> None:
+    if not tests:
+        return
+    attributes = ET.SubElement(head, _q(SMIL_NS, "customAttributes"))
+    for test in sorted(tests):
+        options = CUSTOM_TESTS[test]
+        ET.SubElement(attributes, _q(SMIL_NS, "customTest"),
+                      {"id": test, "defaultState": options["defaultState"], "override": options["override"]})
+
+
+_ROMAN = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100, "d": 500, "m": 1000}
+
+
+def page_kind(label: str) -> tuple[str, int | None]:
+    """(DAISY page type, numeric value) of a page label: "12" normal, "iv" front, other special."""
+    text = label.strip()
+    if re.fullmatch(r"\d{1,6}", text):
+        return "normal", int(text)
+    if re.fullmatch(r"[ivxlcdm]{1,8}", text, flags=re.I):
+        total, previous = 0, 0
+        for character in reversed(text.lower()):
+            value = _ROMAN[character]
+            total += value if value >= previous else -value
+            previous = max(previous, value)
+        return "front", total if total > 0 else None
+    return "special", None
 
 
 def build_daisy_package(
@@ -324,6 +368,8 @@ def build_daisy_package(
     clips_out: list[tuple[str, float, float]] | None = None,
     chapter_starts_out: list[float] | None = None,
     mastering: audio_master.MasteringOptions | None = None,
+    layout: list[dict] | None = None,
+    identifiers: list[tuple[str, str]] | None = None,
 ) -> Path:
     """Write a DAISY 3 package whose files carry the book's own name.
 
@@ -332,11 +378,27 @@ def build_daisy_package(
     clipBegin/clipEnd rather than at a separate per-paragraph MP3. When
     ``clips_out`` is given it receives, for every segment in order, the
     package-relative chapter audio path and the clip's start and end seconds.
+
+    ``layout`` (one entry per chapter) gives the ONCE structure: each entry's
+    ``kind`` and ``level``, and for every paragraph its ``role`` ("heading",
+    "text", "note", "closing", …), the ``page_breaks`` that begin at it and its
+    ``note`` number. The initial files then sit in the DTBook front matter,
+    subchapters nest as ``level2``, page numbers become silent markers and
+    notes skippable ``note`` structures. Without it the package is written
+    exactly as before. ``identifiers`` adds ``(scheme, value)`` identifiers
+    such as the ABSYS number to the package metadata.
     """
     chapters = chapters or [(title, paragraphs)]
     paragraphs = [paragraph for _, body in chapters for paragraph in body]
     if not paragraphs or len(paragraphs) != len(audio_segments):
         raise ValueError("Text and audio segments do not match.")
+    if layout is not None:
+        if len(layout) != len(chapters):
+            raise ValueError("The structure does not describe every chapter.")
+        if any(len(entry.get("units") or []) != len(body) for entry, (_title, body) in zip(layout, chapters)):
+            raise ValueError("The structure does not describe every paragraph.")
+        if front_matter:
+            raise ValueError("The ONCE structure carries its own initial files; front matter cannot be added too.")
 
     if output_dir.exists() and any(output_dir.iterdir()):
         raise ValueError("DAISY output directory must be empty before package generation.")
@@ -438,8 +500,25 @@ def build_daisy_package(
     # Where each SMIL file starts on the book's timeline (dtb:totalElapsedTime).
     elapsed = 0.0
     smil_names: list[str] = []
-    chapter_targets: list[tuple[str, str, str]] = []
-    page_targets: list[tuple[int, str]] = []
+    # (label, SMIL reference, class, level) of every navigation point.
+    chapter_targets: list[tuple[str, str, str, int]] = []
+    # (page label, SMIL reference) of every page, and of every note.
+    page_targets: list[tuple[str, str]] = []
+    note_targets: list[tuple[str, str]] = []
+    # Every SMIL time container in reading order: playOrder follows it.
+    reading_order: dict[str, int] = {}
+    custom_tests_used: set[str] = set()
+
+    def mark(reference: str) -> str:
+        reading_order.setdefault(reference, len(reading_order))
+        return reference
+
+    if layout is not None:
+        elapsed = _write_structured_text(
+            frontmatter, bodymatter, chapters, layout, segment_clips, chapter_audio_contents, output_dir,
+            dtbook_name, book_id, smil_names, chapter_targets, page_targets, note_targets, mark,
+            custom_tests_used,
+        )
     for index, (label, text, _audio, filename) in enumerate(front_matter, start=1):
         front_id = f"frontmatter-{index}"
         smil_name = f"frontmatter-{index:04d}.smil"
@@ -461,10 +540,10 @@ def build_daisy_package(
         })
         _write_xml(output_dir / "smil" / smil_name, smil,
                    SMIL_DOCTYPE, SMIL_NS)
-        chapter_targets.append((label, f"smil/{smil_name}#{par_id}", "frontmatter"))
+        chapter_targets.append((label, mark(f"smil/{smil_name}#{par_id}"), "frontmatter", 1))
     audio_index = 0
     for chapter_index, (chapter_title, chapter_paragraphs) in enumerate(chapters, start=1):
-        if not chapter_paragraphs:
+        if not chapter_paragraphs or layout is not None:
             continue
         chapter_id = f"chapter-{chapter_index}"
         smil_name = f"chapter-{chapter_index:04d}.smil"
@@ -509,10 +588,10 @@ def build_daisy_package(
             ET.SubElement(par, _q(SMIL_NS, "audio"), {
                 "src": f"../audio/{audio_path}", "clipBegin": _clock(clip_begin), "clipEnd": _clock(clip_end),
             })
-        chapter_targets.append((chapter_title, f"smil/{smil_name}#{first_par_id}", "chapter"))
+        chapter_targets.append((chapter_title, mark(f"smil/{smil_name}#{first_par_id}"), "chapter", 1))
         page_match = re.fullmatch(r"P[aá]gina\s+(\d+)", chapter_title.strip(), flags=re.IGNORECASE)
         if page_match:
-            page_targets.append((int(page_match.group(1)), f"smil/{smil_name}#{first_par_id}"))
+            page_targets.append((page_match.group(1), f"smil/{smil_name}#{first_par_id}"))
         _write_xml(output_dir / "smil" / smil_name, smil,
                    SMIL_DOCTYPE, SMIL_NS)
 
@@ -522,42 +601,8 @@ def build_daisy_package(
         '<!DOCTYPE dtbook PUBLIC "-//NISO//DTD dtbook 2005-3//EN" "http://www.daisy.org/z3986/2005/dtbook-2005-3.dtd">',
         DTBOOK_NS,
     )
-    ncx = ET.Element(_q(NCX_NS, "ncx"), {"version": "2005-1", _q(XML_NS, "lang"): "es-ES"})
-    ncx_head = ET.SubElement(ncx, _q(NCX_NS, "head"))
-    for name, content in (
-        ("dtb:uid", book_id),
-        ("dtb:depth", "1"),
-        ("dtb:totalPageCount", str(len(page_targets))),
-        ("dtb:maxPageNumber", str(max((number for number, _ in page_targets), default=0))),
-    ):
-        ET.SubElement(ncx_head, _q(NCX_NS, "meta"), {"name": name, "content": content})
-    doc_title = ET.SubElement(ncx, _q(NCX_NS, "docTitle"))
-    ET.SubElement(doc_title, _q(NCX_NS, "text")).text = title
-    nav_map = ET.SubElement(ncx, _q(NCX_NS, "navMap"))
-    for order, (chapter_title, target, nav_class) in enumerate(chapter_targets, start=1):
-        nav_point = ET.SubElement(nav_map, _q(NCX_NS, "navPoint"),
-                                  {"id": f"nav-{order}", "playOrder": str(order), "class": nav_class})
-        nav_label = ET.SubElement(nav_point, _q(NCX_NS, "navLabel"))
-        ET.SubElement(nav_label, _q(NCX_NS, "text")).text = chapter_title
-        ET.SubElement(nav_point, _q(NCX_NS, "content"), {"src": target})
-    if page_targets:
-        page_list = ET.SubElement(ncx, _q(NCX_NS, "pageList"))
-        page_label = ET.SubElement(page_list, _q(NCX_NS, "navLabel"))
-        ET.SubElement(page_label, _q(NCX_NS, "text")).text = "Páginas"
-        for order, (page_number, target) in enumerate(page_targets, start=len(chapter_targets) + 1):
-            page_target = ET.SubElement(page_list, _q(NCX_NS, "pageTarget"), {
-                "id": f"page-{page_number}", "value": str(page_number),
-                "type": "normal", "playOrder": str(order),
-            })
-            page_nav_label = ET.SubElement(page_target, _q(NCX_NS, "navLabel"))
-            ET.SubElement(page_nav_label, _q(NCX_NS, "text")).text = str(page_number)
-            ET.SubElement(page_target, _q(NCX_NS, "content"), {"src": target})
-    _write_xml(
-        output_dir / ncx_name,
-        ncx,
-        '<!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">',
-        NCX_NS,
-    )
+    _write_ncx(output_dir / ncx_name, book_id, title, chapter_targets, page_targets, note_targets, reading_order,
+               custom_tests_used, unique_page_ids=layout is not None)
 
     # The resource DTD declares no xml:lang on <resources>; the language is
     # stated on each <resource>.
@@ -595,6 +640,10 @@ def build_daisy_package(
     if publisher:
         ET.SubElement(dc_metadata, _q(DC_NS, "Publisher")).text = publisher
     ET.SubElement(dc_metadata, _q(DC_NS, "Identifier"), {"id": "uid", "scheme": "DTB"}).text = book_id
+    for scheme, value in identifiers or []:
+        if value.strip():
+            ET.SubElement(dc_metadata, _q(DC_NS, "Identifier"),
+                          {"scheme": re.sub(r"[^A-Za-z0-9._-]", "", scheme) or "local"}).text = value.strip()
     ET.SubElement(dc_metadata, _q(DC_NS, "Language")).text = "es"
     ET.SubElement(dc_metadata, _q(DC_NS, "Format")).text = "ANSI/NISO Z39.86-2005"
     x_metadata = ET.SubElement(metadata, _q(OPF_NS, "x-metadata"))
@@ -636,3 +685,199 @@ def build_daisy_package(
         OPF_NS,
     )
     return output_dir
+
+
+def _local(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1] if isinstance(tag, str) else ""
+
+
+def _write_structured_text(
+    frontmatter: ET.Element, bodymatter: ET.Element, chapters: list[tuple[str, list[str]]], layout: list[dict],
+    segment_clips: list[tuple[str, float, float]], chapter_audio_contents: list[bytes], output_dir: Path,
+    dtbook_name: str, book_id: str, smil_names: list[str], chapter_targets: list[tuple[str, str, str, int]],
+    page_targets: list[tuple[str, str]], note_targets: list[tuple[str, str]], mark, custom_tests_used: set[str],
+) -> float:
+    """The DTBook levels and SMIL files of a book with the ONCE structure.
+
+    Each section keeps its own SMIL file and audio file. Initial files sit in
+    the front matter; a subchapter is a ``level2`` inside its chapter; a page of
+    the original is a ``pagenum`` with a silent, skippable SMIL ``par`` (no
+    audio: the number is a navigation point, not read aloud); a note is a
+    ``note`` whose ``seq`` is skippable. Returns the book's total time.
+    """
+    elapsed = 0.0
+    audio_index = 0
+    note_count = 0
+    page_count = 0
+    current_chapter: ET.Element | None = None
+    levels: list[ET.Element] = []
+    for number, ((chapter_title, chapter_paragraphs), entry) in enumerate(zip(chapters, layout), start=1):
+        kind = entry.get("kind") or "chapter"
+        initial = kind in INITIAL_SECTION_KINDS
+        nested = entry.get("level") == 2 and current_chapter is not None and not initial
+        parent = current_chapter if nested else (frontmatter if initial else bodymatter)
+        level_name, heading_name = ("level2", "h2") if nested else ("level1", "h1")
+        section_id = f"chapter-{number}"
+        level = ET.SubElement(parent, _q(DTBOOK_NS, level_name),
+                              {"id": section_id, "class": SECTION_CLASSES.get(kind, "chapter")})
+        levels.append(level)
+        if not nested:
+            current_chapter = None if initial else level
+        smil_name = f"chapter-{number:04d}.smil"
+        smil_names.append(smil_name)
+        smil = ET.Element(_q(SMIL_NS, "smil"), {_q(XML_NS, "lang"): "es-ES"})
+        head = _smil_head(smil, book_id, chapter_title, elapsed)
+        elapsed += mp3_duration(chapter_audio_contents[number - 1])
+        sequence = ET.SubElement(ET.SubElement(smil, _q(SMIL_NS, "body")), _q(SMIL_NS, "seq"),
+                                 {"id": f"seq-{section_id}"})
+        units = entry["units"]
+        heading_id = f"{section_id}-title"
+        if not units or units[0].get("role") != "heading":
+            # A title the book does not say labels navigation only.
+            ET.SubElement(level, _q(DTBOOK_NS, heading_name), {"id": heading_id}).text = chapter_title
+        tests: set[str] = set()
+        target = ""
+        note_element: ET.Element | None = None
+        note_sequence: ET.Element | None = None
+        note_number = None
+        for text, unit in zip(chapter_paragraphs, units):
+            role = unit.get("role") or "text"
+            if role != "note" or unit.get("note") != note_number:
+                note_element = note_sequence = None
+                note_number = None
+            for page in unit.get("page_breaks") or []:
+                page_count += 1
+                page_id, par_id = f"page-{page_count:04d}", f"par-page-{page_count:04d}"
+                ET.SubElement(level, _q(DTBOOK_NS, "pagenum"), {
+                    "id": page_id, "page": page_kind(page)[0], "smilref": f"smil/{smil_name}#{par_id}",
+                }).text = page
+                par = ET.SubElement(sequence, _q(SMIL_NS, "par"),
+                                    {"id": par_id, "class": "pagenum", "customTest": "pagenum"})
+                ET.SubElement(par, _q(SMIL_NS, "text"), {"src": f"../{dtbook_name}#{page_id}"})
+                page_targets.append((page, mark(f"smil/{smil_name}#{par_id}")))
+                tests.add("pagenum")
+            audio_path, clip_begin, clip_end = segment_clips[audio_index]
+            audio_index += 1
+            if role == "heading":
+                element = ET.SubElement(level, _q(DTBOOK_NS, heading_name), {"id": heading_id})
+                par_id = f"par-heading-{number:04d}"
+                container = sequence
+            elif role == "note":
+                if note_element is None or note_sequence is None:
+                    note_count += 1
+                    note_number = unit.get("note")
+                    note_element = ET.SubElement(level, _q(DTBOOK_NS, "note"),
+                                                 {"id": f"note-{note_count}", "class": "once-note"})
+                    note_sequence = ET.SubElement(sequence, _q(SMIL_NS, "seq"), {
+                        "id": f"seq-note-{note_count}", "class": "note", "customTest": "note"})
+                    note_targets.append((f"Nota {note_number or note_count}",
+                                         mark(f"smil/{smil_name}#seq-note-{note_count}")))
+                    tests.add("note")
+                element = ET.SubElement(note_element, _q(DTBOOK_NS, "p"), {"id": f"p-{audio_index:04d}"})
+                par_id = f"par-{audio_index:04d}"
+                container = note_sequence
+            else:
+                attributes = {"id": f"p-{audio_index:04d}"}
+                if role != "text":
+                    attributes["class"] = "once-" + role.replace("_", "-")
+                element = ET.SubElement(level, _q(DTBOOK_NS, "p"), attributes)
+                par_id = f"par-{audio_index:04d}"
+                container = sequence
+            element.text = text
+            element.set("smilref", f"smil/{smil_name}#{par_id}")
+            par = ET.SubElement(container, _q(SMIL_NS, "par"), {"id": par_id})
+            ET.SubElement(par, _q(SMIL_NS, "text"), {"src": f"../{dtbook_name}#{element.get('id')}"})
+            ET.SubElement(par, _q(SMIL_NS, "audio"), {
+                "src": f"../audio/{audio_path}", "clipBegin": _clock(clip_begin), "clipEnd": _clock(clip_end),
+            })
+            reference = mark(f"smil/{smil_name}#{par_id}")
+            target = target or reference
+        _declare_custom_tests(head, tests)
+        custom_tests_used.update(tests)
+        chapter_targets.append((chapter_title, target, SECTION_CLASSES.get(kind, "chapter"), 2 if nested else 1))
+        _write_xml(output_dir / "smil" / smil_name, smil, SMIL_DOCTYPE, SMIL_NS)
+    # The DTBook DTD wants something after a level's heading. A section that is
+    # only a heading (a part title followed at once by its first chapter) gets
+    # an empty paragraph: it is not synchronized and nothing is read for it.
+    for level in levels:
+        if not any(_local(child.tag) not in {"pagenum", "h1", "h2"} for child in level):
+            ET.SubElement(level, _q(DTBOOK_NS, "p"))
+    if not len(bodymatter):
+        raise ValueError("A DAISY book needs at least one chapter after its initial files.")
+    return elapsed
+
+
+def _write_ncx(
+    path: Path, book_id: str, title: str, chapter_targets: list[tuple[str, str, str, int]],
+    page_targets: list[tuple[str, str]], note_targets: list[tuple[str, str]], reading_order: dict[str, int],
+    custom_tests: set[str], *, unique_page_ids: bool,
+) -> None:
+    """The navigation file: nested sections, pages, notes.
+
+    ``playOrder`` follows the reading order and increases by one for each
+    distinct SMIL time container (Z39.86-2005 §8.4.3): a section and the page
+    marker it begins with point at different containers and get different
+    numbers, while two entries pointing at the same container share one.
+    """
+    referenced = {reference for _label, reference, _class, _level in chapter_targets}
+    referenced |= {reference for _label, reference in page_targets}
+    referenced |= {reference for _label, reference in note_targets}
+    ordered = sorted(referenced, key=lambda reference: reading_order.get(reference, len(reading_order)))
+    play = {reference: str(position) for position, reference in enumerate(ordered, start=1)}
+
+    ncx = ET.Element(_q(NCX_NS, "ncx"), {"version": "2005-1", _q(XML_NS, "lang"): "es-ES"})
+    ncx_head = ET.SubElement(ncx, _q(NCX_NS, "head"))
+    values = [value for value in (page_kind(label)[1] for label, _reference in page_targets) if value]
+    for name, content in (
+        ("dtb:uid", book_id),
+        ("dtb:depth", str(max((level for _label, _reference, _class, level in chapter_targets), default=1))),
+        ("dtb:totalPageCount", str(len(page_targets))),
+        ("dtb:maxPageNumber", str(max(values, default=0))),
+    ):
+        ET.SubElement(ncx_head, _q(NCX_NS, "meta"), {"name": name, "content": content})
+    for test in sorted(custom_tests):
+        ET.SubElement(ncx_head, _q(NCX_NS, "smilCustomTest"), {"id": test, **CUSTOM_TESTS[test]})
+    doc_title = ET.SubElement(ncx, _q(NCX_NS, "docTitle"))
+    ET.SubElement(doc_title, _q(NCX_NS, "text")).text = title
+    nav_map = ET.SubElement(ncx, _q(NCX_NS, "navMap"))
+    stack: list[tuple[int, ET.Element]] = []
+    for order, (label, reference, nav_class, level) in enumerate(chapter_targets, start=1):
+        while stack and stack[-1][0] >= level:
+            stack.pop()
+        parent = stack[-1][1] if stack else nav_map
+        nav_point = ET.SubElement(parent, _q(NCX_NS, "navPoint"),
+                                  {"id": f"nav-{order}", "playOrder": play[reference], "class": nav_class})
+        nav_label = ET.SubElement(nav_point, _q(NCX_NS, "navLabel"))
+        ET.SubElement(nav_label, _q(NCX_NS, "text")).text = label
+        ET.SubElement(nav_point, _q(NCX_NS, "content"), {"src": reference})
+        stack.append((level, nav_point))
+    if page_targets:
+        page_list = ET.SubElement(ncx, _q(NCX_NS, "pageList"))
+        page_label = ET.SubElement(page_list, _q(NCX_NS, "navLabel"))
+        ET.SubElement(page_label, _q(NCX_NS, "text")).text = "Páginas"
+        for index, (label, reference) in enumerate(page_targets, start=1):
+            kind, value = page_kind(label)
+            attributes = {"id": f"page-{index:04d}" if unique_page_ids else f"page-{label}"}
+            if value:
+                attributes["value"] = str(value)
+            attributes.update({"type": kind, "playOrder": play[reference]})
+            page_target = ET.SubElement(page_list, _q(NCX_NS, "pageTarget"), attributes)
+            page_nav_label = ET.SubElement(page_target, _q(NCX_NS, "navLabel"))
+            ET.SubElement(page_nav_label, _q(NCX_NS, "text")).text = label
+            ET.SubElement(page_target, _q(NCX_NS, "content"), {"src": reference})
+    if note_targets:
+        nav_list = ET.SubElement(ncx, _q(NCX_NS, "navList"), {"class": "note"})
+        list_label = ET.SubElement(nav_list, _q(NCX_NS, "navLabel"))
+        ET.SubElement(list_label, _q(NCX_NS, "text")).text = "Notas"
+        for index, (label, reference) in enumerate(note_targets, start=1):
+            nav_target = ET.SubElement(nav_list, _q(NCX_NS, "navTarget"),
+                                       {"id": f"note-target-{index}", "class": "note", "playOrder": play[reference]})
+            target_label = ET.SubElement(nav_target, _q(NCX_NS, "navLabel"))
+            ET.SubElement(target_label, _q(NCX_NS, "text")).text = label
+            ET.SubElement(nav_target, _q(NCX_NS, "content"), {"src": reference})
+    _write_xml(
+        path,
+        ncx,
+        '<!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">',
+        NCX_NS,
+    )
