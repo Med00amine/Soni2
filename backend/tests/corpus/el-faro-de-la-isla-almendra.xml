@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dtbook PUBLIC "-//NISO//DTD dtbook 2005-3//EN" "http://www.daisy.org/z3986/2005/dtbook-2005-3.dtd">
+<dtbook xmlns="http://www.daisy.org/z3986/2005/dtbook/" version="2005-3" xml:lang="es-ES">
+  <head>
+    <meta name="dtb:uid" content="soni2-corpus-faro-isla-almendra"/>
+    <meta name="dc:Title" content="El faro de la isla Almendra"/>
+    <meta name="dc:Creator" content="Antonio Pérez"/>
+    <meta name="dc:Publisher" content="Editorial Crítica"/>
+    <meta name="dc:Date" content="2026"/>
+    <meta name="dc:Language" content="es-ES"/>
+  </head>
+  <book>
+    <frontmatter>
+      <doctitle>El faro de la isla Almendra</doctitle>
+      <docauthor>Antonio Pérez</docauthor>
+    </frontmatter>
+    <bodymatter>
+      <level1 id="cap1">
+        <pagenum page="normal" id="page-4">4</pagenum>
+        <h1>Capítulo 1. La llegada</h1>
+        <p>La barca dejó a Clara en el muelle de la isla Almendra cuando el sol ya rozaba el agua. Traía una maleta de cartón y una carta del ayuntamiento que la nombraba farera durante todo el invierno.</p>
+        <p>El faro se alzaba al final de un camino de piedras sueltas. Desde la puerta se oía el mar golpear las rocas, despacio, como si alguien llamara sin prisa.</p>
+        <level2 id="cap1-inventario">
+          <h2>El inventario</h2>
+          <p>Antes de dormir, Clara recorrió las habitaciones con una lámpara de aceite. Contó tres mantas, dos sillas, una radio vieja y un cuaderno de tapas verdes en el que alguien había anotado cada tormenta de los últimos años.</p>
+        </level2>
+      </level1>
+      <level1 id="cap2">
+        <pagenum page="normal" id="page-5">5</pagenum>
+        <h1>Capítulo 2. La tormenta</h1>
+        <p>La tercera noche el viento cambió de dirección. Las ventanas temblaron y la luz del faro parpadeó dos veces antes de apagarse<noteref idref="nota1">1</noteref>. Clara subió la escalera de caracol con el corazón en la garganta.</p>
+        <note id="nota1"><p>1. En la isla, los faros todavía se encendían a mano cuando fallaba el generador.</p></note>
+        <level2 id="cap2-reparacion">
+          <pagenum page="normal" id="page-6">6</pagenum>
+          <h2>La reparación</h2>
+          <p>Con las manos heladas, limpió el cristal, cambió la mecha y giró la manivela hasta que la luz volvió a barrer el mar. Abajo, un pesquero que buscaba el puerto encendió sus faroles para darle las gracias.</p>
+        </level2>
+      </level1>
+      <level1 id="cap3">
+        <pagenum page="normal" id="page-7">7</pagenum>
+        <h1>Capítulo 3. El relevo</h1>
+        <p>Cuando llegó la primavera, otra barca trajo al nuevo farero. Clara le entregó las llaves y el cuaderno de tapas verdes, en el que había escrito una sola línea más: la luz no se apagó ninguna noche.</p>
+      </level1>
+    </bodymatter>
+  </book>
+</dtbook>

@@ -13,6 +13,13 @@ the book stays NEEDS_REVIEW, which the report shows.
 The downloaded ZIP is then opened and validated again from scratch (DTDs and
 Soni2's structural check), so the result does not rest on the job's own
 records. This calls paid APIs.
+
+With ``--planilla`` the book is produced with the ONCE structure (initial
+files, index, levels, page markers, notes, closing phrase), from a planilla
+written like MODELO ONCE.docx, a .json file, or ``model`` for the model's own
+rules; the ZIP is then also checked against that structure.
+
+    python -m tools.e2e_book tests/corpus/el-faro-de-la-isla-almendra.xml --out ../e2e-results/almendra --planilla "D:/Downloads/MODELO ONCE.docx"
 """
 
 from __future__ import annotations
@@ -32,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import daisy_dtd, main, qa_metrics  # noqa: E402
+from app import daisy_dtd, main, once_validation, planilla, qa_metrics  # noqa: E402
 from app import jobs as job_store  # noqa: E402
 from app.audio_cache import AudioCache  # noqa: E402
 from app.daisy_export import mp3_duration  # noqa: E402
@@ -51,12 +58,32 @@ async def account_characters() -> int | None:
         return None
 
 
+def load_planilla(value: str) -> dict:
+    """The planilla as the page sends it: from a .docx, a .json file, or the model's rules."""
+    if value == "model":
+        return {}
+    path = Path(value)
+    if path.suffix.lower() == ".docx":
+        values, warnings = planilla.parse_docx(path.read_bytes())
+        for warning in warnings:
+            print("PLANILLA:", warning)
+        return values
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def main_cli() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("book")
     parser.add_argument("--out", required=True)
     parser.add_argument("--voice", default="")
+    parser.add_argument("--planilla", default="", help="a .docx like MODELO ONCE, a .json file, or 'model'")
     args = parser.parse_args()
+    sheet = load_planilla(args.planilla) if args.planilla else None
+    if sheet is not None:
+        # Title and author are the book's metadata; the rest is the planilla.
+        metadata = {key: sheet.pop(key) for key in ("title", "author") if sheet.get(key)}
+    else:
+        metadata = {}
     out = Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
     storage = out / "storage"
@@ -73,7 +100,11 @@ def main_cli() -> None:
     before = asyncio.run(account_characters())
     book = Path(args.book)
     started = time.monotonic()
-    response = client.post("/api/books/jobs", data={"voice_id": args.voice},
+    data = {"voice_id": args.voice}
+    if sheet is not None:
+        data["planilla_json"] = json.dumps(sheet, ensure_ascii=False)
+        data["metadata_json"] = json.dumps(metadata, ensure_ascii=False)
+    response = client.post("/api/books/jobs", data=data,
                            files={"file": (book.name, io.BytesIO(book.read_bytes()), "application/octet-stream")})
     if response.status_code != 202:
         raise SystemExit(f"Job refused: HTTP {response.status_code} {response.text}")
@@ -108,6 +139,11 @@ def main_cli() -> None:
         except ValueError as exc:
             structural = f"failed: {exc}"
         revalidation = {"structural": structural, "dtd": daisy_dtd.validate_package(package)}
+        if sheet is not None:
+            job = job_store.get_job(main.database_path, job_id)
+            plan = (job["metadata"].get("once") or {}).get("planilla") or {}
+            revalidation["once"] = [{key: check[key] for key in ("id", "status", "detail")}
+                                    for check in once_validation.verify(package, job["chapters"], plan)]
         chapters = sorted((package / "audio").glob("chapter-*/chapter-*.mp3"))
         audio_seconds = round(sum(mp3_duration(path.read_bytes()) for path in chapters), 1)
     billed = sum(int((attempt.get("provider") or {}).get("characters_billed") or 0) for attempt in attempts)
@@ -147,6 +183,18 @@ def main_cli() -> None:
     summary["wer"] = report["asr_primary_aggregate"].get("wer")
     summary["dtd_from_zip"] = revalidation.get("dtd", {}).get("status")
     summary["structural_from_zip"] = revalidation.get("structural")
+    if sheet is not None:
+        structure = client.get(f"/api/jobs/{job_id}/structure").json()
+        report["once_structure"] = [{"file": section["file_number"], "kind": section["kind"], "level": section["level"],
+                                     "title": section["title"], "pages": [section["page_start"], section["page_end"]],
+                                     "units": [[unit["role"], unit["text"]] for unit in section["units"]],
+                                     "duration": section["duration"], "final_audio": section["duration_final"]}
+                                    for section in structure["sections"]]
+        (out / "e2e-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        summary["once_from_zip"] = {check["id"]: check["status"] for check in revalidation.get("once", [])}
+        for section in report["once_structure"]:
+            print(f"ARCHIVO {section['file']} [L{section['level']} {section['kind']}] p.{section['pages'][0] or '-'} "
+                  f"{section['duration']}s :: {section['title']}")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     for item in report["review_queue"]:
         print("REVIEW:", item["error_category"], item["severity"], "|", item["text"][:90], "|",

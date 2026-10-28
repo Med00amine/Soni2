@@ -1,0 +1,228 @@
+{
+  "summary": {
+    "clips": 27,
+    "located": 26,
+    "not_located": [
+      "p-0006"
+    ],
+    "median_abs_offset_s": 0.02,
+    "max_abs_offset_s": 0.172,
+    "within_250ms": 26
+  },
+  "clips": [
+    {
+      "clip": "chapter-1-title",
+      "clip_begin": 0.0,
+      "word": "El",
+      "word_start": 0.0,
+      "offset": 0.0,
+      "clip_end": 3.464
+    },
+    {
+      "clip": "p-0002",
+      "clip_begin": 3.814,
+      "word": "Esta",
+      "word_start": 3.9199998,
+      "offset": 0.106,
+      "clip_end": 48.995
+    },
+    {
+      "clip": "p-0003",
+      "clip_begin": 49.345,
+      "word": "Todo",
+      "word_start": 49.365,
+      "offset": 0.02,
+      "clip_end": 67.5
+    },
+    {
+      "clip": "chapter-2-title",
+      "clip_begin": 0.0,
+      "word": "Datos",
+      "word_start": 0.0,
+      "offset": 0.0,
+      "clip_end": 1.479
+    },
+    {
+      "clip": "p-0005",
+      "clip_begin": 1.829,
+      "word": "El",
+      "word_start": 1.8399999,
+      "offset": 0.011,
+      "clip_end": 5.293
+    },
+    {
+      "clip": "p-0006",
+      "clip_begin": 5.643,
+      "word": null,
+      "offset": null
+    },
+    {
+      "clip": "p-0007",
+      "clip_begin": 10.005,
+      "word": "Editorial",
+      "word_start": 10.08,
+      "offset": 0.075,
+      "clip_end": 11.379
+    },
+    {
+      "clip": "p-0008",
+      "clip_begin": 11.729,
+      "word": "Obra",
+      "word_start": 11.732875,
+      "offset": 0.004,
+      "clip_end": 22.152
+    },
+    {
+      "clip": "chapter-3-title",
+      "clip_begin": 0.0,
+      "word": "Índice.",
+      "word_start": 0.0,
+      "offset": 0.0,
+      "clip_end": 0.643
+    },
+    {
+      "clip": "p-0010",
+      "clip_begin": 0.993,
+      "word": "Índice,",
+      "word_start": 0.96,
+      "offset": -0.033,
+      "clip_end": 2.576
+    },
+    {
+      "clip": "p-0011",
+      "clip_begin": 2.926,
+      "word": "Capítulo",
+      "word_start": 2.96,
+      "offset": 0.034,
+      "clip_end": 6.703
+    },
+    {
+      "clip": "p-0012",
+      "clip_begin": 7.053,
+      "word": "Capítulo",
+      "word_start": 7.2249374,
+      "offset": 0.172,
+      "clip_end": 10.935
+    },
+    {
+      "clip": "p-0013",
+      "clip_begin": 11.285,
+      "word": "Capítulo",
+      "word_start": 11.304937,
+      "offset": 0.02,
+      "clip_end": 15.193
+    },
+    {
+      "clip": "p-0014",
+      "clip_begin": 15.543,
+      "word": "Fin",
+      "word_start": 15.464937,
+      "offset": -0.078,
+      "clip_end": 16.614
+    },
+    {
+      "clip": "chapter-4-title",
+      "clip_begin": 0.0,
+      "word": "Capítulo",
+      "word_start": 0.0,
+      "offset": 0.0,
+      "clip_end": 2.393
+    },
+    {
+      "clip": "p-0016",
+      "clip_begin": 2.743,
+      "word": "La",
+      "word_start": 2.72,
+      "offset": -0.023,
+      "clip_end": 15.846
+    },
+    {
+      "clip": "p-0017",
+      "clip_begin": 16.196,
+      "word": "El",
+      "word_start": 16.135,
+      "offset": -0.061,
+      "clip_end": 27.716
+    },
+    {
+      "clip": "chapter-5-title",
+      "clip_begin": 0.0,
+      "word": "El",
+      "word_start": 0.0,
+      "offset": 0.0,
+      "clip_end": 0.982
+    },
+    {
+      "clip": "p-0019",
+      "clip_begin": 1.332,
+      "word": "Antes",
+      "word_start": 1.36,
+      "offset": 0.028,
+      "clip_end": 17.345
+    },
+    {
+      "clip": "chapter-6-title",
+      "clip_begin": 0.0,
+      "word": "Capítulo",
+      "word_start": 0.0,
+      "offset": 0.0,
+      "clip_end": 2.523
+    },
+    {
+      "clip": "p-0021",
+      "clip_begin": 2.873,
+      "word": "La",
+      "word_start": 2.8799999,
+      "offset": 0.007,
+      "clip_end": 17.397
+    },
+    {
+      "clip": "chapter-7-title",
+      "clip_begin": 0.0,
+      "word": "La",
+      "word_start": 0.08,
+      "offset": 0.08,
+      "clip_end": 1.008
+    },
+    {
+      "clip": "p-0023",
+      "clip_begin": 1.358,
+      "word": "Con",
+      "word_start": 1.36,
+      "offset": 0.002,
+      "clip_end": 16.055
+    },
+    {
+      "clip": "p-0024",
+      "clip_begin": 16.405,
+      "word": "Nota",
+      "word_start": 16.505,
+      "offset": 0.1,
+      "clip_end": 24.973
+    },
+    {
+      "clip": "chapter-8-title",
+      "clip_begin": 0.0,
+      "word": "Capítulo",
+      "word_start": 0.0,
+      "offset": 0.0,
+      "clip_end": 2.393
+    },
+    {
+      "clip": "p-0026",
+      "clip_begin": 2.743,
+      "word": "Cuando",
+      "word_start": 2.8,
+      "offset": 0.057,
+      "clip_end": 17.675
+    },
+    {
+      "clip": "p-0027",
+      "clip_begin": 18.025,
+      "word": "Aquí",
+      "word_start": 18.024124,
+      "offset": -0.001,
+      "clip_end": 23.694
+    }
+  ]
+}
