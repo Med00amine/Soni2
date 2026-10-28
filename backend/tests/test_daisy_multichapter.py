@@ -239,7 +239,15 @@ def test_pdf_derived_page_sections_create_page_navigation(tmp_path):
     ncx = ET.parse(package / "Libro_paginado.ncx").getroot()
     targets = ncx.findall(f".//{NCX}pageTarget")
     assert [target.attrib["value"] for target in targets] == ["1", "2"]
-    assert [target.attrib["playOrder"] for target in targets] == ["3", "4"]
+    # Z39.86-2005 §8.4.3: playOrder increases by one per distinct SMIL time
+    # container. Page 1 and the section "Página 1" point at the same container,
+    # so they share its number (they used to be numbered 3 and 4 after the
+    # chapters, which a validator rejects).
+    points = ncx.findall(f".//{NCX}navPoint")
+    assert [target.attrib["playOrder"] for target in targets] == ["1", "2"]
+    assert [point.attrib["playOrder"] for point in points] == ["1", "2"]
+    assert [target.find(f"{NCX}content").attrib["src"] for target in targets] == \
+        [point.find(f"{NCX}content").attrib["src"] for point in points]
     validate_daisy_package(package)
 
 

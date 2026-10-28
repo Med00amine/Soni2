@@ -42,7 +42,7 @@ _FUNCTION_WORDS = {
     "y", "ya", "le", "les", "nos", "es", "ha", "he",
 }
 # Canonical token prefixes the normalizer uses for values compared numerically.
-_VALUE_PREFIXES = ("num:", "measure:", "time:", "date:", "ord:")
+_VALUE_PREFIXES = ("num:", "measure:", "time:", "date:", "ord:", "code:")
 
 CATEGORY_AMBIGUOUS = "ambiguous_expression"
 CATEGORY_MISMATCH = "likely_mismatch"

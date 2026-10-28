@@ -1,5 +1,16 @@
 # Soni2 pipeline acceptance status
 
+**Updated 2026-10-28.** The ONCE structure (planilla, files 1–3, levels,
+silent page markers, notes, closing phrase) and the step-2 editor are
+described, with their measured results, in [once-structure.md](once-structure.md).
+
+| Suite (this machine, ffmpeg from `.venv/tools`) | Before (`b7afa5e`) | After |
+|---|---|---|
+| Backend `pytest` | 465 passed, 1 skipped | **503 passed, 1 skipped** (28 ONCE-structure tests, 10 comparison tests added; one test changed to assert §8.4.3 `playOrder`) |
+| Frontend `vitest` | 49 passed (5 files) | **59 passed** (6 files; the two old step-2 tests rewritten for the editor, 10 editor tests added) |
+| Frontend `tsc -b && vite build` | passed | passed |
+| Real ONCE book (`el-faro-de-la-isla-almendra.xml` + MODELO ONCE.docx) | — | **PASSED**, ZIP re-validated, 7/7 ONCE checks |
+
 **Updated 2026-10-25.** The quality system (extraction coverage, Spanish
 normalization, two-recognizer verification, repair loop, completeness chain,
 official DTD validation and the release gate) is described with its measured

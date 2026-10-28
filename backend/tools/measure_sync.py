@@ -54,6 +54,9 @@ async def main_async(package: Path) -> dict:
         for par in ET.parse(smil).getroot().iter(f"{SMIL}par"):
             text_ref = par.find(f"{SMIL}text").get("src").partition("#")[2]
             audio = par.find(f"{SMIL}audio")
+            if audio is None:
+                # A silent page marker: a navigation point, nothing is read.
+                continue
             audio_path = (smil.parent / audio.get("src")).resolve()
             if audio_path not in transcripts:
                 transcript = await providers.transcribe(audio_path.read_bytes(), provider=provider,

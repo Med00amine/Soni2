@@ -1,0 +1,372 @@
+{
+  "book": "el-faro-de-la-isla-almendra.xml",
+  "job_id": "fca29081-d8a7-49c6-835e-4b1eea3eae52",
+  "state": "partially_completed",
+  "release_state": "NEEDS_REVIEW",
+  "blockers": [],
+  "reviews": [
+    "1 segmentos esperan una decisión humana."
+  ],
+  "provider": "elevenlabs",
+  "model": "eleven_v4",
+  "voice": "o0SveC0zgHFuCsEO3vHR",
+  "asr_primary": "deepgram",
+  "asr_secondary": "elevenlabs",
+  "units": 27,
+  "unit_states": {
+    "verified": 26,
+    "needs_human_review": 1
+  },
+  "verification": {
+    "asr_primary": 25,
+    "asr_secondary": 1
+  },
+  "attempts": 29,
+  "generations": 28,
+  "quality_retakes": 2,
+  "technical_attempts": 28,
+  "secondary_recognitions": 4,
+  "characters_billed_by_provider": 1201,
+  "account_characters_before": 17428,
+  "account_characters_after": 17428,
+  "asr_primary_aggregate": {
+    "reference_words": 469,
+    "recognized_words": 471,
+    "substitutions": 4,
+    "deletions": 0,
+    "insertions": 2,
+    "wer": 0.0128,
+    "segments": 27,
+    "segments_with_errors": 2
+  },
+  "review_queue": [
+    {
+      "sentence_id": "06be1bafb7e47a3699a062b6",
+      "chapter_index": 1,
+      "text": "Obra grabada en formato digital para el Servicio Bibliográfico de la ONCE, Sonidos S-2 Productions, S.L. octubre de 2026",
+      "recognized_text": "Obra grabada en formato digital para el servicio bibliográfico de la 11. Sonidos S 2 productions, sociedad limitada. Octubre de 2026.",
+      "error_category": "synthesis",
+      "severity": "major",
+      "recommended_action": "Escucha el párrafo y decide: aceptar, volver a narrar o corregir el texto.",
+      "last_error": "El párrafo no superó la comparación tras 2 retomas de calidad."
+    }
+  ],
+  "listening_recommended": [
+    {
+      "sentence_id": "978dcad619604d4277e89d87",
+      "chapter_index": 0,
+      "text": "Esta adaptación es propiedad de la Organización Nacional de Ciegos Españoles (ONCE) y ha sido realizada en sistema Daisy exclusivamente para su reproducción por personas afiliadas a esta Organización; para un uso privado, sin finalidad comercial, conforme a lo dispuesto en la Ley española de Propiedad Intelectual. En consecuencia, estas no podrán distribuirla, comunicarla públicamente ni transformarla en todo o en parte, y tampoco utilizarla con fines distintos de los contemplados en la ley mencionada y en este aviso. También queda rigurosamente prohibida la utilización, reproducción, distribución, transformación, comunicación pública o explotación de esta adaptación por otras personas distintas.",
+      "reason": "Aceptada automáticamente: deepgram-nova-3 oyó diferencias que elevenlabs-scribe_v2 no confirma.",
+      "provenance": {
+        "chapter": 0,
+        "paragraph": 0,
+        "part": 0,
+        "parts": 2,
+        "role": "legal",
+        "note": null,
+        "page_breaks": [],
+        "source": null,
+        "section": "once-title",
+        "kind": "once_title",
+        "level": 1,
+        "source_flags": []
+      }
+    }
+  ],
+  "processing_seconds": 72.6,
+  "audio_seconds": null,
+  "download": "diagnostic",
+  "revalidation_from_zip": {
+    "status": "not_run"
+  },
+  "dimensions": {
+    "technical": {
+      "status": "in_progress",
+      "segments": 27,
+      "verified": 26,
+      "failed": 0,
+      "pending": 0,
+      "awaiting_review": 1,
+      "technical_attempts": 28,
+      "quality_retakes": 2,
+      "reused_from_cache": 1
+    },
+    "source": {
+      "status": "passed",
+      "method": "dtbook",
+      "coverage": {
+        "source_words": 256,
+        "extracted_words": 244,
+        "dropped_words": 13,
+        "unaccounted_words": 0,
+        "added_words": 1,
+        "ratio": 1.0,
+        "unaccounted_examples": [],
+        "added_examples": [
+          "nota"
+        ]
+      },
+      "blocking": [],
+      "open_warnings": [],
+      "acknowledged": 0,
+      "pages": 0,
+      "ocr_pages": 0
+    },
+    "content": {
+      "status": "needs_review",
+      "verified_by": {
+        "asr_primary": 25,
+        "asr_secondary": 1
+      },
+      "awaiting_review": 1,
+      "reference_words": 469,
+      "asr_word_errors": 6,
+      "wer": 0.0128,
+      "segments_measured": 27
+    },
+    "audio": {
+      "status": "passed",
+      "failed": [],
+      "signal_unchecked": 0,
+      "suspicious": 0
+    },
+    "package": {
+      "status": "not_run",
+      "structural": "not_run",
+      "dtd": "not_run",
+      "completeness": "not_run",
+      "official_daisy_pipeline": "not_run"
+    },
+    "human": {
+      "decisions": 0,
+      "awaiting": 1,
+      "acknowledged_warnings": 0,
+      "listening_recommended": [
+        "978dcad619604d4277e89d87"
+      ],
+      "listening_check": "not_recorded"
+    }
+  },
+  "once_structure": [
+    {
+      "file": 1,
+      "kind": "once_title",
+      "level": 1,
+      "title": "El faro de la isla Almendra, De Antonio Pérez",
+      "pages": [
+        "1",
+        "1"
+      ],
+      "units": [
+        [
+          "heading",
+          "El faro de la isla Almendra, De Antonio Pérez"
+        ],
+        [
+          "legal",
+          "Esta adaptación es propiedad de la Organización Nacional de Ciegos Españoles (ONCE) y ha sido realizada en sistema Daisy exclusivamente para su reproducción por personas afiliadas a esta Organización; para un uso privado, sin finalidad comercial, conforme a lo dispuesto en la Ley española de Propiedad Intelectual. En consecuencia, estas no podrán distribuirla, comunicarla públicamente ni transformarla en todo o en parte, y tampoco utilizarla con fines distintos de los contemplados en la ley mencionada y en este aviso. También queda rigurosamente prohibida la utilización, reproducción, distribución, transformación, comunicación pública o explotación de esta adaptación por otras personas distintas."
+        ],
+        [
+          "legal",
+          "Todo esto, sin perjuicio de la facultad de la ONCE para intercambiar ejemplares de obras en formato accesible con entidades autorizadas, al amparo de la normativa y los tratados internacionales aplicables en cada momento. Servicio Bibliográfico ONCE 2026”"
+        ]
+      ],
+      "duration": 67.63,
+      "final_audio": false
+    },
+    {
+      "file": 2,
+      "kind": "once_bibliographic",
+      "level": 1,
+      "title": "DATOS BIBLIOGRÁFICOS",
+      "pages": [
+        "2",
+        "2"
+      ],
+      "units": [
+        [
+          "heading",
+          "DATOS BIBLIOGRÁFICOS"
+        ],
+        [
+          "bibliographic",
+          "El faro de la isla Almendra, De Antonio Pérez"
+        ],
+        [
+          "bibliographic",
+          "PRIMERA EDICIÓN MADRID, FEBRERO DE 2026"
+        ],
+        [
+          "bibliographic",
+          "EDITORIAL CRÍTICA"
+        ],
+        [
+          "bibliographic",
+          "Obra grabada en formato digital para el Servicio Bibliográfico de la ONCE, Sonidos S-2 Productions, S.L. octubre de 2026"
+        ]
+      ],
+      "duration": 21.551,
+      "final_audio": false
+    },
+    {
+      "file": 3,
+      "kind": "once_index",
+      "level": 1,
+      "title": "Índice.",
+      "pages": [
+        "3",
+        "3"
+      ],
+      "units": [
+        [
+          "heading",
+          "Índice."
+        ],
+        [
+          "index_entry",
+          "Índice página 3."
+        ],
+        [
+          "index_entry",
+          "Capítulo 1. La llegada. Página 4."
+        ],
+        [
+          "index_entry",
+          "Capítulo 2. La tormenta. Página 5."
+        ],
+        [
+          "index_entry",
+          "Capítulo 3. El relevo. Página 7."
+        ],
+        [
+          "index_entry",
+          "Fin de índice."
+        ]
+      ],
+      "duration": 17.998,
+      "final_audio": false
+    },
+    {
+      "file": 4,
+      "kind": "chapter",
+      "level": 1,
+      "title": "Capítulo 1. La llegada",
+      "pages": [
+        "4",
+        "4"
+      ],
+      "units": [
+        [
+          "heading",
+          "Capítulo 1. La llegada"
+        ],
+        [
+          "text",
+          "La barca dejó a Clara en el muelle de la isla Almendra cuando el sol ya rozaba el agua. Traía una maleta de cartón y una carta del ayuntamiento que la nombraba farera durante todo el invierno."
+        ],
+        [
+          "text",
+          "El faro se alzaba al final de un camino de piedras sueltas. Desde la puerta se oía el mar golpear las rocas, despacio, como si alguien llamara sin prisa."
+        ]
+      ],
+      "duration": 28.735,
+      "final_audio": false
+    },
+    {
+      "file": 5,
+      "kind": "subchapter",
+      "level": 2,
+      "title": "El inventario",
+      "pages": [
+        "4",
+        "4"
+      ],
+      "units": [
+        [
+          "heading",
+          "El inventario"
+        ],
+        [
+          "text",
+          "Antes de dormir, Clara recorrió las habitaciones con una lámpara de aceite. Contó tres mantas, dos sillas, una radio vieja y un cuaderno de tapas verdes en el que alguien había anotado cada tormenta de los últimos años."
+        ]
+      ],
+      "duration": 17.972,
+      "final_audio": false
+    },
+    {
+      "file": 6,
+      "kind": "chapter",
+      "level": 1,
+      "title": "Capítulo 2. La tormenta",
+      "pages": [
+        "5",
+        "5"
+      ],
+      "units": [
+        [
+          "heading",
+          "Capítulo 2. La tormenta"
+        ],
+        [
+          "text",
+          "La tercera noche el viento cambió de dirección. Las ventanas temblaron y la luz del faro parpadeó dos veces antes de apagarse. Clara subió la escalera de caracol con el corazón en la garganta."
+        ]
+      ],
+      "duration": 17.084,
+      "final_audio": false
+    },
+    {
+      "file": 7,
+      "kind": "subchapter",
+      "level": 2,
+      "title": "La reparación",
+      "pages": [
+        "6",
+        "6"
+      ],
+      "units": [
+        [
+          "heading",
+          "La reparación"
+        ],
+        [
+          "text",
+          "Con las manos heladas, limpió el cristal, cambió la mecha y giró la manivela hasta que la luz volvió a barrer el mar. Abajo, un pesquero que buscaba el puerto encendió sus faroles para darle las gracias."
+        ],
+        [
+          "note",
+          "Nota 1. En la isla, los faros todavía se encendían a mano cuando fallaba el generador. Fin de nota 1."
+        ]
+      ],
+      "duration": 25.784,
+      "final_audio": false
+    },
+    {
+      "file": 8,
+      "kind": "chapter",
+      "level": 1,
+      "title": "Capítulo 3. El relevo",
+      "pages": [
+        "7",
+        "7"
+      ],
+      "units": [
+        [
+          "heading",
+          "Capítulo 3. El relevo"
+        ],
+        [
+          "text",
+          "Cuando llegó la primavera, otra barca trajo al nuevo farero. Clara le entregó las llaves y el cuaderno de tapas verdes, en el que había escrito una sola línea más: la luz no se apagó ninguna noche."
+        ],
+        [
+          "closing",
+          "Aquí finaliza la grabación de El faro de la isla Almendra, De Antonio Pérez."
+        ]
+      ],
+      "duration": 24.581,
+      "final_audio": false
+    }
+  ]
+}
