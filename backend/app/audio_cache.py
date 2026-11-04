@@ -13,6 +13,7 @@ paying for the same audio twice.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import tempfile
@@ -114,9 +115,105 @@ class AudioCache:
         total = 0
         if self.root.is_dir():
             for path in self.root.rglob("*.mp3"):
+                if path.parent.parent.name == "chapters":
+                    continue
                 entries += 1
                 total += path.stat().st_size
         return {"entries": entries, "bytes": total}
+
+    # ------------------------------------------------------------------ #
+    # A job keeps its own copy of every audio file it uses. When the bytes
+    # are the cache entry's, the copy is a hard link: the same audio is not
+    # stored once per job on a disk that has little room to spare.
+    # ------------------------------------------------------------------ #
+
+    def store_copy(self, key: str, audio: bytes, destination: Path) -> None:
+        """Write ``audio`` at ``destination``, as a link to the cache entry when they are the same bytes."""
+        source = self.path_for(key) if key else None
+        if source is not None and source.is_file() and source.stat().st_size == len(audio) \
+                and source.read_bytes() == audio:
+            link_or_copy(source, destination)
+            return
+        write_atomic(destination, audio)
+
+    # ------------------------------------------------------------------ #
+    # Quality verdicts. Listening to a passage costs a transcription (and,
+    # on a difference, a second one, which ElevenLabs bills in credits). A
+    # passage whose exact audio was already verified against the exact same
+    # expected speech is not transcribed again when a book is produced again.
+    # ------------------------------------------------------------------ #
+
+    def get_verdict(self, key: str, audio: bytes, spoken: str) -> dict | None:
+        path = self.path_for(key).with_suffix(".qa.json")
+        if not key or not path.is_file():
+            return None
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(record, dict) or record.get("audio_sha256") != _sha256(audio) \
+                or record.get("spoken_sha256") != _sha256(spoken.encode("utf-8")):
+            return None
+        return record
+
+    def put_verdict(self, key: str, audio: bytes, spoken: str, record: dict) -> None:
+        if not key:
+            return
+        path = self.path_for(key).with_suffix(".qa.json")
+        payload = {**record, "audio_sha256": _sha256(audio), "spoken_sha256": _sha256(spoken.encode("utf-8"))}
+        write_atomic(path, json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"))
+
+    # ------------------------------------------------------------------ #
+    # Mastered chapters, by what went into them (see main._chapter_content_key).
+    # ------------------------------------------------------------------ #
+
+    def _chapter_path(self, key: str) -> Path:
+        return self.root / "chapters" / key[:2] / f"{key}.mp3"
+
+    def get_chapter(self, key: str) -> tuple[Path, list[tuple[float, float]], list[list[tuple[float, float]]]] | None:
+        path = self._chapter_path(key)
+        if not key or not path.is_file() or not path.stat().st_size:
+            return None
+        try:
+            meta = json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
+            clips = [(float(begin), float(end)) for begin, end in meta["clips"]]
+            pauses = [[(float(at), float(added)) for at, added in unit] for unit in meta["pauses"]]
+        except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return None
+        return path, clips, pauses
+
+    def put_chapter(self, key: str, source: Path, clips: list[tuple[float, float]],
+                    pauses: list[list[tuple[float, float]]]) -> None:
+        path = self._chapter_path(key)
+        link_or_copy(source, path)
+        write_atomic(path.with_suffix(".json"), json.dumps(
+            {"clips": [list(clip) for clip in clips], "pauses": [[list(item) for item in unit] for unit in pauses]},
+        ).encode("utf-8"))
+
+    @staticmethod
+    def link_or_copy(source: Path, destination: Path) -> None:
+        link_or_copy(source, destination)
+
+
+def _sha256(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
+
+
+def link_or_copy(source: Path, destination: Path) -> None:
+    """Make ``destination`` the same file as ``source``: a hard link, or a copy.
+
+    Every writer here replaces files (``os.replace``) rather than changing them
+    in place, so two names for one file can never see each other's changes.
+    """
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.{os.getpid()}.link")
+    temporary.unlink(missing_ok=True)
+    try:
+        os.link(source, temporary)
+    except OSError:
+        write_atomic(destination, source.read_bytes())
+        return
+    os.replace(temporary, destination)
 
 
 def write_atomic(path: Path, payload: bytes) -> None:

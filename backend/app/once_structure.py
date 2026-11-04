@@ -219,14 +219,18 @@ def _body_sections(selected: list, provenance: list[tuple[dict, list[dict]]],
                     if origin.get("element") == "heading" and origin.get("heading_level")]
         deeper = [level for level in headings if level > title_level]
         sub_level = min(deeper) if deeper else None
+        # Where the reader's edits find this section's title (app.book_edits).
+        section_id = getattr(chapter, "section_id", "") or title_origin.get("section_id", "")
         current = Section(f"s{chapter_index}", KIND_CHAPTER, 1, title, generated,
-                          list(title_origin.get("page_breaks") or []), [], {"chapter": chapter_index})
+                          list(title_origin.get("page_breaks") or []), [],
+                          {"chapter": chapter_index, **({"section_id": section_id} if section_id else {})})
         sections.append(current)
         for paragraph_index, (text, origin) in enumerate(zip(paragraphs, origins + [{}] * len(paragraphs))):
             element = origin.get("element")
             level = int(origin.get("heading_level") or 0)
             pages = list(origin.get("page_breaks") or [])
-            source = {"chapter": chapter_index, "paragraph": paragraph_index}
+            source = {"chapter": chapter_index, "paragraph": paragraph_index,
+                      **({"slot": origin["slot"]} if origin.get("slot") else {})}
             if element == "heading" and level and (level <= title_level or level == sub_level):
                 # A heading of the chapter's own level is a sibling chapter; one
                 # level below is a subchapter with its own audio file.

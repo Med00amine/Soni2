@@ -388,7 +388,7 @@ def test_differences_are_placed_in_the_chapter_file_and_the_whole_book(offline, 
     assert location["expected"] == "Marta" and location["heard"] == "Martha"
     # "Martha" is word 7 of the paragraph: 0.05 + 6 × 0.02 = 0.17 s into its own audio.
     assert location["paragraph_time"] == 0.17
-    assert location["chapter"] == 1 and location["chapter_file"] == "audio/chapter-001/chapter-001.mp3"
+    assert location["chapter"] == 1 and location["chapter_file"] == "audio/chapter-001.mp3"
     assert location["book_file"].endswith(".mp3") and location["book_time"] is not None
     # The paragraph follows the chapter heading, so it starts after 0 in the chapter file.
     assert location["chapter_time"] > 0.17 and location["book_time"] >= location["chapter_time"]

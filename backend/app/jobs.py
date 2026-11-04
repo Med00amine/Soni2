@@ -97,6 +97,21 @@ def initialize_store(database: Path) -> None:
             );
             CREATE INDEX IF NOT EXISTS attempt_job_sentence_idx
                 ON production_attempts(job_id, sentence_id, attempt_number);
+            -- A book being prepared in the editor: the uploaded file and
+            -- everything the reader chose and changed before production. It is
+            -- what a reload restores and what a production is made from.
+            CREATE TABLE IF NOT EXISTS book_drafts (
+                draft_id TEXT PRIMARY KEY,
+                source_name TEXT NOT NULL,
+                source_path TEXT NOT NULL,
+                source_sha256 TEXT NOT NULL,
+                source_size INTEGER NOT NULL,
+                state_json TEXT NOT NULL DEFAULT '{}',
+                revision INTEGER NOT NULL DEFAULT 0,
+                last_job_id TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             """
         )
         # Keep existing Docker volumes usable as columns are added.
@@ -121,6 +136,12 @@ def initialize_store(database: Path) -> None:
             ("release_state", "TEXT NOT NULL DEFAULT ''"),
             ("release_json", "TEXT NOT NULL DEFAULT '{}'"),
             ("acknowledgements_json", "TEXT NOT NULL DEFAULT '[]'"),
+            # What is narrated (every unit's text), so a second "generate" over
+            # the same book only joins a running job when nothing was edited.
+            ("content_hash", "TEXT NOT NULL DEFAULT ''"),
+            # The draft (and its revision) the job was produced from.
+            ("draft_id", "TEXT NOT NULL DEFAULT ''"),
+            ("draft_revision", "INTEGER NOT NULL DEFAULT 0"),
         ):
             if name not in job_columns:
                 connection.execute(f"ALTER TABLE production_jobs ADD COLUMN {name} {definition}")
@@ -132,11 +153,12 @@ def create_job(database: Path, job: dict[str, Any], sentences: list[dict[str, An
         connection.execute(
             """INSERT INTO production_jobs
             (job_id,state,source_name,source_path,source_hash,chapters_json,metadata_json,
-             voice_id,voice_speed,total_sentences,created_at,updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+             voice_id,voice_speed,total_sentences,created_at,updated_at,content_hash,draft_id,draft_revision)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (job["job_id"], "queued", job["source_name"], job["source_path"], job["source_hash"],
              json.dumps(job["chapters"], ensure_ascii=False), json.dumps(job["metadata"], ensure_ascii=False),
-             job["voice_id"], job["voice_speed"], len(sentences), now, now),
+             job["voice_id"], job["voice_speed"], len(sentences), now, now, job.get("content_hash", ""),
+             job.get("draft_id", ""), int(job.get("draft_revision") or 0)),
         )
         connection.executemany(
             """INSERT INTO production_sentences
@@ -206,22 +228,96 @@ def update_sentence(database: Path, job_id: str, sentence_id: str, **values: Any
         )
 
 
-def find_active_job(database: Path, source_hash: str, voice_id: str, voice_speed: float) -> dict[str, Any] | None:
-    """Find a job still running over the same source, voice and speed.
+def find_active_job(database: Path, source_hash: str, voice_id: str, voice_speed: float,
+                    content_hash: str = "") -> dict[str, Any] | None:
+    """Find a job still running over the same source, text, voice and speed.
 
     Guards against a duplicate submission starting a second paid run of a book
-    that is already being produced.
+    that is already being produced. The text is part of it: a book edited since
+    must not be answered with the job narrating the text before the edit.
     """
     with sqlite3.connect(database) as connection:
         connection.row_factory = sqlite3.Row
         row = connection.execute(
             """SELECT job_id,state,total_sentences FROM production_jobs
-               WHERE source_hash=? AND voice_id=? AND ABS(voice_speed-?)<0.001
+               WHERE source_hash=? AND voice_id=? AND ABS(voice_speed-?)<0.001 AND content_hash=?
                  AND state IN ('queued','running') AND cancel_requested=0
                ORDER BY created_at DESC LIMIT 1""",
-            (source_hash, voice_id, voice_speed),
+            (source_hash, voice_id, voice_speed, content_hash),
         ).fetchone()
         return dict(row) if row else None
+
+
+class DraftConflict(Exception):
+    """The draft changed since the revision the caller started from."""
+
+    def __init__(self, current: dict[str, Any]):
+        super().__init__("draft revision conflict")
+        self.current = current
+
+
+def create_draft(database: Path, draft: dict[str, Any]) -> dict[str, Any]:
+    now = utc_now()
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """INSERT INTO book_drafts
+            (draft_id,source_name,source_path,source_sha256,source_size,state_json,revision,created_at,updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?)""",
+            (draft["draft_id"], draft["source_name"], draft["source_path"], draft["source_sha256"],
+             draft["source_size"], json.dumps(draft.get("state") or {}, ensure_ascii=False), 1, now, now),
+        )
+    return get_draft(database, draft["draft_id"]) or {}
+
+
+def get_draft(database: Path, draft_id: str) -> dict[str, Any] | None:
+    with sqlite3.connect(database) as connection:
+        connection.row_factory = sqlite3.Row
+        row = connection.execute("SELECT * FROM book_drafts WHERE draft_id=?", (draft_id,)).fetchone()
+    if row is None:
+        return None
+    result = dict(row)
+    result["state"] = json.loads(result.pop("state_json") or "{}")
+    return result
+
+
+def save_draft_state(database: Path, draft_id: str, state: dict[str, Any], revision: int) -> dict[str, Any]:
+    """Store the reader's latest state if nobody saved another one meanwhile.
+
+    ``revision`` is the revision the caller's state was built on; a stale one
+    (another tab saved since) raises DraftConflict with the current draft
+    rather than overwriting the newer edits.
+    """
+    with sqlite3.connect(database) as connection:
+        cursor = connection.execute(
+            "UPDATE book_drafts SET state_json=?, revision=revision+1, updated_at=? WHERE draft_id=? AND revision=?",
+            (json.dumps(state, ensure_ascii=False), utc_now(), draft_id, revision))
+        changed = cursor.rowcount
+    current = get_draft(database, draft_id)
+    if current is None:
+        raise KeyError(draft_id)
+    if not changed:
+        raise DraftConflict(current)
+    return current
+
+
+def set_draft_job(database: Path, draft_id: str, job_id: str) -> None:
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE book_drafts SET last_job_id=?, updated_at=? WHERE draft_id=?",
+                           (job_id, utc_now(), draft_id))
+
+
+def expired_drafts(database: Path, older_than: str, keep: int) -> list[dict[str, Any]]:
+    """Drafts nobody touched since ``older_than``, and any beyond the ``keep`` most recent."""
+    with sqlite3.connect(database) as connection:
+        connection.row_factory = sqlite3.Row
+        rows = [dict(row) for row in connection.execute(
+            "SELECT draft_id,source_path,updated_at FROM book_drafts ORDER BY updated_at DESC")]
+    return [row for index, row in enumerate(rows) if index >= keep or row["updated_at"] < older_than]
+
+
+def delete_draft(database: Path, draft_id: str) -> None:
+    with sqlite3.connect(database) as connection:
+        connection.execute("DELETE FROM book_drafts WHERE draft_id=?", (draft_id,))
 
 
 def reset_interrupted_jobs(database: Path) -> list[str]:

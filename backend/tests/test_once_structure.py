@@ -336,9 +336,10 @@ def test_initial_files_are_front_matter_and_subchapters_nest(tmp_path) -> None:
     assert [level.find(f"{DTBOOK}h1").text for level in chapters] == [
         "Capítulo 1. La llegada", "Capítulo 2. La tormenta", "Capítulo 3. El relevo"]
     assert [level.find(f"{DTBOOK}h2").text for level in body.iter(f"{DTBOOK}level2")] == ["El inventario", "La reparación"]
-    # One audio file per section: «ARCHIVO N» is audio/chapter-00N.
-    assert sorted(path.parent.name for path in package.glob("audio/chapter-*/chapter-*.mp3")) == [
-        f"chapter-{number:03d}" for number in range(1, 9)]
+    # One audio file per section, directly in audio/: «ARCHIVO N» is audio/chapter-00N.mp3.
+    assert sorted(path.name for path in package.glob("audio/chapter-*.mp3")) == [
+        f"chapter-{number:03d}.mp3" for number in range(1, 9)]
+    assert not [path for path in (package / "audio").rglob("*") if path.is_dir()]
     opf = (next(package.glob("*.opf"))).read_text(encoding="utf-8")
     assert 'scheme="ABSYS"' not in opf  # the model has no ABSYS number
 
@@ -407,7 +408,7 @@ def test_the_checks_catch_a_package_that_is_not_what_the_planilla_says(tmp_path)
     smil = tampered / "smil" / "chapter-0004.smil"
     _rewrite(smil, 'customTest="pagenum"><text src="../El_faro_de_la_isla_Almendra.xml#page-0004" />',
              'customTest="pagenum"><text src="../El_faro_de_la_isla_Almendra.xml#page-0004" />'
-             '<audio src="../audio/chapter-004/chapter-004.mp3" clipBegin="0:00:00.000" clipEnd="0:00:00.500" />')
+             '<audio src="../audio/chapter-004.mp3" clipBegin="0:00:00.000" clipEnd="0:00:00.500" />')
     statuses = {check["id"]: check for check in once_validation.verify(tampered, _records(built),
                                                                          built.resolved.as_dict())}
     assert statuses["once_initial_files"]["status"] == "failed"
@@ -466,7 +467,7 @@ def test_a_reviewed_production_delivers_the_once_structure(offline) -> None:
     assert all(unit["state"] == "verified" for unit in job["sentences"])
     with zipfile.ZipFile(job["output_path"]) as archive:
         names = archive.namelist()
-        assert sum(1 for name in names if re.fullmatch(r"DAISY 3/audio/chapter-\d{3}/chapter-\d{3}\.mp3", name)) == 8
+        assert sum(1 for name in names if re.fullmatch(r"DAISY 3/audio/chapter-\d{3}\.mp3", name)) == 8
         book = archive.read(next(name for name in names if name.endswith(".xml") and name.count("/") == 1)).decode()
         assert book.count("Aquí finaliza la grabación de El faro de la isla Almendra, De Antonio Pérez.") == 1
         assert "Fin de nota 1." in book
@@ -527,7 +528,7 @@ def test_a_direct_download_has_the_same_structure(offline) -> None:
     with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
         names = archive.namelist()
         status = json.loads(archive.read("DAISY 3/quality-status.json"))
-        assert sum(1 for name in names if re.fullmatch(r"DAISY 3/audio/chapter-\d{3}/chapter-\d{3}\.mp3", name)) == 8
+        assert sum(1 for name in names if re.fullmatch(r"DAISY 3/audio/chapter-\d{3}\.mp3", name)) == 8
         book = archive.read(next(name for name in names if name.endswith(".xml") and name.count("/") == 1)).decode()
     assert status["state"] == "UNVERIFIED"
     assert {check["status"] for check in status["package"]["once_structure"]} == {"passed"}
