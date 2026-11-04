@@ -399,6 +399,70 @@ def test_a_paragraph_that_cannot_be_narrated_does_not_crash_the_job(offline, mon
     assert "Generación técnica" in (Path(job["source_path"]).parent / "quality-report.html").read_text(encoding="utf-8")
 
 
+def test_audio_paid_for_comes_back_from_the_jobs_after_the_cache_is_emptied(offline) -> None:
+    import shutil
+
+    from tools.reseed_cache import reseed
+
+    client = TestClient(main.app)
+    view = _upload(client)
+    first = _produce(client, view["draft"]["draft_id"])
+    narrated, transcribed = len(offline["tts"]), len(offline["asr"])
+    shutil.rmtree(main.audio_cache.root)
+
+    assert reseed(dry_run=True)["linked"] == len(first["sentences"])
+    assert not main.audio_cache.root.exists()  # a dry run changes nothing
+    counts = reseed()
+    assert counts["linked"] + counts["already_cached"] == len(first["sentences"]) and counts["skipped"] == 0
+
+    # The whole book again: nothing to narrate and nothing to transcribe.
+    second = _produce(client, view["draft"]["draft_id"])
+    assert len(offline["tts"]) == narrated and len(offline["asr"]) == transcribed
+    assert all(unit["state"] == "verified" for unit in second["sentences"])
+    # Running it again adds nothing.
+    assert reseed()["linked"] == 0
+
+
+def test_verified_audio_replaces_a_reading_nobody_verified_but_not_the_other_way(offline) -> None:
+    from tools.reseed_cache import reseed
+
+    client = TestClient(main.app)
+    view = _upload(client)
+    job = _produce(client, view["draft"]["draft_id"])
+    unit = job["sentences"][0]
+    key = main.narration_cache_key(unit["synthesis_text"], job["voice_speed"], job["voice_id"])
+    cached = main.audio_cache.path_for(key)
+    accepted = (Path(job["source_path"]).parent / unit["audio_path"]).read_bytes()
+
+    # A later retake overwrote the entry, and its verdict no longer applies.
+    cached.unlink()
+    cached.with_suffix(".qa.json").unlink()
+    cached.write_bytes(accepted + b"retake that failed review")
+    assert reseed()["replaced"] == 1
+    assert cached.read_bytes() == accepted and cached.with_suffix(".qa.json").is_file()
+
+    # An entry with its own verdict stands, even if another job has other audio.
+    verdict = cached.with_suffix(".qa.json").read_bytes()
+    cached.unlink()
+    cached.write_bytes(accepted + b"a reading that was verified")
+    assert reseed()["replaced"] == 0
+    assert cached.read_bytes().endswith(b"verified") and cached.with_suffix(".qa.json").read_bytes() == verdict
+
+
+def test_audio_from_another_model_is_not_taken_for_the_current_one(offline, monkeypatch) -> None:
+    import shutil
+
+    from tools.reseed_cache import reseed
+
+    client = TestClient(main.app)
+    view = _upload(client)
+    first = _produce(client, view["draft"]["draft_id"])
+    shutil.rmtree(main.audio_cache.root)
+    monkeypatch.setattr(main, "tts_model_for", lambda provider: "another-model")
+    counts = reseed()
+    assert counts["linked"] == 0 and counts["skipped"] == len(first["sentences"])
+
+
 def test_job_audio_files_share_the_cached_bytes_instead_of_copying_them(offline) -> None:
     client = TestClient(main.app)
     view = _upload(client)
