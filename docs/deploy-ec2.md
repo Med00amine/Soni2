@@ -110,6 +110,47 @@ cd ~/Soni2 && git pull && docker compose up -d --build
 The `soni2-data` volume survives, so finished jobs **and the narration cache**
 are kept — unchanged text is not paid for again.
 
+## The current server: too small for a full build
+
+The server is a t3.micro with an 8 GB disk that it shares with another project, so
+a normal `docker compose up -d --build` does not fit. Deploy like this instead:
+
+```bash
+# On your own machine: the frontend is built here.
+cd frontend && npm run build
+tar -czf dist.tgz -C dist .
+ssh -i "D:\Downloads\Soni2.pem" ec2-user@16.171.35.105 \
+  'cd ~/soni2-frontend-prebuilt && rm -rf dist.previous && mv dist dist.previous && mkdir dist && tar -xzf - -C dist' < dist.tgz
+
+# On the server: the code comes from GitHub, never the other way round.
+cd ~/Soni2
+git fetch origin <branch> && git checkout -B <branch> FETCH_HEAD
+cp frontend/nginx.conf ~/soni2-frontend-prebuilt/nginx.conf
+~/soni2-deploy.sh
+```
+
+`soni2-deploy.sh` lays the new `backend/app` over the image tagged
+`soni2-backend:base`, and refuses to run if `backend/Dockerfile` or
+`backend/requirements.txt` have changed, because then a full build is needed.
+
+* **Do not run `docker system prune`.** It removes `soni2-backend:base`, which the
+  script needs, and it once removed the other project's image. Remove images by name.
+* **To roll back:** `git checkout <previous commit>`, restore `dist.previous` as
+  `dist`, and run `~/soni2-deploy.sh`.
+* **The narration pauses are read from `.env`:** `AUDIO_PARAGRAPH_GAP_MS` and
+  `AUDIO_CHAPTER_GAP_MS` there override the defaults.
+
+**Never empty `/data/audio-cache` to free disk.** It is what stops you paying twice.
+If it does get emptied, this rebuilds it from the job folders, at no cost:
+
+```bash
+docker cp backend/tools/reseed_cache.py soni2-backend-1:/tmp/reseed.py
+docker exec -w /app -e PYTHONPATH=/app soni2-backend-1 python /tmp/reseed.py --dry-run
+docker exec -w /app -e PYTHONPATH=/app soni2-backend-1 python /tmp/reseed.py
+```
+
+See [cloud-architecture.md](cloud-architecture.md) for where to go from here.
+
 ## Common failures
 
 | Symptom | Cause | Fix |
@@ -119,6 +160,8 @@ are kept — unchanged text is not paid for again.
 | `tts_configured: false` | `.env` missing or key empty | Create `.env`, then `docker compose up -d` |
 | Build killed, exit 137 | Out of memory | Larger instance, or add swap as above |
 | Upload fails on a big book | Body limit | Raise `client_max_body_size` in `frontend/nginx.conf` and `MAX_UPLOAD_SIZE_MB` |
+| Job fails with `No space left on device` | The disk is full: assembling a 2-hour book needs about 500 MB | Enlarge the EBS volume. The audio already narrated is kept, and `POST /api/jobs/{id}/resume` continues from it |
+| Paragraphs fail with `credit` | ElevenLabs balance or key quota is used up | Raise it, then resume the job: nothing narrated is paid for again |
 | Download stops part way | A proxy timeout in front of nginx | nginx itself allows an hour; check any load balancer |
 
 ## Local development
