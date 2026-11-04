@@ -53,12 +53,13 @@ def test_multichapter_package_has_matching_text_audio_navigation_and_metadata(tm
     levels = dtbook.findall(f".//{DTBOOK}level1")
     assert [level.find(f"{DTBOOK}h1").text for level in levels] == ["Introducción", "Datos bibliográficos", "Capitulo uno", "Capitulo dos"]
     assert len(list(package.glob("smil/*.smil"))) == 4
-    # Flat audio/ holds only the two front-matter files: there is no per-paragraph
-    # MP3, and each chapter's audio lives once in its own directory.
-    assert sorted(path.name for path in package.glob("audio/*.mp3")) == ["biblio.mp3", "intro.mp3"]
-    assert (package / "audio/chapter-001/chapter-001.mp3").read_bytes() == b"audio-1audio-2"
-    assert (package / "audio/chapter-002/chapter-002.mp3").read_bytes() == b"audio-3"
-    assert not list(package.glob("audio/chapter-0*.mp3"))
+    # audio/ holds the two front-matter files and one file per chapter, side by
+    # side: there is no per-paragraph MP3 and no folder per chapter.
+    assert sorted(path.name for path in package.glob("audio/*.mp3")) == [
+        "biblio.mp3", "chapter-001.mp3", "chapter-002.mp3", "intro.mp3"]
+    assert (package / "audio/chapter-001.mp3").read_bytes() == b"audio-1audio-2"
+    assert (package / "audio/chapter-002.mp3").read_bytes() == b"audio-3"
+    assert not [path for path in (package / "audio").rglob("*") if path.is_dir()]
 
     smil_par_ids = set()
     for smil_path in package.glob("smil/*.smil"):
@@ -90,7 +91,7 @@ def test_multichapter_package_has_matching_text_audio_navigation_and_metadata(tm
     validate_daisy_package(package)
 
 
-def test_chapter_audio_folders_and_full_audiobook_preserve_order_without_front_matter(tmp_path):
+def test_flat_chapter_audio_and_full_audiobook_preserve_order_without_front_matter(tmp_path):
     chapters = [
         ("Capitulo uno", ["Uno. Dos.", "Tres."]),
         ("Capitulo dos", ["Cuatro."]),
@@ -101,8 +102,8 @@ def test_chapter_audio_folders_and_full_audiobook_preserve_order_without_front_m
         tmp_path / "ordered", chapters=chapters,
     )
 
-    assert (package / "audio/chapter-001/chapter-001.mp3").read_bytes() == b"audio-1audio-2"
-    assert (package / "audio/chapter-002/chapter-002.mp3").read_bytes() == b"audio-3"
+    assert (package / "audio/chapter-001.mp3").read_bytes() == b"audio-1audio-2"
+    assert (package / "audio/chapter-002.mp3").read_bytes() == b"audio-3"
     assert (package / "Libro_de_orden.mp3").read_bytes() == b"audio-1audio-2audio-3"
     # Only the chapter files and the full book: no per-paragraph segments.
     assert not list(package.rglob("segment-*.mp3"))
@@ -127,7 +128,7 @@ def test_spoken_chapter_title_is_synchronized_to_dtbook_heading(tmp_path):
     heading_par = smil.find(f".//{SMIL}par[@id='par-heading-0001']")
     # The heading is the first stretch of the chapter's own audio file.
     heading_audio = heading_par.find(f"{SMIL}audio").attrib
-    assert heading_audio["src"] == "../audio/chapter-001/chapter-001.mp3"
+    assert heading_audio["src"] == "../audio/chapter-001.mp3"
     assert heading_audio["clipBegin"] == "0:00:00.000"
     assert len(smil.findall(f".//{SMIL}par")) == 2
 
@@ -156,15 +157,15 @@ def test_each_paragraph_plays_its_own_stretch_of_the_chapter_audio(tmp_path):
     frame = 1152 / 44100
     smil = ET.parse(package / "smil/chapter-0001.smil").getroot()
     audio = [par.find(f"{SMIL}audio").attrib for par in smil.findall(f".//{SMIL}par")]
-    assert {item["src"] for item in audio} == {"../audio/chapter-001/chapter-001.mp3"}
+    assert {item["src"] for item in audio} == {"../audio/chapter-001.mp3"}
     # Consecutive, gapless clips: each begins where the previous one ended.
     assert [(item["clipBegin"], item["clipEnd"]) for item in audio] == [
         ("0:00:00.000", "0:00:00.261"), ("0:00:00.261", "0:00:00.784"), ("0:00:00.784", "0:00:01.567"),
     ]
     # The next chapter starts again at zero in its own file.
     second = ET.parse(package / "smil/chapter-0002.smil").getroot().find(f".//{SMIL}audio").attrib
-    assert second["src"] == "../audio/chapter-002/chapter-002.mp3" and second["clipBegin"] == "0:00:00.000"
-    assert clips[2][0] == "chapter-001/chapter-001.mp3"
+    assert second["src"] == "../audio/chapter-002.mp3" and second["clipBegin"] == "0:00:00.000"
+    assert clips[2][0] == "chapter-001.mp3"
     assert clips[2][1:] == pytest.approx((30 * frame, 60 * frame))
     opf = ET.parse(package / "El_faro.opf").getroot()
     total = opf.find(f".//{OPF}meta[@name='dtb:totalTime']").attrib["content"]
@@ -253,7 +254,7 @@ def test_pdf_derived_page_sections_create_page_navigation(tmp_path):
 
 def test_validator_rejects_missing_manifest_file(tmp_path):
     package = build_daisy_package("Libro", ["Un párrafo."], [b"audio"], tmp_path / "invalid")
-    (package / "audio/chapter-001/chapter-001.mp3").unlink()
+    (package / "audio/chapter-001.mp3").unlink()
     try:
         validate_daisy_package(package)
     except ValueError as error:
@@ -347,7 +348,7 @@ def test_package_api_creates_full_multichapter_zip_without_external_tts(monkeypa
         assert all(name.startswith("DAISY 3/") for name in archive.namelist())
         base = "Libro_integrado"
         assert {f"{base}.xml", f"{base}.ncx", f"{base}.opf", f"{base}.res", f"{base}.mp3"} <= names
-        assert {"audio/chapter-001/chapter-001.mp3", "audio/chapter-002/chapter-002.mp3",
+        assert {"audio/chapter-001.mp3", "audio/chapter-002.mp3",
                 "audio/intro-confirmed.mp3", "audio/bibliography-confirmed.mp3"} <= names
         assert not any("segment-" in name for name in names)
         assert {"smil/chapter-0001.smil", "smil/chapter-0002.smil"} <= names
@@ -357,7 +358,7 @@ def test_package_api_creates_full_multichapter_zip_without_external_tts(monkeypa
         # The corrected paragraph's audio is part of its chapter file.
         # The corrected paragraph is in the chapter audio: its text travels in
         # the mock provider's tag, which a plain byte join preserves.
-        assert b"Texto dos corregido." in archive.read("DAISY 3/audio/chapter-001/chapter-001.mp3")
+        assert b"Texto dos corregido." in archive.read("DAISY 3/audio/chapter-001.mp3")
 
 
 def test_one_voices_clips_are_joined_by_copying_and_anything_else_is_re_encoded(monkeypatch):

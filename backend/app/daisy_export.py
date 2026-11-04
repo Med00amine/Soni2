@@ -370,14 +370,21 @@ def build_daisy_package(
     mastering: audio_master.MasteringOptions | None = None,
     layout: list[dict] | None = None,
     identifiers: list[tuple[str, str]] | None = None,
+    segment_texts: list[str] | None = None,
+    segment_continues: list[bool] | None = None,
 ) -> Path:
     """Write a DAISY 3 package whose files carry the book's own name.
 
-    Audio lives once per chapter, in ``audio/chapter-NNN/chapter-NNN.mp3``;
-    each paragraph's SMIL entry points at its stretch of that file with
-    clipBegin/clipEnd rather than at a separate per-paragraph MP3. When
-    ``clips_out`` is given it receives, for every segment in order, the
-    package-relative chapter audio path and the clip's start and end seconds.
+    Audio lives once per chapter, directly in ``audio/``: ``audio/chapter-001.mp3``,
+    ``audio/chapter-002.mp3``…; each paragraph's SMIL entry points at its
+    stretch of that file with clipBegin/clipEnd rather than at a separate
+    per-paragraph MP3. When ``clips_out`` is given it receives, for every
+    segment in order, the path of its chapter file relative to ``audio/`` and
+    the clip's start and end seconds.
+
+    ``segment_texts`` (what each segment says) and ``segment_continues``
+    (segment ``i + 1`` carries on the same paragraph) let mastering place the
+    pauses inside and between paragraphs when the chapters are built here.
 
     ``layout`` (one entry per chapter) gives the ONCE structure: each entry's
     ``kind`` and ``level``, and for every paragraph its ``role`` ("heading",
@@ -414,21 +421,26 @@ def build_daisy_package(
         if Path(filename).name != filename or Path(filename).suffix.lower() != ".mp3" or filename in front_names:
             raise ValueError("Front-matter audio filenames must be unique MP3 filenames without directories.")
         front_names.append(filename)
-    chapter_folder_names = [f"chapter-{index:03d}" for index in range(1, len(chapters) + 1)]
-    # One final audio file per chapter, inside that chapter's own directory.
-    # Earlier revisions wrote each chapter three times and each segment twice;
-    # every byte of audio now has exactly one home in the package.
-    chapter_audio_paths = [f"{name}/{name}.mp3" for name in chapter_folder_names]
+    # One final audio file per chapter, all side by side in audio/, in reading
+    # order: chapter-001.mp3, chapter-002.mp3… Earlier revisions wrote each
+    # chapter three times and each segment twice, then gave every chapter a
+    # folder of its own; every byte of audio now has exactly one home, and a
+    # player or a person finds all the chapters in one place.
+    chapter_audio_paths = [f"chapter-{index:03d}.mp3" for index in range(1, len(chapters) + 1)]
     if chapter_audio is not None and len(chapter_audio) != len(chapters):
         raise ValueError("Chapter audio count does not match chapter count.")
-    if set(front_names).intersection(f"{name}.mp3" for name in chapter_folder_names):
+    if set(front_names).intersection(chapter_audio_paths):
         raise ValueError("Front-matter audio filenames cannot reuse chapter audio filenames.")
+    if len(set(chapter_audio_paths)) != len(chapter_audio_paths):
+        raise ValueError("Two chapters cannot share one audio file name.")
+    if segment_texts is not None and len(segment_texts) != len(audio_segments):
+        raise ValueError("Every segment needs its text to place its pauses.")
     chapter_audio_contents: list[bytes] = []
     # (chapter audio path, clip start, clip end) for every segment, in order.
     segment_clips: list[tuple[str, float, float]] = []
     segment_offset = 0
-    for chapter_index, (relative_path, folder_name, (_chapter_title, chapter_body)) in enumerate(
-        zip(chapter_audio_paths, chapter_folder_names, chapters, strict=True)
+    for chapter_index, (relative_path, (_chapter_title, chapter_body)) in enumerate(
+        zip(chapter_audio_paths, chapters, strict=True)
     ):
         count = len(chapter_body)
         chapter_segments = audio_segments[segment_offset:segment_offset + count]
@@ -440,16 +452,18 @@ def build_daisy_package(
         elif mastering is not None and mastering.active:
             # Trimmed, paced and levelled, with the real position of every
             # paragraph measured rather than estimated.
-            mastered = audio_master.master_chapter(chapter_segments, mastering)
+            texts = (segment_texts[segment_offset:segment_offset + count]
+                     if segment_texts is not None else None)
+            continues = (segment_continues[segment_offset:segment_offset + count]
+                         if segment_continues is not None else None)
+            mastered = audio_master.master_chapter(chapter_segments, mastering, texts=texts, continues=continues)
             audio_content = mastered.audio
             clips = mastered.clips or measure_segment_clips(chapter_segments, audio_content)
         else:
             audio_content = _join_mp3(chapter_segments, use_ffmpeg=use_ffmpeg)
             clips = measure_segment_clips(chapter_segments, audio_content)
         chapter_audio_contents.append(audio_content)
-        chapter_file = output_dir / "audio" / relative_path
-        chapter_file.parent.mkdir(parents=True, exist_ok=True)
-        chapter_file.write_bytes(audio_content)
+        (output_dir / "audio" / relative_path).write_bytes(audio_content)
         segment_clips.extend((relative_path, begin, end) for begin, end in clips)
         segment_offset += count
     for filename, (_label, _text, audio, _configured_name) in zip(front_names, front_matter, strict=True):

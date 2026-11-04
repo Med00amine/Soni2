@@ -113,8 +113,8 @@ def test_delivery_has_one_copy_of_each_audio_artifact(offline) -> None:
     assert base != "book"
     assert f"DAISY 3/{base}.xml" in names
     assert f"DAISY 3/{base}.mp3" in names
-    assert "DAISY 3/audio/chapter-001/chapter-001.mp3" in names
-    assert "DAISY 3/audio/chapter-002/chapter-002.mp3" in names
+    assert "DAISY 3/audio/chapter-001.mp3" in names
+    assert "DAISY 3/audio/chapter-002.mp3" in names
     assert "DAISY 3/smil/chapter-0001.smil" in names
     # Logs end in .log; the JSON Lines twin of job.log is not delivered.
     assert {"job.log", "tts.log", "review-decisions.log", "quality-report.html", "quality-report.json",
@@ -124,8 +124,8 @@ def test_delivery_has_one_copy_of_each_audio_artifact(offline) -> None:
 
     # Audio is delivered once per chapter plus the full book, nothing else.
     audio = sorted(name for name in names if name.startswith("DAISY 3/") and name.endswith(".mp3"))
-    assert audio == ["DAISY 3/audio/chapter-001/chapter-001.mp3",
-                     "DAISY 3/audio/chapter-002/chapter-002.mp3", f"DAISY 3/{base}.mp3"]
+    assert audio == ["DAISY 3/audio/chapter-001.mp3",
+                     "DAISY 3/audio/chapter-002.mp3", f"DAISY 3/{base}.mp3"]
 
 
 def _package_base(names: set[str]) -> str:
@@ -562,7 +562,7 @@ def test_a_direct_download_narrates_several_paragraphs_at_once_in_order(slow_voi
     # Several requests overlapped, and never more than the provider's limit.
     assert 1 < slow_voice["peak"] <= main.narration_concurrency()
     with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
-        chapter = archive.read("DAISY 3/audio/chapter-001/chapter-001.mp3")
+        chapter = archive.read("DAISY 3/audio/chapter-001.mp3")
     # Finishing out of order must not reorder the book.
     positions = [chapter.index(f"Marca {index:02d}".encode()) for index in range(20)]
     assert positions == sorted(positions)
