@@ -1,5 +1,10 @@
 # Soni2 — providers, cost control, output layout, logs and reports
 
+> **2026-11-05:** a paragraph ends with a second of silence and short pauses at
+> punctuation are lengthened; step 2 edits phrases and chapters and saves them
+> on the server; producing an edited book pays only for what changed; chapter
+> MP3s sit directly in `audio/`. See [editing-and-cost.md](editing-and-cost.md).
+
 > **2026-10-28:** books can be produced with the **ONCE structure** (initial
 > files 1–3 from a planilla, chapters and level-2 subchapters each in their own
 > MP3, silent page markers, "Nota N." … "Fin de nota N.", the closing phrase),
@@ -348,7 +353,8 @@ crossing. `app/audio_master.py` fixes all three, and each one is measured.
 | Step | What it does | Measured on real narration |
 |---|---|---|
 | Trim | Removes silence from both ends of every passage | 11.59s chapter → 10.08s; 1.5s of dead air gone |
-| Pace | Puts a chosen pause back: `AUDIO_PARAGRAPH_GAP_MS` between paragraphs, `AUDIO_CHAPTER_GAP_MS` between chapters | paragraph clips end 4.90s and the next starts 5.25s — exactly 350 ms |
+| Pace | Puts a chosen pause back: `AUDIO_PARAGRAPH_GAP_MS` between paragraphs (1000 ms; the sentence pause between parts of one paragraph), `AUDIO_CHAPTER_GAP_MS` between chapters (2000 ms) | gaps between paragraph clips measured at 1.000 s on real narration |
+| Natural pauses | Lengthens the pauses the voice made at punctuation to `AUDIO_SENTENCE_PAUSE_MS`, `AUDIO_CLAUSE_PAUSE_MS`, `AUDIO_COMMA_PAUSE_MS`; see [editing-and-cost.md](editing-and-cost.md) | 107 of 108 marks matched a pause the voice had made; 0.7% silence added |
 | Level | One two-pass EBU R128 correction per chapter to `AUDIO_TARGET_LUFS` | two chapters at −17.8 and −18.0 LUFS against a −18 target |
 
 Levelling matters most for a listener who cannot see a volume slider: passages
@@ -398,8 +404,8 @@ DAISY 3/
   <Book_Name>.res                   resource labels
   <Book_Name>.mp3                   the complete audiobook, one copy
   audio/
-    chapter-001/chapter-001.mp3     final audio for chapter 1
-    chapter-002/chapter-002.mp3     final audio for chapter 2
+    chapter-001.mp3                 final audio for chapter 1
+    chapter-002.mp3                 final audio for chapter 2
   smil/
     chapter-0001.smil …             text/audio synchronization (clipBegin/clipEnd)
 quality-report.html                 the readable report

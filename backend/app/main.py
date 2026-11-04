@@ -1676,7 +1676,8 @@ async def _assemble_job_delivery(job_id: str) -> None:
     # Audio is stored rather than deflated: MP3 does not compress, and
     # deflating a book-sized delivery cost minutes for about 2% of size.
     with zipfile.ZipFile(staging, "w") as archive:
-        for path in package.rglob("*"):
+        # Sorted: the file system's order is arbitrary, and chapters are listed in order.
+        for path in sorted(package.rglob("*")):
             if path.is_file():
                 add_to_archive(archive, path, "DAISY 3/" + path.relative_to(package).as_posix())
         # job.log is the readable history; its JSON Lines twin stays in the
@@ -3747,7 +3748,8 @@ async def _build_direct_package(
 
 def _zip_package(package_dir: Path, archive_path: Path) -> None:
     with zipfile.ZipFile(archive_path, "w") as archive:
-        for path in package_dir.rglob("*"):
+        # Sorted: the file system's order is arbitrary, and chapters are listed in order.
+        for path in sorted(package_dir.rglob("*")):
             if path.is_file():
                 # Same layout as the reviewed delivery: the package lives in "DAISY 3/".
                 add_to_archive(archive, path, "DAISY 3/" + path.relative_to(package_dir).as_posix())

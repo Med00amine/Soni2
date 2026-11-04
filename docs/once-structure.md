@@ -100,7 +100,7 @@ it writes exactly what it wrote before.
 * Files 1–3 are `level1` sections in the DTBook **front matter** (classes
   `once-title`, `once-bibliographic`, `once-index`); chapters are `level1` in
   the body; subchapters are `level2` inside their chapter, with `h2`.
-* One SMIL file and one MP3 per section (`audio/chapter-NNN/chapter-NNN.mp3`):
+* One SMIL file and one MP3 per section (`audio/chapter-NNN.mp3`):
   ARCHIVO N of the planilla is `chapter-00N`.
 * **Silent page markers**: `pagenum` with a SMIL `par` that has text and no
   audio, `customTest="pagenum"` (default: skipped), listed in the NCX
