@@ -365,6 +365,27 @@ def test_a_reviewer_acceptance_is_remembered_for_the_next_production(offline, mo
     assert again["state"] == "verified" and again["verification"] == "human"
 
 
+def test_a_paragraph_that_cannot_be_narrated_does_not_crash_the_job(offline, monkeypatch) -> None:
+    """A technical failure used to crash the report, and with it the whole job."""
+    client = TestClient(main.app)
+    view = _upload(client)
+    real = main.synthesize
+
+    async def fails_once(text, voice_speed=1.0, voice_id="", **kwargs):
+        if "Segundo capítulo, primer" in text:
+            raise providers.ProviderError("credit", "Sin saldo.", permanent=True)
+        return await real(text, voice_speed, voice_id, **kwargs)
+
+    monkeypatch.setattr(main, "synthesize", fails_once)
+    response = client.post("/api/books/jobs", data={"draft_id": view["draft"]["draft_id"]})
+    job_id = response.json()["job_id"]
+    asyncio.run(main.run_production_job(job_id))
+    job = job_store.get_job(main.database_path, job_id)
+    assert job["state"] == "partially_completed", job["error"]
+    assert [unit["state"] for unit in job["sentences"]].count("failed") == 1
+    assert "Generación técnica" in (Path(job["source_path"]).parent / "quality-report.html").read_text(encoding="utf-8")
+
+
 def test_job_audio_files_share_the_cached_bytes_instead_of_copying_them(offline) -> None:
     client = TestClient(main.app)
     view = _upload(client)
