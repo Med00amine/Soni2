@@ -36,6 +36,7 @@ const finishedJob = {
 
 let requests: { url: string; init?: RequestInit }[]
 let failSaves = false
+let refuseEmpty = false
 
 function json(body: unknown, status = 200) {
   return { ok: status < 400, status, json: async () => body, text: async () => JSON.stringify(body), blob: async () => new Blob() }
@@ -49,6 +50,9 @@ function stub() {
     if (url.endsWith('/api/capabilities')) return json(capabilities)
     if (url.includes('/api/drafts')) {
       if (failSaves && init?.method === 'PUT') return json({ detail: 'Disco lleno.' }, 500)
+      if (refuseEmpty && init?.method === 'PUT' && Object.keys((JSON.parse(String(init.body)).state.edits).slots).length === 2) {
+        return json({ detail: 'Has eliminado todo el contenido del libro: no queda nada que narrar.' }, 422)
+      }
       const body = draftResponse(url, init, structure, { chapters, title: 'Libro' })
       return body ? json(body) : json({ detail: 'No existe.' }, 404)
     }
@@ -117,6 +121,7 @@ beforeEach(() => {
   window.localStorage.clear()
   forgetDraft()
   failSaves = false
+  refuseEmpty = false
   vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} }))
   stub()
 })
@@ -192,6 +197,27 @@ describe('changing the phrases of a chapter', () => {
     await click('Eliminar la frase 1')
     await click('Eliminar la frase')
     expect(document.querySelector('.ed-save')?.textContent).toContain('No se han guardado los cambios: Disco lleno.')
+  })
+})
+
+describe('deleting too much', () => {
+  it('keeps the book on screen, explains why, and lets the change be undone', async () => {
+    await openEditor()
+    await click('Eliminar la frase 1')
+    await click('Eliminar la frase')
+    refuseEmpty = true
+    await click('Eliminar la frase 1')
+    await click('Eliminar la frase')
+    expect(document.querySelector('.ed-save')?.textContent).toContain('no queda nada que narrar')
+    expect(phrases()).toEqual(['Frase B.', 'Frase C.'])
+    // A further change waits: the refused one must be taken back first.
+    await click('Deshacer')
+    expect(document.querySelector('.ed-save')?.textContent).toContain('Cambios guardados')
+    refuseEmpty = false
+    await click('Eliminar la frase 1')
+    await click('Eliminar la frase')
+    expect(phrases()).toEqual(['Frase C.'])
+    expect(savedEdits().slots).toEqual({ 'section-1:0': [], 'section-1:1': [] })
   })
 })
 

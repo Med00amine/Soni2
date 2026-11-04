@@ -46,6 +46,10 @@ MAX_UNIT_CHARACTERS = 20000
 _SLOT = re.compile(r"(?P<section>[A-Za-z0-9_.-]+):(?P<paragraph>-1|\d+)(?P<insert>\+?)")
 
 
+class NothingLeft(ValueError):
+    """The edits delete everything selected: there would be no book to narrate."""
+
+
 @dataclass
 class BookEdits:
     slots: dict[str, list[str] | str] = field(default_factory=dict)
@@ -213,5 +217,5 @@ def apply(chapters: list, edits: BookEdits, provenance: list[tuple[dict, list[di
         result_provenance.append(({**title_origin, "section_id": section, "title_deleted":
                                    section in edits.deleted_titles}, records))
     if chapters and not result:
-        raise ValueError("Has eliminado todo el contenido del libro: no queda nada que narrar.")
+        raise NothingLeft("Has eliminado todo el contenido del libro: no queda nada que narrar.")
     return result, (result_provenance if provenance is not None else None)

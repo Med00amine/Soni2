@@ -3289,11 +3289,21 @@ async def save_book_draft(draft_id: str, update: DraftUpdate) -> dict[str, objec
         # The edits and the selection must belong to this book as it is read
         # with these pages; a state that could not be produced is not saved.
         candidate = _draft_book_inputs({**stored, "state": state})
-        plan = build_narration_plan(plan_input(parse_inputs(candidate)))
+        structure = parse_inputs(candidate)
+        plan = build_narration_plan(plan_input(structure))
         book_edits.validate_against(book_edits.parse(candidate.edits_json),
                                     {section.id: len(section.paragraphs) for section in plan})
         if not set(state.get("selected_ids") or []) <= {section.id for section in plan}:
             raise ValueError("La selección corresponde a otra versión del libro. Vuelve a generar el esquema.")
+        # A book with nothing left has no outline to show, and so no way back:
+        # the change is refused, and the page keeps the book and its undo.
+        if state.get("selected_ids") != []:
+            try:
+                _book_outline(structure, candidate)
+            except book_edits.NothingLeft:
+                raise
+            except ValueError:
+                pass  # a planilla in the middle of being filled in; the outline says why
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:

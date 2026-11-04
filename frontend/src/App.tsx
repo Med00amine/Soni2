@@ -597,7 +597,14 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (!draftId || draftSignature === savedSignature.current || draftSignature === attemptedSignature.current) return
+    if (draftId && draftSignature === savedSignature.current) {
+      // Back to what the server holds (an undo after a refused change): nothing is pending.
+      attemptedSignature.current = ''
+      setSaveStatus(status => status === 'error' ? 'saved' : status)
+      setSaveError('')
+      return
+    }
+    if (!draftId || draftSignature === attemptedSignature.current) return
     setSaveStatus('saving')
     window.clearTimeout(saveTimer.current)
     saveTimer.current = window.setTimeout(() => void saveDraft(), SAVE_DELAY_MS)
