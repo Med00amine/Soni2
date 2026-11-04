@@ -201,6 +201,14 @@ def test_edits_for_another_version_of_the_book_are_refused_not_dropped(offline) 
     assert client.get(f"/api/drafts/{view['draft']['draft_id']}").json()["draft"]["revision"] == 1
 
 
+def test_leaving_no_section_selected_is_saved_and_explained(offline) -> None:
+    # A normal moment while choosing sections, not an error worth losing.
+    client = TestClient(main.app)
+    view = _upload(client)
+    saved = _save(client, view, selected_ids=[])
+    assert saved["outline"] is None and "Selecciona al menos una sección" in saved["outline_error"]
+
+
 def test_a_missing_draft_says_so(offline) -> None:
     client = TestClient(main.app)
     assert client.get("/api/drafts/does-not-exist").status_code == 404
@@ -214,8 +222,13 @@ def test_deleting_everything_is_refused_with_a_reason(offline) -> None:
              if (unit.get("source") or {}).get("slot")}
     titles = [section["title_source"]["section"] for section in view["outline"]["sections"]
               if section["deletable"]]
-    saved = _save(client, view, edits={"slots": slots, "deleted_titles": titles})
-    assert saved["outline"] is None and "no queda nada que narrar" in saved["outline_error"]
+    state = {**view["draft"]["state"], "edits": {"slots": slots, "deleted_titles": titles}}
+    refused = client.put(f"/api/drafts/{view['draft']['draft_id']}",
+                         json={"state": state, "revision": view["draft"]["revision"]})
+    assert refused.status_code == 422 and "no queda nada que narrar" in refused.json()["detail"]
+    # Nothing was saved: the book is still there to come back to.
+    restored = client.get(f"/api/drafts/{view['draft']['draft_id']}").json()
+    assert restored["draft"]["revision"] == 1 and restored["outline"]
 
 
 # --------------------------------------------------------------------------- #
