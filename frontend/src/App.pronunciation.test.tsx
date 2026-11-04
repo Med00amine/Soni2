@@ -2,6 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import { draftResponse } from './test/draftApi'
 
 let root: Root
 
@@ -60,7 +61,7 @@ function stub(overrides: Record<string, unknown> = {}) {
     calls.push({ url, body: typeof raw === 'string' ? JSON.parse(raw) : undefined })
     if (url.endsWith('/api/capabilities')) return ok(capabilities)
     if (url.endsWith('/api/voices')) return ok(voices)
-    if (url.endsWith('/api/books/structure')) return ok(structure)
+    if (url.includes('/api/drafts')) return ok(draftResponse(url, init, structure))
     if (url.endsWith('/api/books/jobs')) return ok({ job_id: 'job-1', state: 'queued', total_sentences: 1 })
     if (url.includes('/api/jobs/job-1')) return ok(flagged)
     if (url.endsWith('/api/pronunciation/analyse')) return ok(overrides.analyse ?? analysis)

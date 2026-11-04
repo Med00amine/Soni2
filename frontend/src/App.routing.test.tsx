@@ -2,6 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import { draftResponse, forgetDraft, lastSavedState } from './test/draftApi'
 
 let root: Root
 
@@ -24,6 +25,12 @@ function render() {
   act(() => root.render(<App />))
 }
 
+async function settle() {
+  for (let round = 0; round < 4; round += 1) {
+    await act(async () => { await new Promise(resolve => window.setTimeout(resolve, 0)) })
+  }
+}
+
 async function uploadTextBook() {
   const input = document.querySelector<HTMLInputElement>('input[type="file"]')!
   const file = new File(['Capítulo uno. Capítulo dos.'], 'sample.txt', { type: 'text/plain' })
@@ -35,7 +42,8 @@ async function uploadTextBook() {
 beforeEach(() => {
   window.localStorage.clear()
   vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:audio', revokeObjectURL: () => {} }))
-  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+  forgetDraft()
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.endsWith('/api/capabilities')) return response(capabilities)
     if (url.endsWith('/api/voices')) return response({ voices: [
@@ -43,7 +51,7 @@ beforeEach(() => {
       { voice_id: 'fb9d5855f185451983404deb10788ad4', name: 'Isabela', labels: { accent: 'Colombia', gender: 'female' } },
       { voice_id: '3f065d660212478a9c697fa965b4d098', name: 'Carmen', labels: { accent: 'España', gender: 'female' } },
     ] })
-    if (url.endsWith('/api/books/structure')) return response({ sections: [{ id: 'section-1', title: 'Capítulo uno', category: 'main', paragraph_count: 2, included: true, needs_review: false, reason: '' }], selected_ids: ['section-1'] })
+    if (url.includes('/api/drafts')) return response(draftResponse(url, init, { sections: [{ id: 'section-1', title: 'Capítulo uno', paragraph_count: 2 }], selected_ids: ['section-1'] }, { chapters: [{ id: 'section-1', title: 'Capítulo uno', paragraphs: ['Primera frase.', 'Segunda frase.'] }] }))
     if (url.endsWith('/api/books/preview')) return response({
       audio_base64: '', audio_mime_type: 'audio/mpeg', transcript: 'Primera frase.\n\nSegunda frase.',
       chapters: [{ title: 'Capítulo uno', paragraphs: ['Primera frase.', 'Segunda frase.'] }],
@@ -104,10 +112,10 @@ describe('Soni2 audiobook workspace', () => {
 
   it('shows a long book phrase by phrase, keeps corrections and sends them with the production', async () => {
     const paragraphs = Array.from({ length: 115 }, (_, index) => `Párrafo de prueba ${index + 1}.`)
-    vi.mocked(fetch).mockImplementation(async input => {
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
       const url = String(input)
       if (url.endsWith('/api/capabilities')) return response(capabilities) as Response
-      if (url.endsWith('/api/books/structure')) return response({ sections: [{ id: 'section-1', title: 'Capítulo de prueba', category: 'main', paragraph_count: paragraphs.length, included: true, needs_review: false, reason: '' }], selected_ids: ['section-1'] }) as Response
+      if (url.includes('/api/drafts')) return response(draftResponse(url, init, { sections: [{ id: 'section-1', title: 'Capítulo de prueba', paragraph_count: paragraphs.length }], selected_ids: ['section-1'] }, { chapters: [{ id: 'section-1', title: 'Capítulo de prueba', paragraphs }] })) as Response
       if (url.endsWith('/api/books/preview')) return response({
         audio_base64: '', audio_mime_type: 'audio/mpeg', transcript: paragraphs.join('\n\n'),
         chapters: [{ title: 'Capítulo de prueba', paragraphs }], title: 'Libro largo', audio_error: 'Sin audio de muestra.',
@@ -136,17 +144,18 @@ describe('Soni2 audiobook workspace', () => {
     expect(document.querySelector('.export-actions')?.textContent).toContain('Producir con revisión de calidad')
 
     // A phrase is corrected in place, before anything is narrated.
-    const edit = document.querySelector<HTMLButtonElement>('button[aria-label="Corregir el texto de la frase 13"]')!
+    const edit = document.querySelector<HTMLButtonElement>('button[aria-label="Corregir la frase 13"]')!
     await act(async () => edit.click())
-    const currentParagraph = document.querySelector<HTMLTextAreaElement>('#book-paragraph-0-12')!
+    const currentParagraph = document.querySelector<HTMLTextAreaElement>('.ed-edit textarea')!
     expect(currentParagraph.value).toBe('Párrafo de prueba 13.')
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
       setter?.call(currentParagraph, 'Texto corregido de forma persistente.')
       currentParagraph.dispatchEvent(new Event('input', { bubbles: true }))
     })
-    const done = [...document.querySelectorAll<HTMLButtonElement>('.ed-edit button')].find(button => button.textContent === 'Listo')!
+    const done = [...document.querySelectorAll<HTMLButtonElement>('.ed-edit button')].find(button => button.textContent === 'Guardar la corrección')!
     await act(async () => done.click())
+    await settle()
     expect(document.querySelectorAll('#panel-review .ed-phrase')[12].textContent).toContain('Texto corregido de forma persistente.')
 
     // It survives a visit to another step.
@@ -162,17 +171,21 @@ describe('Soni2 audiobook workspace', () => {
     const request = vi.mocked(fetch).mock.calls.find(([url]) => String(url) === '/api/books/jobs')!
     expect(request[1]).toEqual(expect.objectContaining({ method: 'POST', body: expect.any(FormData) }))
     const body = request[1]!.body as FormData
-    expect(JSON.parse(String(body.get('corrections_json')))).toEqual({ '0:12': 'Texto corregido de forma persistente.' })
+    expect(body.get('draft_id')).toBe('draft-1')
+    expect((lastSavedState()?.edits as { slots: Record<string, string[]> }).slots).toEqual({ 'section-1:12': ['Texto corregido de forma persistente.'] })
   })
 
   it('switches chapters without losing edits and keeps export as a separate workspace tab', async () => {
-    vi.mocked(fetch).mockImplementation(async input => {
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
       const url = String(input)
       if (url.endsWith('/api/capabilities')) return response(capabilities) as Response
-      if (url.endsWith('/api/books/structure')) return response({ sections: [
-        { id: 'section-1', title: 'Capítulo primero', category: 'main', paragraph_count: 1, included: true, needs_review: false, reason: '' },
-        { id: 'section-2', title: 'Capítulo segundo', category: 'main', paragraph_count: 1, included: true, needs_review: false, reason: '' },
-      ], selected_ids: ['section-1', 'section-2'] }) as Response
+      if (url.includes('/api/drafts')) return response(draftResponse(url, init, { sections: [
+        { id: 'section-1', title: 'Capítulo primero', paragraph_count: 1 },
+        { id: 'section-2', title: 'Capítulo segundo', paragraph_count: 1 },
+      ], selected_ids: ['section-1', 'section-2'] }, { chapters: [
+        { id: 'section-1', title: 'Capítulo primero', paragraphs: ['Texto del capítulo primero.'] },
+        { id: 'section-2', title: 'Capítulo segundo', paragraphs: ['Texto del capítulo segundo.'] },
+      ] })) as Response
       if (url.endsWith('/api/books/preview')) return response({
         audio_base64: '', audio_mime_type: 'audio/mpeg', transcript: 'Texto del capítulo primero.\n\nTexto del capítulo segundo.',
         chapters: [
@@ -197,15 +210,17 @@ describe('Soni2 audiobook workspace', () => {
     await act(async () => document.querySelector<HTMLElement>('#ed-tree-1')!.click())
     expect(document.querySelector('#ed-section-title')?.textContent).toBe('Capítulo segundo')
     expect(document.querySelector('#ed-tree-1')?.getAttribute('aria-selected')).toBe('true')
-    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Corregir el texto de la frase 1"]')!.click())
-    const secondChapterInput = document.querySelector<HTMLTextAreaElement>('#book-paragraph-1-0')!
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Corregir la frase 1"]')!.click())
+    const secondChapterInput = document.querySelector<HTMLTextAreaElement>('.ed-edit textarea')!
     expect(secondChapterInput.value).toBe('Texto del capítulo segundo.')
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
       setter?.call(secondChapterInput, 'Capítulo segundo editado.')
       secondChapterInput.dispatchEvent(new Event('input', { bubbles: true }))
     })
+    // Moving to another chapter keeps what was typed.
     await act(async () => document.querySelector<HTMLElement>('#ed-tree-0')!.click())
+    await settle()
     await act(async () => document.querySelector<HTMLElement>('#ed-tree-1')!.click())
     expect(phraseTexts()).toEqual(['Capítulo segundo editado.'])
 
