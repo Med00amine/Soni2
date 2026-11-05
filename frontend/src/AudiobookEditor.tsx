@@ -210,6 +210,7 @@ export default function AudiobookEditor(props: AudiobookEditorProps) {
   const sectionIndex = Math.min(selected.section, Math.max(0, sections.length - 1))
   const section = sections[sectionIndex]
   const selectedUnit = section?.units[Math.min(selected.unit, Math.max(0, (section?.units.length ?? 1) - 1))]
+  const sectionDeletable = model?.mode === 'outline' ? Boolean(section?.deletable && props.onDeleteSection) : Boolean(section && !INITIAL_KINDS.has(section.kind))
 
   useEffect(() => {
     if (selected.section >= sections.length && sections.length) setSelected({ section: 0, unit: 0 })
@@ -712,9 +713,10 @@ export default function AudiobookEditor(props: AudiobookEditorProps) {
             </div>
           })}
         </div>}
-        {section && !props.showPlanilla && (model.mode === 'outline' ? section.deletable && props.onDeleteSection : !INITIAL_KINDS.has(section.kind)) && <div className="ed-tree-actions">
+        {section && !props.showPlanilla && <div className="ed-tree-actions">
           {jobRunning && <p>Podrás eliminar capítulos y frases cuando termine la producción.</p>}
-          <button type="button" className="ed-secondary is-danger" disabled={props.editBusy || !canStartDelete}
+          {!sectionDeletable && <p>Este archivo inicial no se puede eliminar. Elige un capítulo de la lista.</p>}
+          <button type="button" className="ed-secondary is-danger" disabled={props.editBusy || !canStartDelete || !sectionDeletable}
             title={`Eliminar «${section.title}»`} onClick={() => askDeleteSection(sectionIndex, section.title)} aria-expanded={confirmSection === sectionIndex}>
             <Trash2 size={15} aria-hidden="true"/>{section.level === 2 ? 'Eliminar subcapítulo' : 'Eliminar capítulo'}</button>
           <small>Seleccionado: {section.title}</small>

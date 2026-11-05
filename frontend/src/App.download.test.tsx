@@ -161,6 +161,24 @@ describe('taking away a finished book', () => {
     expect(document.querySelector('.export-actions')?.textContent).toContain('todavía no está disponible')
   })
 
+  it('keeps following a production through a moment without connection', async () => {
+    jobResponse = finishedJob('PASSED')
+    const real = globalThis.fetch
+    let failures = 1
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/api/jobs/job-1') && failures > 0) {
+        failures -= 1
+        throw new TypeError('Failed to fetch')
+      }
+      return real(input, init)
+    }))
+    await render()
+    await startJob()
+    expect(buttonLabelled('Descargar paquete revisado')).toBeUndefined()
+    await act(async () => { await new Promise(resolve => window.setTimeout(resolve, 2100)) })
+    expect(buttonLabelled('Descargar paquete revisado')).toBeTruthy()
+  })
+
   it('says what to do next beside the buttons when a production fails', async () => {
     jobResponse = ok({ job_id: 'job-1', state: 'failed', source_name: 'libro.txt', total_sentences: 1, progress: { pending: 1 }, sentences: [], error: 'El disco del servidor se ha llenado.' })
     await render()
