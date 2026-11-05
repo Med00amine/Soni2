@@ -338,6 +338,31 @@ describe('producing the edited book', () => {
     expect(document.querySelector('.export-actions')?.textContent).toContain('Descargar paquete revisado')
   })
 
+  it('follows a production of the same text after a reload instead of stopping it', async () => {
+    await openEditor()
+    await click('Eliminar la frase 1')
+    await click('Eliminar la frase')
+    const revision = 1 + savedStates().length
+    rememberJob({ job_id: 'job-1', state: 'running', draft_revision: revision })
+    window.localStorage.setItem('soni2-active-production-job', 'job-1')
+    await reload()
+    expect(requests.some(call => call.url.endsWith('/api/jobs/job-1/cancel'))).toBe(false)
+    expect(window.localStorage.getItem('soni2-active-production-job')).toBe('job-1')
+    expect(document.querySelector('.production-progress')?.textContent).toContain('Producción del audiolibro')
+    expect(document.querySelector('.export-actions')?.textContent).toContain('Descargar paquete revisado')
+  })
+
+  it('stops a production of an earlier text left behind by a reload', async () => {
+    await openEditor()
+    await click('Eliminar la frase 1')
+    await click('Eliminar la frase')
+    rememberJob({ job_id: 'job-1', state: 'running', draft_revision: 1 })
+    window.localStorage.setItem('soni2-active-production-job', 'job-1')
+    await reload()
+    expect(window.localStorage.getItem('soni2-active-production-job')).toBeNull()
+    expect(document.querySelector('.production-progress')).toBeNull()
+  })
+
   it('does not bring back a production of an earlier text', async () => {
     await openEditor()
     await click('Eliminar la frase 1')

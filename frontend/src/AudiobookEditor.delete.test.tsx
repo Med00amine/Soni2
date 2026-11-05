@@ -40,6 +40,14 @@ describe('deleting from step 2', () => {
     expect(document.querySelector('.ed-phrase-main')!.compareDocumentPosition(phrase) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
   })
 
+  it('keeps the chapter button in view on an initial file, disabled, and says why', async () => {
+    const current = model('outline')
+    current.sections[0] = { ...current.sections[0], kind: 'once_title', deletable: false }
+    await render({ onDeleteSection: () => {} }, current)
+    expect(button('Eliminar capítulo').disabled).toBe(true)
+    expect(document.querySelector('.ed-tree-actions')?.textContent).toContain('no se puede eliminar')
+  })
+
   it('shows both buttons during a production, disabled, and says why', async () => {
     await render({ jobState: 'running' }, model('job'))
     expect(button('Eliminar capítulo').disabled).toBe(true)

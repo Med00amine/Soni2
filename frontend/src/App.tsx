@@ -461,16 +461,16 @@ export default function App() {
       .catch(() => undefined)
   }, [])
 
-  // Every visit starts with an empty workspace. A production run left behind by
-  // a closed or reloaded page is stopped rather than restored, so it neither
-  // reappears in the Export step nor keeps narrating (and spending) unseen.
+  // A production run nobody can follow any more is stopped, so it does not keep
+  // narrating (and spending) unseen. A reload of the same book follows it instead:
+  // the restore below decides.
   useEffect(() => {
     // The same goes for a direct download the previous visit was waiting for.
     const taskId = window.localStorage.getItem(PACKAGE_TASK_KEY)
     window.localStorage.removeItem(PACKAGE_TASK_KEY)
     if (taskId) void cancelPackageTask(taskId)
     const jobId = window.localStorage.getItem('soni2-active-production-job')
-    if (!jobId) return
+    if (!jobId || window.localStorage.getItem(DRAFT_KEY)) return
     window.localStorage.removeItem('soni2-active-production-job')
     // -1 matches no book selection, so a job that no longer exists fails quietly.
     void cancelProductionJob(jobId, -1)
@@ -626,6 +626,12 @@ export default function App() {
     const id = window.localStorage.getItem(DRAFT_KEY)
     if (!id) return
     const selection = bookSelectionVersion.current
+    const leftBehind = window.localStorage.getItem('soni2-active-production-job')
+    const stopLeftBehind = () => {
+      if (!leftBehind) return
+      window.localStorage.removeItem('soni2-active-production-job')
+      void cancelProductionJob(leftBehind, -1)
+    }
     setStructureLoading(true)
     void (async () => {
       try {
@@ -633,6 +639,7 @@ export default function App() {
         const body = await response.json().catch(() => ({})) as DraftView
         if (bookSelectionVersion.current !== selection) return
         if (response.status === 404) {
+          stopLeftBehind()
           window.localStorage.removeItem(DRAFT_KEY)
           window.localStorage.removeItem(TAB_KEY)
           setMessage('El libro que estabas preparando ya no está guardado. Vuelve a subirlo para seguir.')
@@ -644,6 +651,19 @@ export default function App() {
         setWorkspaceTab(tab === 'review' || tab === 'export' ? tab : 'upload')
         setMessage('Hemos recuperado el libro que estabas preparando, con todos tus cambios.')
         const last = body.draft.last_job
+        const stillRunning = Boolean(last && last.job_id === leftBehind && ['queued', 'running'].includes(last.state)
+          && last.draft_revision === body.draft.revision)
+        if (!stillRunning) stopLeftBehind()
+        if (stillRunning && last) {
+          // Reloading only reconnects to the production of this same text.
+          activeProductionJobId.current = last.job_id
+          setProducedSignature(signature)
+          setPackageBusy(true)
+          setMessage('La producción de este libro sigue en marcha. Seguimos su avance.')
+          void watchProductionJob(last.job_id)
+            .catch(error => setMessage(error instanceof Error ? error.message : 'No se pudo consultar el estado de producción.'))
+            .finally(() => { if (bookSelectionVersion.current === selection) setPackageBusy(false) })
+        }
         // A finished production of exactly this text is still valid: its
         // audio and its download stay available without producing again.
         if (last && ['completed', 'partially_completed'].includes(last.state) && last.draft_revision === body.draft.revision) {
@@ -917,9 +937,23 @@ export default function App() {
     }
   }
 
+  // A moment without connection, or the server restarting, is not the end of a
+  // long job: the page keeps asking for two minutes before it gives up.
+  async function pollStatus(url: string) {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        const response = await fetch(url, { cache: 'no-store' })
+        if (response.status < 502 || attempt >= 60) return response
+      } catch (error) {
+        if (attempt >= 60) throw error
+      }
+      await new Promise(resolve => window.setTimeout(resolve, 2000))
+    }
+  }
+
   async function watchPackageTask(taskId: string): Promise<PackageTaskStatus> {
     for (;;) {
-      const response = await fetch(`${API}/api/books/package-tasks/${encodeURIComponent(taskId)}`, { cache: 'no-store' })
+      const response = await pollStatus(`${API}/api/books/package-tasks/${encodeURIComponent(taskId)}`)
       const status = await response.json().catch(() => ({})) as PackageTaskStatus
       if (!response.ok) throw new Error(status.detail || 'No se pudo consultar el avance de la descarga.')
       if (activePackageTaskId.current !== taskId || status.state !== 'running') return status
@@ -986,7 +1020,7 @@ export default function App() {
   async function watchProductionJob(jobId: string, quiet = false) {
     for (let attempt = 0; attempt < 7200; attempt += 1) {
       if (activeProductionJobId.current !== jobId) return
-      const response = await fetch(`${API}/api/jobs/${jobId}`, { cache: 'no-store' })
+      const response = await pollStatus(`${API}/api/jobs/${jobId}`)
       const status = await response.json().catch(() => ({})) as ProductionJob & { detail?: string }
       if (!response.ok) throw new Error(status.detail || 'No se pudo consultar el estado de producción.')
       if (activeProductionJobId.current !== jobId) return
