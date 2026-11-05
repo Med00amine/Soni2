@@ -4,6 +4,7 @@ import base64
 import asyncio
 import copy
 import difflib
+import errno
 import functools
 import hashlib
 import json
@@ -92,6 +93,8 @@ class Settings(BaseSettings):
     # About a second between paragraphs, longer between chapters: the voice's
     # own trailing silence is trimmed, so these are the pauses a listener hears.
     audio_paragraph_gap_ms: int = 1000
+    # Kept free on the data disk: other programs on the machine need it too.
+    min_free_disk_mb: int = 100
     audio_chapter_gap_ms: int = 2000
     # Natural pauses inside a paragraph: the pauses the voice made at each
     # punctuation mark are lengthened to at least these, never shortened, and
@@ -1330,7 +1333,11 @@ async def run_production_job(job_id: str) -> None:
         await _assemble_job_delivery(job_id)
     except Exception as exc:
         logger.exception("Production job %s failed", job_id)
-        detail = f"{type(exc).__name__}: {str(exc)[:300]}"
+        job = job_store.get_job(database_path, job_id)
+        if job:
+            # First of all: the reports below need the room, and so does the machine.
+            _discard_partial_delivery(Path(job["source_path"]).parent, job_id)
+        detail = _failure_detail(exc)
         job_store.update_job(database_path, job_id, state="failed", error=detail, completed_at=job_store.utc_now())
         job_store.add_event(database_path, job_id, "ERROR", "job failed", {"error": detail})
         log.error("job.fail", "job failed", error=detail)
@@ -1338,6 +1345,46 @@ async def run_production_job(job_id: str) -> None:
         compute_release(job_id)
     finally:
         active_jobs.pop(job_id, None)
+        assembly_progress.pop(job_id, None)
+
+
+# Where each job being assembled has got to. Assembling changes no sentence, so
+# without this the page has nothing to show for many minutes and looks frozen.
+assembly_progress: dict[str, dict[str, object]] = {}
+
+# Narrated MP3 per character: 128 kbit/s at the measured 46,881 characters an hour.
+AUDIO_BYTES_PER_CHARACTER = 1230
+
+
+class NotEnoughDisk(RuntimeError):
+    """The book would not fit: said before the work, not after it."""
+
+
+def disk_shortfall(needed_bytes: int) -> int:
+    """How many bytes are missing to write ``needed_bytes`` and leave the reserve free."""
+    reserve = settings.min_free_disk_mb * 1024 * 1024
+    storage_root.mkdir(parents=True, exist_ok=True)
+    return max(0, needed_bytes + reserve - shutil.disk_usage(storage_root).free)
+
+
+def _no_disk_message(shortfall: int) -> str:
+    return (f"No hay espacio en el disco del servidor para este libro: faltan unos {shortfall // (1024 * 1024) + 1} MB. "
+            "Amplía el disco y vuelve a intentarlo. El audio ya narrado se conserva y no se paga otra vez.")
+
+
+def _failure_detail(exc: Exception) -> str:
+    if isinstance(exc, NotEnoughDisk):
+        return str(exc)
+    if isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
+        return ("El disco del servidor se ha llenado al montar el libro. Amplía el disco y reanuda el trabajo. "
+                "El audio ya narrado se conserva y no se paga otra vez.")
+    return f"{type(exc).__name__}: {str(exc)[:300]}"
+
+
+def _discard_partial_delivery(job_dir: Path, job_id: str) -> None:
+    """Remove the half-built package and ZIP. The narration and chapter audio stay for the resume."""
+    shutil.rmtree(job_dir / "delivery" / "daisy", ignore_errors=True)
+    (job_dir / f".{job_id}-once-delivery.zip.building").unlink(missing_ok=True)
 
 
 def _chapter_fingerprint(chapter_title: str, items: list[dict]) -> str:
@@ -1467,10 +1514,20 @@ async def _assemble_job_delivery(job_id: str) -> None:
     packaged_sections: list[dict] = []
     packaged_units: list[list[dict]] = []
 
+    audio_bytes = sum(path.stat().st_size for path in (job_dir / item["audio_path"] for item in job["sentences"] if item["audio_path"])
+                      if path.is_file())
+    built_bytes = sum(path.stat().st_size for path in chapters_dir.glob("*.mp3"))
+    # Each chapter's audio, and then the ZIP, are about as large as the narration.
+    shortfall = disk_shortfall(max(0, audio_bytes - built_bytes) + audio_bytes)
+    if shortfall:
+        raise NotEnoughDisk(_no_disk_message(shortfall))
+    chapters_total = len(chapter_sentences)
+
     for chapter_index, chapter in enumerate(job["chapters"]):
         chapter_items = chapter_sentences.get(chapter_index, [])
         if not chapter_items:
             continue
+        assembly_progress[job_id] = {"stage": "chapters", "done": len(chapters), "total": chapters_total}
         missing = [item["sentence_id"] for item in chapter_items if not item["audio_path"]]
         if missing:
             raise RuntimeError(f"Chapter {chapter_index + 1} has sentences without audio: {missing[:3]}")
@@ -1587,6 +1644,7 @@ async def _assemble_job_delivery(job_id: str) -> None:
              front_matter=len(front_matter), joined_with_ffmpeg=use_ffmpeg)
     clips: list[tuple[str, float, float]] = []
     chapter_starts: list[float] = []
+    assembly_progress[job_id] = {"stage": "package", "done": chapters_total, "total": chapters_total}
     package = await asyncio.to_thread(functools.partial(
         build_daisy_package,
         metadata["title"] or Path(job["source_name"]).stem, [text for _, body in chapters for text in body],
@@ -1946,6 +2004,10 @@ async def create_production_job(
                 "status_url": f"/api/jobs/{existing['job_id']}",
                 "reused_existing_job": True,
                 "detail": "Ya existe un trabajo en curso para este libro y esta voz."}
+    # Before anything is paid for: the narration, its chapters and the ZIP must fit.
+    shortfall = disk_shortfall(3 * AUDIO_BYTES_PER_CHARACTER * sum(len(item["synthesis_text"]) for item in sentences))
+    if shortfall:
+        raise HTTPException(status_code=507, detail=_no_disk_message(shortfall))
     job_id = str(uuid.uuid4())
     job_dir = storage_root / "jobs" / job_id
     job_dir.mkdir(parents=True, exist_ok=False)
@@ -2162,7 +2224,8 @@ async def production_job_status(job_id: str) -> dict[str, object]:
     return {key: job[key] for key in keys} | {
         "voice_name": voice.name if voice else "",
         "voice_language": voice.language if voice else "",
-        "progress": counts, "sentences": job["sentences"], "events": job_store.get_events(database_path, job_id),
+        "progress": counts, "assembly": assembly_progress.get(job_id),
+        "sentences": job["sentences"], "events": job_store.get_events(database_path, job_id),
         "release": compute_release(job_id),
         # Once the book is assembled: every difference as a time in the finished audio.
         "fault_locations": _read_json(Path(job["source_path"]).parent / "fault-locations.json", [])
@@ -3644,6 +3707,9 @@ async def _build_direct_package(
     paragraphs = [paragraph for _, body in chapter_paragraphs for paragraph in body]
     if not paragraphs:
         raise ValueError("No hemos encontrado párrafos que se puedan narrar en este documento.")
+    shortfall = disk_shortfall(3 * AUDIO_BYTES_PER_CHARACTER * sum(len(paragraph) for paragraph in paragraphs))
+    if shortfall:
+        raise ValueError(_no_disk_message(shortfall))
 
     front_matter: list[tuple[str, str, bytes, str]] = []
     values = {

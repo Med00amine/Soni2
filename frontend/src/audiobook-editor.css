@@ -259,7 +259,7 @@
 .ed-page-mark::before, .ed-page-mark::after { content: ""; height: 1px; flex: 1; background: var(--s-line-strong); }
 .ed-phrase {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: start;
   gap: 4px;
   padding: 4px;
@@ -318,7 +318,12 @@
 
 /* Correct, add after, delete: always visible, so a keyboard or screen reader
    user finds them in reading order rather than on hover. */
-.ed-phrase-tools { display: inline-flex; gap: 1px; }
+.ed-phrase-tools, .ed-phrase-lead { display: inline-flex; gap: 1px; }
+.ed-tree-actions { position: sticky; bottom: 0; display: grid; gap: 6px; margin-top: auto; padding: 10px 14px; border-top: 1px solid var(--s-line); background: var(--s-panel); }
+.ed-tree-actions p { margin: 0; color: var(--s-ink-soft); font-size: .76rem; }
+.ed-tree-actions small { overflow: hidden; color: var(--s-ink-soft); text-overflow: ellipsis; white-space: nowrap; }
+.ed-tree-actions .ed-secondary { justify-content: center; }
+.ed-tree-actions .ed-confirm { margin: 0; }
 .ed-phrase-edit.is-danger { color: var(--s-bad); }
 .ed-phrase-edit.is-danger:hover { background: var(--s-bad-soft); }
 .ed-phrase-edit:focus-visible, .ed-danger:focus-visible { outline: 3px solid var(--s-accent); outline-offset: 2px; }

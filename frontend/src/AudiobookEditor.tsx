@@ -196,6 +196,8 @@ export default function AudiobookEditor(props: AudiobookEditorProps) {
   const [draftText, setDraftText] = useState('')
   // The section whose deletion is waiting for a confirmation.
   const [confirmSection, setConfirmSection] = useState<number | null>(null)
+  // A deletion asked for on the produced audio: it is confirmed once the text is open for editing.
+  const [pendingDelete, setPendingDelete] = useState<{ section: string; text?: string } | null>(null)
   const [notice, setNotice] = useState('')
   const [treeFocus, setTreeFocus] = useState(0)
   const [query, setQuery] = useState('')
@@ -203,6 +205,8 @@ export default function AudiobookEditor(props: AudiobookEditorProps) {
   const source = useRef<{ kind: 'final' | 'unit'; section: number; unit: number; url: string } | null>(null)
   const pendingSeek = useRef<number | null>(null)
 
+  const jobRunning = model?.mode === 'job' && ['queued', 'running'].includes(props.jobState ?? '')
+  const canStartDelete = model?.mode === 'outline' || Boolean(props.onEditText)
   const sectionIndex = Math.min(selected.section, Math.max(0, sections.length - 1))
   const section = sections[sectionIndex]
   const selectedUnit = section?.units[Math.min(selected.unit, Math.max(0, (section?.units.length ?? 1) - 1))]
@@ -210,6 +214,27 @@ export default function AudiobookEditor(props: AudiobookEditorProps) {
   useEffect(() => {
     if (selected.section >= sections.length && sections.length) setSelected({ section: 0, unit: 0 })
   }, [sections.length, selected.section])
+
+  // Deleting is always offered where the reader looks for it. On the produced
+  // audio it first opens the text, then asks for the confirmation there.
+  useEffect(() => {
+    if (!pendingDelete || model?.mode !== 'outline') return
+    setPendingDelete(null)
+    const target = sections.findIndex(item => item.title === pendingDelete.section)
+    const found = sections[target]
+    const position = found && pendingDelete.text !== undefined
+      ? found.units.findIndex(unit => unit.text === pendingDelete.text && unit.editable !== false && canEdit(unit)) : -1
+    if (found && pendingDelete.text === undefined && found.deletable) {
+      setSelected({ section: target, unit: 0 })
+      setConfirmSection(target)
+    } else if (position >= 0) {
+      setSelected({ section: target, unit: position })
+      setConfirmSection(null)
+      setPanel({ key: found.units[position].key, kind: 'delete' })
+    } else {
+      setNotice('Esta parte del libro no se puede eliminar.')
+    }
+  }, [pendingDelete, model?.mode, sections])
 
   useEffect(() => { if (audioRef.current) audioRef.current.playbackRate = speed }, [speed])
   useEffect(() => {
@@ -383,6 +408,19 @@ export default function AudiobookEditor(props: AudiobookEditorProps) {
     setPanel({ key: unit.key, kind })
     setDraftText(kind === 'edit' ? editableText(unit) : '')
     setConfirmSection(null)
+  }
+
+  function askDeleteUnit(unit: EditorUnit, title: string) {
+    if (model?.mode === 'outline') return openPanel(unit, 'delete')
+    setPendingDelete({ section: title, text: unit.text })
+    props.onEditText?.()
+  }
+
+  function askDeleteSection(index: number, title: string) {
+    closePanel()
+    if (model?.mode === 'outline') return setConfirmSection(index)
+    setPendingDelete({ section: title })
+    props.onEditText?.()
   }
 
   function closePanel() {
@@ -674,6 +712,27 @@ export default function AudiobookEditor(props: AudiobookEditorProps) {
             </div>
           })}
         </div>}
+        {section && !props.showPlanilla && (model.mode === 'outline' ? section.deletable && props.onDeleteSection : !INITIAL_KINDS.has(section.kind)) && <div className="ed-tree-actions">
+          {jobRunning && <p>Podrás eliminar capítulos y frases cuando termine la producción.</p>}
+          <button type="button" className="ed-secondary is-danger" disabled={props.editBusy || !canStartDelete}
+            title={`Eliminar «${section.title}»`} onClick={() => askDeleteSection(sectionIndex, section.title)} aria-expanded={confirmSection === sectionIndex}>
+            <Trash2 size={15} aria-hidden="true"/>{section.level === 2 ? 'Eliminar subcapítulo' : 'Eliminar capítulo'}</button>
+          <small>Seleccionado: {section.title}</small>
+          {model.mode === 'outline' && confirmSection === sectionIndex && (() => {
+            const family = sectionFamily(sections, sectionIndex)
+            const phrases = family.reduce((sum, index) => sum + sections[index].units.length, 0)
+            return <div className="ed-confirm" role="alertdialog" aria-labelledby="ed-confirm-title" aria-describedby="ed-confirm-text">
+              <p id="ed-confirm-title"><strong>¿Eliminar «{section.title}» del audiolibro?</strong></p>
+              <p id="ed-confirm-text">{family.length > 1 ? `También se quitan sus ${family.length - 1} ${family.length === 2 ? 'subcapítulo' : 'subcapítulos'}. ` : ''}
+                Se quitan {phrases} {phrases === 1 ? 'frase' : 'frases'}. Los demás capítulos no cambian y no se vuelve a narrar nada. Puedes deshacerlo.</p>
+              <div className="ed-edit-actions">
+                <button type="button" className="ed-danger" autoFocus onClick={() => { props.onDeleteSection?.(sectionIndex); setConfirmSection(null) }}>
+                  {section.level === 2 ? 'Eliminar el subcapítulo' : 'Eliminar el capítulo'}</button>
+                <button type="button" className="ed-secondary" onClick={() => setConfirmSection(null)}>Cancelar</button>
+              </div>
+            </div>
+          })()}
+        </div>}
       </nav>
 
       <section className="ed-workspace" aria-label="Revisión de la sección">
@@ -692,25 +751,8 @@ export default function AudiobookEditor(props: AudiobookEditorProps) {
             <div className="ed-section-actions">
               <button type="button" className="ed-secondary" onClick={() => playAt({ section: sectionIndex, unit: 0 })} disabled={!section.units.some(unit => unit.hasAudio) && !finalHere}><Play size={15} aria-hidden="true"/>Escuchar desde el principio</button>
               {INITIAL_KINDS.has(section.kind) && props.onShowPlanilla && <button type="button" className="ed-secondary" onClick={props.onShowPlanilla}><Pencil size={15} aria-hidden="true"/>Editar planilla</button>}
-              {props.model?.mode === 'outline' && section.deletable && props.onDeleteSection && <button type="button" className="ed-secondary is-danger"
-                disabled={props.editBusy} onClick={() => { closePanel(); setConfirmSection(sectionIndex) }} aria-expanded={confirmSection === sectionIndex}>
-                <Trash2 size={15} aria-hidden="true"/>{section.level === 2 ? 'Eliminar subcapítulo' : 'Eliminar capítulo'}</button>}
             </div>
           </header>
-          {confirmSection === sectionIndex && (() => {
-            const family = sectionFamily(sections, sectionIndex)
-            const phrases = family.reduce((sum, index) => sum + sections[index].units.length, 0)
-            return <div className="ed-confirm" role="alertdialog" aria-labelledby="ed-confirm-title" aria-describedby="ed-confirm-text">
-              <p id="ed-confirm-title"><strong>¿Eliminar «{section.title}» del audiolibro?</strong></p>
-              <p id="ed-confirm-text">{family.length > 1 ? `También se quitan sus ${family.length - 1} ${family.length === 2 ? 'subcapítulo' : 'subcapítulos'}. ` : ''}
-                Se quitan {phrases} {phrases === 1 ? 'frase' : 'frases'}. Los demás capítulos no cambian y no se vuelve a narrar nada. Puedes deshacerlo.</p>
-              <div className="ed-edit-actions">
-                <button type="button" className="ed-danger" autoFocus onClick={() => { props.onDeleteSection?.(sectionIndex); setConfirmSection(null) }}>
-                  {section.level === 2 ? 'Eliminar el subcapítulo' : 'Eliminar el capítulo'}</button>
-                <button type="button" className="ed-secondary" onClick={() => setConfirmSection(null)}>Cancelar</button>
-              </div>
-            </div>
-          })()}
           <ol className="ed-phrases" ref={listRef} aria-labelledby="ed-section-title">
             {section.units.map((unit, position) => {
               const state = stateOf(unit)
@@ -718,13 +760,19 @@ export default function AudiobookEditor(props: AudiobookEditorProps) {
               const isSelected = position === selected.unit && selected.section === sectionIndex
               const editable = props.model?.mode === 'outline' && unit.editable !== false && canEdit(unit)
               const open = panel?.key === unit.key && editable ? panel : null
+              const deletable = props.model?.mode === 'outline' ? editable : unit.editable !== false && !INITIAL_KINDS.has(section.kind)
               const start = finalHere ? unit.clip?.[0] : offsets(section)[position]
               return <li key={unit.key} className={`ed-phrase-item${unit.pageBreaks.length ? ' has-page' : ''}`}>
                 {unit.pageBreaks.map(page => <div key={page} className="ed-page-mark" role="separator" aria-label={`Comienza la página ${page}`}><span>Página {page}</span></div>)}
                 <div id={`ed-unit-${sectionIndex}-${position}`} className={`ed-phrase${isCurrent ? ' is-current' : ''}${isSelected ? ' is-selected' : ''} state-${state}`}
                   aria-current={isCurrent ? 'true' : undefined}>
-                  <button type="button" className="ed-phrase-play" onClick={() => playAt({ section: sectionIndex, unit: position })}
-                    disabled={!unit.hasAudio && !finalHere} aria-label={`Escuchar la frase ${position + 1}`}><Play size={14} aria-hidden="true"/></button>
+                  <span className="ed-phrase-lead">
+                    <button type="button" className="ed-phrase-play" onClick={() => playAt({ section: sectionIndex, unit: position })}
+                      disabled={!unit.hasAudio && !finalHere} aria-label={`Escuchar la frase ${position + 1}`}><Play size={14} aria-hidden="true"/></button>
+                    {deletable && !open && <button type="button" className="ed-phrase-edit is-danger" disabled={props.editBusy || !canStartDelete}
+                      onClick={() => askDeleteUnit(unit, section.title)}
+                      aria-label={`Eliminar la frase ${position + 1}`} title={jobRunning ? 'Podrás eliminarla cuando termine la producción' : 'Eliminar'}><Trash2 size={14} aria-hidden="true"/></button>}
+                  </span>
                   <button type="button" className="ed-phrase-main" onClick={() => setSelected({ section: sectionIndex, unit: position })} aria-pressed={isSelected}>
                     <span className="ed-phrase-meta">
                       <span className="ed-phrase-number">{position + 1}</span>
@@ -741,8 +789,6 @@ export default function AudiobookEditor(props: AudiobookEditorProps) {
                       aria-label={`Corregir la frase ${position + 1}`} title="Corregir"><Pencil size={14} aria-hidden="true"/></button>
                     <button type="button" className="ed-phrase-edit" disabled={props.editBusy} onClick={() => openPanel(unit, 'insert')}
                       aria-label={`Añadir una frase después de la frase ${position + 1}`} title="Añadir una frase después"><Plus size={14} aria-hidden="true"/></button>
-                    <button type="button" className="ed-phrase-edit is-danger" disabled={props.editBusy} onClick={() => openPanel(unit, 'delete')}
-                      aria-label={`Eliminar la frase ${position + 1}`} title="Eliminar"><Trash2 size={14} aria-hidden="true"/></button>
                   </span>}
                 </div>
                 {open?.kind === 'delete' && <div className="ed-edit ed-confirm" role="alertdialog"

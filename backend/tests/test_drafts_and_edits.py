@@ -10,6 +10,7 @@ producing the edited book again must pay only for what is new.
 from __future__ import annotations
 
 import asyncio
+import errno
 import io
 import json
 import re
@@ -551,3 +552,85 @@ def test_legacy_corrections_still_apply_by_position() -> None:
     assert edits.slots == {"section-3:1": "B corregido."}
     with pytest.raises(ValueError):
         book_edits.parse("", corrections_json=json.dumps({"0:5": "x"}), chapters=[chapter])
+
+
+def test_a_book_that_will_not_fit_is_refused_before_anything_is_paid_for(offline, monkeypatch) -> None:
+    client = TestClient(main.app)
+    view = _upload(client)
+    monkeypatch.setattr(main, "disk_shortfall", lambda _needed: 300 * 1024 * 1024)
+    response = client.post("/api/books/jobs", data={"draft_id": view["draft"]["draft_id"]})
+    assert response.status_code == 507
+    assert "Amplía el disco" in response.json()["detail"]
+    assert offline["tts"] == []
+
+
+def _queued_job(client: TestClient) -> str:
+    view = _upload(client)
+    response = client.post("/api/books/jobs", data={"draft_id": view["draft"]["draft_id"]})
+    assert response.status_code == 202, response.text
+    return response.json()["job_id"]
+
+
+def test_a_book_that_stops_fitting_fails_clearly_and_keeps_its_audio(offline, monkeypatch) -> None:
+    job_id = _queued_job(TestClient(main.app))
+    monkeypatch.setattr(main, "disk_shortfall", lambda _needed: 300 * 1024 * 1024)
+    asyncio.run(main.run_production_job(job_id))
+    job = job_store.get_job(main.database_path, job_id)
+    job_dir = Path(job["source_path"]).parent
+    assert job["state"] == "failed"
+    assert "faltan unos 301 MB" in job["error"]
+    assert all((job_dir / item["audio_path"]).is_file() for item in job["sentences"])
+    assert job_id not in main.assembly_progress
+
+
+def test_a_full_disk_is_explained_and_the_half_built_package_is_removed(offline, monkeypatch) -> None:
+    job_id = _queued_job(TestClient(main.app))
+    job_dir = Path(job_store.get_job(main.database_path, job_id)["source_path"]).parent
+    seen: list[dict] = []
+
+    def full_disk(*_args, **_kwargs):
+        seen.append(dict(main.assembly_progress[job_id]))
+        (job_dir / "delivery" / "daisy").mkdir(parents=True, exist_ok=True)
+        (job_dir / "delivery" / "daisy" / "part.mp3").write_bytes(b"x")
+        (job_dir / f".{job_id}-once-delivery.zip.building").write_bytes(b"x")
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(main, "build_daisy_package", full_disk)
+    asyncio.run(main.run_production_job(job_id))
+    job = job_store.get_job(main.database_path, job_id)
+    assert job["state"] == "failed"
+    assert job["error"].startswith("El disco del servidor se ha llenado")
+    assert seen and seen[0]["stage"] == "package" and seen[0]["done"] == seen[0]["total"] > 0
+    assert not (job_dir / "delivery" / "daisy").exists()
+    assert not (job_dir / f".{job_id}-once-delivery.zip.building").exists()
+    assert list((job_dir / "chapter-audio").glob("*.mp3"))
+    assert all((job_dir / item["audio_path"]).is_file() for item in job["sentences"])
+
+
+def test_the_job_reports_how_far_assembly_has_got(offline, monkeypatch) -> None:
+    client = TestClient(main.app)
+    job_id = _queued_job(client)
+    url = f"/api/jobs/{job_id}"
+    assert client.get(url).json()["assembly"] is None
+    seen: list[dict] = []
+    real_fingerprint = main._chapter_fingerprint
+
+    def spying_fingerprint(*args, **kwargs):
+        seen.append(dict(main.assembly_progress[job_id]))
+        return real_fingerprint(*args, **kwargs)
+
+    monkeypatch.setattr(main, "_chapter_fingerprint", spying_fingerprint)
+    asyncio.run(main.run_production_job(job_id))
+    assert job_store.get_job(main.database_path, job_id)["state"] == "completed"
+    assert seen[0] == {"stage": "chapters", "done": 0, "total": seen[0]["total"]} and seen[0]["total"] > 1
+    assert [entry["done"] for entry in seen] == sorted(entry["done"] for entry in seen)
+    assert client.get(url).json()["assembly"] is None
+
+
+def test_the_direct_download_is_refused_too_when_the_book_will_not_fit(offline, tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(main, "disk_shortfall", lambda _needed: 300 * 1024 * 1024)
+    with pytest.raises(ValueError, match="Amplía el disco"):
+        asyncio.run(main._build_direct_package(
+            "libro.txt", BOOK.encode("utf-8"), tmp_path / "work", voice_speed=1.0, voice_id="",
+            corrections_json="{}", metadata_json="{}", narration_plan_json="", create_navigation_sections_flag=False))
+    assert offline["tts"] == []
