@@ -105,8 +105,8 @@ type DraftView = {
   outline: BookOutline | null
   outline_error: string
 }
-type PackageTaskStatus = { task_id: string; state: string; total: number; done: number; reused: number; detail?: string }
-type PackageProgress = Pick<PackageTaskStatus, 'total' | 'done' | 'reused'>
+type PackageTaskStatus = { task_id: string; state: string; total: number; done: number; reused: number; stage?: string; chapters_done?: number; chapters_total?: number; detail?: string }
+type PackageProgress = Pick<PackageTaskStatus, 'total' | 'done' | 'reused' | 'stage' | 'chapters_done' | 'chapters_total'>
 
 const PACKAGE_TASK_KEY = 'soni2-active-package-task'
 // The book being prepared and the step it was left on, so a reload finds them.
@@ -366,6 +366,9 @@ export default function App() {
   const [exportMode, setExportMode] = useState<'direct' | 'reviewed'>('reviewed')
   // Who signs a release or confirms a warning: recorded with the decision.
   const [reviewerName, setReviewerName] = useState('')
+  // What became of the last download or production, shown beside its button:
+  // the page can be far longer than the screen, so a message elsewhere is not seen.
+  const [downloadNotice, setDownloadNotice] = useState<{ text: string; href?: string } | null>(null)
   const [releaseConfirmed, setReleaseConfirmed] = useState(false)
   // Pronunciation editor: which sentence it is open for, the word being
   // worked on, what Spanish rules make of it, and the reviewer's own spelling.
@@ -870,6 +873,7 @@ export default function App() {
     const filename = bookFilename(book)
     setDirectDownloadBusy(true)
     setDirectProgress(undefined)
+    setDownloadNotice(null)
     setMessage('Preparando el audiolibro completo…')
     let taskId: string | undefined
     try {
@@ -897,7 +901,9 @@ export default function App() {
         : 'El audiolibro se ha descargado. Incluye el audio por capítulos y la estructura DAISY.')
     } catch (error) {
       if (bookSelectionVersion.current === selectionVersion) {
-        setMessage(error instanceof Error ? publicCopy(error.message) : 'No se ha podido descargar el audiolibro.')
+        const detail = error instanceof Error ? publicCopy(error.message) : 'No se ha podido descargar el audiolibro.'
+        setMessage(detail)
+        setDownloadNotice({ text: detail })
       }
     } finally {
       if (taskId && activePackageTaskId.current === taskId) {
@@ -917,10 +923,15 @@ export default function App() {
       const status = await response.json().catch(() => ({})) as PackageTaskStatus
       if (!response.ok) throw new Error(status.detail || 'No se pudo consultar el avance de la descarga.')
       if (activePackageTaskId.current !== taskId || status.state !== 'running') return status
-      setDirectProgress({ total: status.total, done: status.done, reused: status.reused })
-      setMessage(status.total
-        ? `Narrando el audiolibro: ${status.done} de ${status.total} párrafos.`
-        : 'Preparando el audiolibro completo…')
+      setDirectProgress({ total: status.total, done: status.done, reused: status.reused, stage: status.stage,
+        chapters_done: status.chapters_done, chapters_total: status.chapters_total })
+      setMessage(status.stage === 'assembling'
+        ? 'Montando los capítulos del audiolibro…'
+        : status.stage === 'packaging'
+          ? 'Creando el paquete DAISY y el ZIP…'
+          : status.total
+            ? `Narrando el audiolibro: ${status.done} de ${status.total} párrafos.`
+            : 'Preparando el audiolibro completo…')
       await new Promise(resolve => window.setTimeout(resolve, 1000))
     }
   }
@@ -935,6 +946,7 @@ export default function App() {
     if (!draftId || packageBusy) return
     const selectionVersion = bookSelectionVersion.current
     setPackageBusy(true)
+    setDownloadNotice(null)
     setMessage('Preparando el libro completo. Este proceso puede tardar varios minutos.')
     const form = buildBookForm()
     try {
@@ -960,7 +972,9 @@ export default function App() {
       await watchProductionJob(created.job_id)
     } catch (error) {
       if (bookSelectionVersion.current === selectionVersion) {
-        setMessage(error instanceof Error ? error.message : 'No se ha podido descargar el libro completo.')
+        const detail = error instanceof Error ? error.message : 'No se ha podido descargar el libro completo.'
+        setMessage(detail)
+        setDownloadNotice({ text: detail })
       }
     } finally {
       if (bookSelectionVersion.current === selectionVersion) setPackageBusy(false)
@@ -979,9 +993,9 @@ export default function App() {
       setProductionJob(status)
       const counts = Object.entries(status.progress ?? {}).reduce((sum, [state, count]) =>
         sum + (['pending', 'generating'].includes(state) ? 0 : count), 0)
-      if (!quiet) setMessage(`Producción: ${counts} de ${status.total_sentences} párrafos procesados. Estado: ${status.state}.`)
+      if (!quiet) setMessage(`Producción: ${counts} de ${status.total_sentences} párrafos procesados.`)
       if (status.state === 'completed') {
-        setMessage('El audiolibro est\u00e1 listo. Pulsa Descarga ZIP DAISY para guardarlo.')
+        setMessage('El audiolibro est\u00e1 listo. Usa el botón de descarga para guardarlo.')
         return
       }
       if (['partially_completed', 'failed', 'cancelled'].includes(status.state)) {
@@ -1024,6 +1038,10 @@ export default function App() {
     document.body.appendChild(link)
     link.click()
     link.remove()
+    setDownloadNotice({
+      text: 'La descarga ha empezado. Búscala en el panel de descargas del navegador: como este sitio aún no usa HTTPS, puede pedirte que confirmes que quieres conservar el archivo.',
+      href: url,
+    })
   }
 
   async function releaseAction(path: 'acknowledge' | 'release', body: Record<string, unknown>) {
@@ -1048,7 +1066,9 @@ export default function App() {
       await streamDownload(`${API}/api/jobs/${encodeURIComponent(jobId)}/artifacts?diagnostic=true`,
         bookFilename(sourceName, ' (SIN VALIDAR)'))
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'No se ha podido descargar el paquete.')
+      const detail = error instanceof Error ? error.message : 'No se ha podido descargar el paquete.'
+      setMessage(detail)
+      setDownloadNotice({ text: detail })
     }
   }
 
@@ -1064,9 +1084,11 @@ export default function App() {
       setMessage('La descarga del paquete DAISY ha comenzado. Puede tardar según el tamaño del libro.')
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'No se ha podido descargar el paquete DAISY.'
-      setMessage(publicCopy(detail.includes('todavía no está disponible')
+      const explained = publicCopy(detail.includes('todavía no está disponible')
         ? `${detail} Resuelve las frases pendientes de revisión, o usa «Descargar audiolibro ahora» para generarlo sin revisión.`
-        : detail))
+        : detail)
+      setMessage(explained)
+      setDownloadNotice({ text: explained })
     }
   }
 
@@ -1255,6 +1277,32 @@ export default function App() {
     ? `Montando el capítulo ${Math.min(assembly.done + 1, assembly.total)} de ${assembly.total}. Ya no se narra nada, así que no consume créditos. Un libro largo tarda unos minutos por capítulo.`
     : 'Creando y comprobando el paquete DAISY y el ZIP. Es el último paso.'
   const productionIsStale = Boolean(productionJob && producedSignature && producedSignature !== draftSignature)
+  useEffect(() => { setDownloadNotice(null) }, [draftId, productionIsStale])
+  // A finished book the release gate has not passed yet can still be taken
+  // away, under a name that says it is not validated.
+  const release = productionJob?.release
+  const unvalidated = productionJob?.state === 'completed' && Boolean(release) && !['PASSED', 'RELEASED'].includes(release?.state ?? '')
+  const directNote = !directProgress?.total
+    ? 'Preparando el libro. Reutilizamos el audio que ya exista; sólo se genera lo que falte.'
+    : directProgress.stage === 'assembling'
+      ? `Montando el capítulo ${Math.min((directProgress.chapters_done ?? 0) + 1, directProgress.chapters_total ?? 1)} de ${directProgress.chapters_total ?? 1}. Ya no se narra nada. Un libro largo tarda unos minutos por capítulo; la descarga empezará sola al terminar.`
+      : directProgress.stage === 'packaging'
+        ? 'Creando y comprobando el paquete DAISY y el ZIP. La descarga empezará sola al terminar.'
+        : `Párrafo ${directProgress.done} de ${directProgress.total}`
+          + (directProgress.reused ? ` · ${directProgress.reused} ya narrados, sin coste` : '')
+          + '. La descarga empezará sola al terminar.'
+  // Whatever state the production ended in, what to do next, beside the buttons.
+  const exportHint = productionJob?.state === 'completed' && !productionIsStale
+    ? unvalidated
+      ? `Puedes descargarlo ya: el archivo llevará «(SIN VALIDAR)» en el nombre. Falta: ${[...(release?.blockers ?? []), ...(release?.reviews ?? [])].join(' ')} Para validarlo, confírmalo en «Estado de calidad», más arriba.`
+      : 'Descarga el ZIP con el audio por capítulos, la navegación DAISY y el informe de calidad.'
+    : productionJob?.state === 'failed'
+      ? `La producción no ha terminado: ${productionJob.error || 'error desconocido'} El audio ya narrado se conserva: pulsa otra vez «Producir» y no se paga de nuevo.`
+      : productionJob?.state === 'partially_completed'
+        ? 'Quedan párrafos por revisar, más arriba. Si no quieres revisarlos ahora, «Descargar audiolibro ahora» genera el ZIP sin verificar y reutiliza lo ya narrado.'
+        : productionJob?.state === 'cancelled'
+          ? 'La producción se detuvo. Pulsa otra vez «Producir»: lo ya narrado no se paga de nuevo.'
+          : 'Las dos opciones usan la voz seleccionada en el paso 1.'
 
   // The server divides the book, so the outline, the job and the download agree.
   function createNavigationSections() {
@@ -1741,20 +1789,15 @@ export default function App() {
             <div className={directDownloadBusy ? 'export-actions-status is-busy' : 'export-actions-status'}>
               <strong id="export-actions-title">{directDownloadBusy ? 'Generando el audiolibro…' : assembly ? 'Montando el audiolibro…' : packageBusy ? 'Produciendo con revisión…' : productionJob?.state === 'completed' && !productionIsStale ? 'El audiolibro está listo' : 'Elige cómo generarlo'}</strong>
               {directDownloadBusy && directProgress?.total
-                ? <progress className="direct-progress" max={directProgress.total} value={directProgress.done}
+                ? <progress className="direct-progress" max={directProgress.stage === 'narrating' || !directProgress.stage ? directProgress.total : directProgress.chapters_total || 1}
+                    value={directProgress.stage === 'narrating' || !directProgress.stage ? directProgress.done : directProgress.chapters_done ?? 0}
                     aria-label="Avance del audiolibro"/>
                 : null}
               <span>{directDownloadBusy
-                ? directProgress?.total
-                  ? `Párrafo ${directProgress.done} de ${directProgress.total}`
-                    + (directProgress.reused ? ` · ${directProgress.reused} ya narrados, sin coste` : '')
-                    + '. La descarga empezará sola al terminar.'
-                  : 'Preparando el libro. Reutilizamos el audio que ya exista; sólo se genera lo que falte.'
+                ? directNote
                 : assemblyNote || (packageBusy
                   ? 'Narrando y revisando párrafo a párrafo. Puedes seguir el avance más arriba.'
-                  : productionJob?.state === 'completed' && !productionIsStale
-                    ? 'Descarga el ZIP con el audio por capítulos, la navegación DAISY y el informe de calidad.'
-                    : 'Las dos opciones usan la voz seleccionada en el paso 1.')}</span>
+                  : exportHint)}</span>
             </div>
             <div className="export-actions-buttons">
               {/* Direct: generate and download in one step, no review queue. */}
@@ -1767,8 +1810,11 @@ export default function App() {
               </button>
               {productionJob?.state === 'completed' && !productionIsStale
                 ? <button type="button" className={exportMode === 'reviewed' ? 'export-button is-primary' : 'export-button'}
-                    onClick={() => void downloadJobArtifact(productionJob.job_id, productionJob.source_name || book)} disabled={directDownloadBusy}>
-                    <Download size={18} aria-hidden="true"/><span>Descargar paquete revisado</span>
+                    onClick={() => void (unvalidated ? downloadDiagnosticArtifact : downloadJobArtifact)(productionJob.job_id, productionJob.source_name || book)} disabled={directDownloadBusy}>
+                    <Download size={18} aria-hidden="true"/>
+                    {unvalidated
+                      ? <span>Descargar el ZIP <small className="unverified-tag">(sin validar)</small></span>
+                      : <span>Descargar paquete revisado</span>}
                   </button>
                 : <button type="button" className={exportMode === 'reviewed' ? 'export-button is-primary' : 'export-button'}
                     onClick={() => void startReviewedProduction()}
@@ -1778,6 +1824,8 @@ export default function App() {
                     <span>{productionIsStale ? 'Producir con los cambios' : 'Producir con revisión de calidad'}</span>
                   </button>}
             </div>
+            {downloadNotice && <p className="export-actions-notice">{publicCopy(downloadNotice.text)}{downloadNotice.href
+              && <> <a href={downloadNotice.href} download>Si no empieza, pulsa aquí.</a></>}</p>}
           </div>}
         </section>
       </section>

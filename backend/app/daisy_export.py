@@ -8,6 +8,7 @@ import unicodedata
 import uuid
 import zipfile
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 
 from app import audio_master
@@ -372,6 +373,7 @@ def build_daisy_package(
     identifiers: list[tuple[str, str]] | None = None,
     segment_texts: list[str] | None = None,
     segment_continues: list[bool] | None = None,
+    on_chapter: Callable[[int, int], None] | None = None,
 ) -> Path:
     """Write a DAISY 3 package whose files carry the book's own name.
 
@@ -442,6 +444,8 @@ def build_daisy_package(
     for chapter_index, (relative_path, (_chapter_title, chapter_body)) in enumerate(
         zip(chapter_audio_paths, chapters, strict=True)
     ):
+        if on_chapter:
+            on_chapter(chapter_index, len(chapters))
         count = len(chapter_body)
         chapter_segments = audio_segments[segment_offset:segment_offset + count]
         if chapter_audio is not None:

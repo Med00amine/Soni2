@@ -3660,6 +3660,10 @@ class PackageProgress:
     total: int = 0
     done: int = 0
     reused: int = 0
+    # narrating, then assembling chapter by chapter, then packaging.
+    stage: str = "narrating"
+    chapters_done: int = 0
+    chapters_total: int = 0
 
 
 async def _build_direct_package(
@@ -3773,6 +3777,10 @@ async def _build_direct_package(
     )
     logger.info("Package synthesis finished: paragraphs=%d reused_from_cache=%d concurrency=%d",
                 len(paragraphs), progress.reused, narration_concurrency())
+    progress.stage = "assembling"
+
+    def chapter_started(index: int, total: int) -> None:
+        progress.chapters_done, progress.chapters_total = index, total
 
     # Building and zipping the package is file work; a worker thread keeps the
     # server answering progress requests meanwhile.
@@ -3798,7 +3806,10 @@ async def _build_direct_package(
         identifiers=[("ABSYS", sheet.absys)] if sheet is not None and sheet.absys else None,
         # The pauses inside each passage follow what the voice read.
         segment_texts=texts, segment_continues=continues if len(continues) == len(texts) else None,
+        on_chapter=chapter_started,
     ))
+    progress.stage = "packaging"
+    progress.chapters_done = progress.chapters_total
     await asyncio.to_thread(validate_daisy_package, package_dir)
     dtd = await asyncio.to_thread(daisy_dtd.validate_package, package_dir)
     structure_checks = (await asyncio.to_thread(once_validation.verify, package_dir, once_records,
@@ -3942,7 +3953,9 @@ def _package_task(task_id: str) -> PackageTask:
 
 def _package_task_status(task: PackageTask) -> dict[str, object]:
     return {"task_id": task.task_id, "state": task.state, "total": task.progress.total,
-            "done": task.progress.done, "reused": task.progress.reused, "detail": task.detail}
+            "done": task.progress.done, "reused": task.progress.reused, "stage": task.progress.stage,
+            "chapters_done": task.progress.chapters_done, "chapters_total": task.progress.chapters_total,
+            "detail": task.detail}
 
 
 @app.post("/api/books/package-tasks", status_code=202)

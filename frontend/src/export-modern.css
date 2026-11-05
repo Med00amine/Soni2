@@ -248,6 +248,11 @@
   padding-top: var(--s-space);
   border-top: 1px solid var(--s-line);
 }
+/* The page can be many screens long: the buttons, and what became of them, stay in view. */
+@media (min-width: 761px) and (min-height: 620px) {
+  .export-actions { position: sticky; bottom: 0; z-index: 3; padding-bottom: 12px; background: var(--s-panel); }
+}
+.export-actions-notice { flex: 1 1 100%; margin: 0; color: var(--s-ink); font-size: .88rem; line-height: 1.55; }
 .export-actions-status { display: grid; flex: 1 1 260px; gap: 4px; min-width: 0; }
 .export-actions-status strong { color: var(--s-ink); font-size: 1rem; }
 .export-actions-status span { max-width: 56ch; color: var(--s-ink-soft); font-size: .88rem; line-height: 1.55; }
