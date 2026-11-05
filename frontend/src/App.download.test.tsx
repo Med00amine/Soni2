@@ -38,6 +38,23 @@ let calls: string[]
 let packageResponse: unknown
 let taskStatus: unknown
 let artifactResponse: unknown
+let jobResponse: unknown
+
+function finishedJob(state: string, reviews: string[] = []) {
+  return ok({
+    job_id: 'job-1', state: 'completed', source_name: 'libro.txt', total_sentences: 1, progress: { verified: 1 }, sentences: [],
+    release: { state, label: state, blockers: [], reviews, dimensions: {}, uncertainty: [] },
+  })
+}
+
+// Every anchor the page clicks to hand a file to the browser.
+function watchDownloads() {
+  const started: { href: string; name: string }[] = []
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+    started.push({ href: this.href, name: this.download })
+  })
+  return started
+}
 
 function stubApi() {
   calls = []
@@ -54,7 +71,7 @@ function stubApi() {
     if (url.endsWith('/api/books/package-tasks/task-1')) return taskStatus
     if (url.includes('/artifacts')) return artifactResponse
     if (url.endsWith('/api/books/jobs')) return ok({ job_id: 'job-1', state: 'queued', total_sentences: 1 })
-    if (url.includes('/api/jobs/job-1')) return ok({
+    if (url.includes('/api/jobs/job-1')) return jobResponse ?? ok({
       job_id: 'job-1', state: 'partially_completed', source_name: 'libro.txt', total_sentences: 1,
       progress: { needs_human_review: 1 }, sentences: [],
     })
@@ -97,12 +114,74 @@ beforeEach(() => {
   packageResponse = task('running', 0, 0)
   taskStatus = task('completed', 3, 3)
   artifactResponse = ok({})
+  jobResponse = undefined
   stubApi()
 })
 
 afterEach(() => {
   act(() => root?.unmount())
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
+
+describe('taking away a finished book', () => {
+  it('downloads a validated book as the reviewed package', async () => {
+    jobResponse = finishedJob('PASSED')
+    const started = watchDownloads()
+    await render()
+    await startJob()
+    await act(async () => { buttonLabelled('Descargar paquete revisado')!.click() })
+    expect(started).toHaveLength(1)
+    expect(started[0].href).toMatch(/\/api\/jobs\/job-1\/artifacts$/)
+    expect(document.querySelector('.export-actions-notice')?.textContent).toContain('La descarga ha empezado')
+    expect(document.querySelector<HTMLAnchorElement>('.export-actions-notice a')?.href).toMatch(/\/artifacts$/)
+  })
+
+  it('still downloads a book waiting for a person, named as not validated, and says what is missing', async () => {
+    jobResponse = finishedJob('NEEDS_REVIEW', ['OCR de la página 1: 1 palabras dudosas.'])
+    const started = watchDownloads()
+    await render()
+    await startJob()
+    expect(buttonLabelled('Descargar paquete revisado')).toBeUndefined()
+    expect(document.querySelector('.export-actions-status')?.textContent).toContain('OCR de la página 1')
+    await act(async () => { buttonLabelled('Descargar el ZIP')!.click() })
+    expect(started).toHaveLength(1)
+    expect(started[0].href).toMatch(/artifacts\?diagnostic=true$/)
+    expect(started[0].name).toContain('(SIN VALIDAR)')
+  })
+
+  it('explains a refused download beside the button', async () => {
+    jobResponse = finishedJob('PASSED')
+    artifactResponse = fail(409, 'El paquete completo todavía no está disponible.')
+    const started = watchDownloads()
+    await render()
+    await startJob()
+    await act(async () => { buttonLabelled('Descargar paquete revisado')!.click() })
+    expect(started).toHaveLength(0)
+    expect(document.querySelector('.export-actions')?.textContent).toContain('todavía no está disponible')
+  })
+
+  it('says what to do next beside the buttons when a production fails', async () => {
+    jobResponse = ok({ job_id: 'job-1', state: 'failed', source_name: 'libro.txt', total_sentences: 1, progress: { pending: 1 }, sentences: [], error: 'El disco del servidor se ha llenado.' })
+    await render()
+    await startJob()
+    const status = document.querySelector('.export-actions-status')?.textContent
+    expect(status).toContain('El disco del servidor se ha llenado.')
+    expect(status).toContain('no se paga de nuevo')
+  })
+
+  it('follows a direct download chapter by chapter instead of stopping at the last paragraph', async () => {
+    const started = watchDownloads()
+    taskStatus = ok({ task_id: 'task-1', state: 'running', done: 3, total: 3, reused: 3, stage: 'assembling', chapters_done: 1, chapters_total: 2 })
+    await render()
+    await uploadBook()
+    await act(async () => { buttonLabelled('Descargar audiolibro ahora')!.click() })
+    await act(async () => { await new Promise(resolve => window.setTimeout(resolve, 50)) })
+    expect(document.querySelector('.export-actions-status')?.textContent).toContain('Montando el capítulo 2 de 2')
+    taskStatus = task('completed', 3, 3, 3)
+    await act(async () => { await new Promise(resolve => window.setTimeout(resolve, 1100)) })
+    expect(started).toHaveLength(1)
+  })
 })
 
 describe('downloading the audiobook', () => {

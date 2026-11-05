@@ -634,3 +634,23 @@ def test_the_direct_download_is_refused_too_when_the_book_will_not_fit(offline, 
             "libro.txt", BOOK.encode("utf-8"), tmp_path / "work", voice_speed=1.0, voice_id="",
             corrections_json="{}", metadata_json="{}", narration_plan_json="", create_navigation_sections_flag=False))
     assert offline["tts"] == []
+
+
+def test_the_direct_download_says_it_is_assembling_and_which_chapter(offline, tmp_path, monkeypatch) -> None:
+    progress = main.PackageProgress()
+    seen: list[tuple[str, int, int]] = []
+    real_build = main.build_daisy_package
+
+    def spying_build(*args, on_chapter=None, **kwargs):
+        def report(index, total):
+            on_chapter(index, total)
+            seen.append((progress.stage, progress.chapters_done, progress.chapters_total))
+        return real_build(*args, on_chapter=report, **kwargs)
+
+    monkeypatch.setattr(main, "build_daisy_package", spying_build)
+    asyncio.run(main._build_direct_package(
+        "libro.txt", BOOK.encode("utf-8"), tmp_path / "work", voice_speed=1.0, voice_id="", progress=progress,
+        corrections_json="{}", metadata_json="{}", narration_plan_json="", create_navigation_sections_flag=False))
+    assert seen and all(stage == "assembling" for stage, _done, _total in seen)
+    assert [done for _stage, done, _total in seen] == list(range(len(seen)))
+    assert progress.stage == "packaging" and progress.chapters_done == progress.chapters_total == len(seen)
