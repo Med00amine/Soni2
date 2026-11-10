@@ -273,7 +273,8 @@ def test_a_book_without_page_numbers_takes_its_index_pages_from_the_planilla(tmp
     # never gives a chapter the index's own page).
     built, listed, warnings = entries(MODEL)
     assert listed == ["Índice página 3.", "Capítulo 1.", "Capítulo 2.", "Fin de índice."]
-    assert warnings == ["index_without_page"]
+    # And it says plainly that the book has no page numbers at all.
+    assert warnings == ["no_source_pages", "index_without_page"]
     # The planilla's index pages: each chapter starts there, with its marker.
     built, listed, warnings = entries({**MODEL, "chapter_pages": {"Capítulo 1": "4", "Capítulo 2": "6"}})
     assert listed == ["Índice página 3.", "Capítulo 1. Página 4.", "Capítulo 2. Página 6.", "Fin de índice."]
@@ -322,7 +323,8 @@ def test_the_demo_package_passes_the_dtds_and_every_once_check(tmp_path) -> None
     checks = once_validation.verify(package, _records(built), built.resolved.as_dict())
     assert {check["id"]: check["status"] for check in checks} == {
         "once_initial_files": "passed", "once_hierarchy": "passed", "once_pages": "passed",
-        "once_index": "passed", "once_notes": "passed", "once_closing": "passed", "once_play_order": "passed"}
+        "once_index": "passed", "once_notes": "passed", "once_frames": "passed", "once_closing": "passed",
+        "once_play_order": "passed"}
 
 
 def test_initial_files_are_front_matter_and_subchapters_nest(tmp_path) -> None:
@@ -462,8 +464,8 @@ def test_a_reviewed_production_delivers_the_once_structure(offline) -> None:
     assert {key: value for key, value in statuses.items() if key != "audio_format"} == {
         key: "passed" for key in statuses if key != "audio_format"}
     assert {key for key in statuses if key.startswith("once_")} == {
-        "once_initial_files", "once_hierarchy", "once_pages", "once_index", "once_notes", "once_closing",
-        "once_play_order"}
+        "once_initial_files", "once_hierarchy", "once_pages", "once_index", "once_notes", "once_frames",
+        "once_closing", "once_play_order"}
     # The legal notice and the closing phrase were narrated and checked like the rest.
     roles = [(unit.get("provenance") or {}).get("role") for unit in job["sentences"]]
     assert roles.count("closing") == 1 and "legal" in roles and "index_entry" in roles and "note" in roles

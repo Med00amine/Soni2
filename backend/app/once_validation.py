@@ -15,6 +15,10 @@ package itself is read back here, independently of the code that wrote it:
   section really starts on in this package.
 * **Notes**: each note opens with "Nota N." and closes with "Fin de nota N.",
   and is a skippable ``note`` structure.
+* **Boxed and shaded text**: each box or shaded block is a ``sidebar`` read
+  as a whole, that begins with "Texto en recuadro." (or "Texto sombreado.")
+  and ends with "Fin de texto en recuadro." (or "Fin de texto sombreado."),
+  with its paragraphs inside one SMIL ``seq``, in reading order.
 * **Closing phrase**: exactly once, as the last thing read.
 * **Navigation order**: ``playOrder`` follows the reading order, one number
   per SMIL time container (Z39.86-2005 §8.4.3).
@@ -42,7 +46,10 @@ def _local(tag: str) -> str:
 
 
 def _text(element: ET.Element | None) -> str:
-    return " ".join("".join(element.itertext()).split()) if element is not None else ""
+    """What an element says, whitespace normalised, without note reference marks."""
+    from app.completeness import reading_text
+
+    return " ".join(reading_text(element).split()) if element is not None else ""
 
 
 def _normal(text: str) -> str:
@@ -114,6 +121,15 @@ class _Package:
                     if _local(item.tag) == "p" and item.get("smilref"):
                         entry["paragraphs"].append({"text": _text(item), "class": "once-note",
                                                     "smilref": item.get("smilref")})
+            elif name == "sidebar":
+                # Boxed or shaded text: its announcements and paragraphs are read in place.
+                for item in child:
+                    item_name = _local(item.tag)
+                    if item_name in {"p", "prodnote"} and item.get("smilref"):
+                        entry["paragraphs"].append({"text": _text(item), "class": item.get("class", ""),
+                                                    "smilref": item.get("smilref")})
+                    elif item_name == "pagenum":
+                        entry["pages"].append(item)
             elif name == "level2":
                 self._collect(child, matter, 2, result)
 
@@ -136,6 +152,7 @@ def verify(package: Path, records: list[dict], plan: dict | None = None) -> list
         _pages(built, plan),
         _index(built, planned, plan),
         _notes(built, plan),
+        _frames(built, plan),
         _closing(built, planned),
         _play_order(built),
     ]
@@ -280,6 +297,11 @@ def _index(built: _Package, planned: list[dict], plan: dict) -> dict:
         name = _local(element.tag)
         if name == "pagenum":
             current = element.text or ""
+        elif name == "bodymatter":
+            # The pages of files 1-3 are the planilla's; the book's own pages
+            # start with the book (once_structure._assign_pages): a page-less
+            # book's chapter 1 is not on the legal notice's page.
+            current = ""
         elif name in {"level1", "level2"} and id(element) in position:
             first = next((child for child in element if _local(child.tag) not in {"pagenum"}), None)
             own = [child.text or "" for child in element if _local(child.tag) == "pagenum"
@@ -353,6 +375,52 @@ def _notes(built: _Package, plan: dict) -> dict:
                   "failed" if problems else "passed",
                   "; ".join(problems) or (f"{count} notas con su principio y su fin" if count else
                                           "el libro no tiene notas"),
+                  problems=problems)
+
+
+def _frames(built: _Package, plan: dict) -> dict:
+    """Every box or shaded block is announced where it begins and where it ends."""
+    wording = {
+        "boxed": (plan.get("boxed_open") or "Texto en recuadro.", plan.get("boxed_close") or "Fin de texto en recuadro."),
+        "shaded": (plan.get("shaded_open") or "Texto sombreado.",
+                   plan.get("shaded_close") or "Fin de texto sombreado."),
+    }
+    problems: list[str] = []
+    counts = {"boxed": 0, "shaded": 0}
+    sidebars = [element for element in built.dtbook.iter() if _local(element.tag) == "sidebar"]
+    for sidebar in sidebars:
+        kind = "shaded" if "shaded" in (sidebar.get("class") or "").split() else "boxed"
+        counts[kind] += 1
+        label = f"{'recuadro' if kind == 'boxed' else 'sombreado'} {sidebar.get('id')}"
+        read = [child for child in sidebar if _local(child.tag) != "pagenum"]
+        opening, closing = wording[kind]
+        if not read or _local(read[0].tag) != "prodnote" or _text(read[0]) != opening:
+            problems.append(f"el {label} no empieza con «{opening}»")
+        if len(read) < 2 or _local(read[-1].tag) != "prodnote" or _text(read[-1]) != closing:
+            problems.append(f"el {label} no termina con «{closing}»")
+        if len(read) < 3:
+            problems.append(f"el {label} no tiene texto entre su anuncio y su fin")
+        if sidebar.get("render") != "required":
+            problems.append(f"el {label} no se lee siempre (render)")
+        containers = []
+        for child in read:
+            container = built.container(child.get("smilref", ""))
+            if container is None:
+                problems.append(f"el {label} tiene un texto sin sincronizar")
+                continue
+            href = child.get("smilref", "").partition("#")[0]
+            root = built.smil.get(href)
+            parents = {item: parent for parent in root.iter() for item in parent} if root is not None else {}
+            containers.append(parents.get(container))
+        if containers and (len({id(item) for item in containers}) != 1 or containers[0] is None
+                           or containers[0].get("class") != "sidebar"):
+            problems.append(f"el {label} no está en una sola secuencia SMIL")
+    found = counts["boxed"] + counts["shaded"]
+    return _check("once_frames", "Estructura ONCE: texto en recuadro y sombreado anunciados",
+                  "failed" if problems else "passed",
+                  "; ".join(problems[:5]) or (f"{counts['boxed']} recuadros y {counts['shaded']} sombreados, cada uno "
+                                              "con su anuncio al empezar y al acabar" if found else
+                                              "el libro no tiene texto en recuadro ni sombreado"),
                   problems=problems)
 
 

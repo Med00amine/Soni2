@@ -158,6 +158,11 @@ class _Flattener:
         self._current: list[str] = []
         self._open: list[str] = []
         self._levels: list[int | None] = []
+        # Boxed or shaded text the block sits in: {"kind", "id", "evidence"}.
+        self._frames: list[dict] = []
+        self._frame_count = 0
+        # Note references in the block being read: {"label", "at", "before"}.
+        self._refs: list[dict] = []
 
     def text(self, value: str | None) -> None:
         if value:
@@ -174,6 +179,29 @@ class _Flattener:
             self._open.pop()
             self._levels.pop()
 
+    def open_frame(self, kind: str, evidence: str) -> None:
+        """Boxed or shaded text begins: the blocks until ``close_frame`` are inside it."""
+        self.flush()
+        self._frame_count += 1
+        self._frames.append({"kind": kind, "id": f"{self.location}#{kind}-{self._frame_count}", "evidence": evidence})
+
+    def close_frame(self) -> None:
+        self.flush()
+        if self._frames:
+            self._frames.pop()
+
+    def note_ref(self, label: str) -> None:
+        """A note reference stood here: it is not read, but its place is kept.
+
+        ``at`` is its position in the paragraph's final text, and ``before``
+        the characters just before it, so it is put back exactly there or, if
+        the text has changed since, not at all.
+        """
+        label = _spoken(label).strip("[]() ")
+        if label:
+            prefix = _spoken("".join(self._current))
+            self._refs.append({"label": label, "at": len(prefix), "before": prefix[-12:]})
+
     def page_break(self, label: str) -> None:
         """A page of the original begins here (a DTBook pagenum, an EPUB pagebreak)."""
         if label:
@@ -183,6 +211,7 @@ class _Flattener:
     def flush(self) -> None:
         text = _spoken("".join(self._current))
         self._current = []
+        refs, self._refs = self._refs, []
         if text:
             kind = self._open[-1] if self._open else "p"
             provenance: dict = {"element": kind}
@@ -194,6 +223,19 @@ class _Flattener:
             if self.pending_pages:
                 provenance["page_breaks"] = self.pending_pages
                 self.pending_pages = []
+            refs = [ref for ref in refs if ref["at"] <= len(text)]
+            if refs:
+                provenance["note_refs"] = refs
+            if self._frames:
+                # Text set apart in a box or on a shaded background. A heading
+                # inside it is the box's own title, read with it, not a chapter.
+                provenance["frame"] = dict(self._frames[-1])
+                # Every frame around it, for judging how much of the chapter each covers.
+                provenance["frame_outer"] = [frame["id"] for frame in self._frames]
+                if kind == "heading":
+                    kind = provenance["element"] = "p"
+                    provenance.pop("heading_level", None)
+                    provenance["frame_heading"] = True
             self.blocks.append((kind, text, provenance))
 
     def note(self, text: str) -> None:
@@ -215,6 +257,48 @@ def note_text(text: str) -> str:
         return text
     match = re.match(r"^\s*\[?(\d{1,3})\]?[.)\s]+(.*)$", text, flags=re.S)
     return f"Nota {match.group(1)}. {match.group(2).strip()}" if match else f"Nota. {text}"
+
+
+# Words a class name uses for text set in a box, or on a shaded background.
+# Only whole words of the class count ("recuadro", "text-box"), never parts
+# of other words.
+_BOX_WORDS = {"box", "boxed", "recuadro", "recuadros", "caja", "cuadro", "sidebar", "encuadre", "encuadrado",
+              "framed", "bordered", "marco"}
+_SHADE_WORDS = {"shaded", "shade", "shading", "sombreado", "sombreada", "sombra", "fondo", "highlight",
+                "highlighted", "tinted", "trama", "tramado"}
+_PLAIN_BACKGROUNDS = {"", "none", "transparent", "inherit", "initial", "unset", "white", "#fff", "#ffffff",
+                      "rgb(255,255,255)", "rgba(0,0,0,0)"}
+
+
+def _frame_from_classes(value: str) -> str | None:
+    words = set(re.split(r"[\s_\-]+", (value or "").casefold()))
+    if words & _SHADE_WORDS:
+        return "shaded"
+    if words & _BOX_WORDS:
+        return "boxed"
+    return None
+
+
+def _frame_from_style(style: str) -> str | None:
+    """Inline CSS: a visible background is shading, a visible border a box."""
+    declarations = {}
+    for part in (style or "").split(";"):
+        name, _, value = part.partition(":")
+        if name.strip():
+            declarations[name.strip().casefold()] = value.strip().casefold()
+    for name in ("background-color", "background"):
+        value = declarations.get(name, "").replace(" ", "").replace("!important", "")
+        if value and value not in _PLAIN_BACKGROUNDS and not value.startswith("url("):
+            return "shaded"
+    for name in ("border", "border-style", "outline"):
+        value = declarations.get(name, "")
+        if value and not re.search(r"\b(?:none|hidden)\b|^0(?:px)?$", value):
+            return "boxed"
+    if all(declarations.get(f"border-{side}", "") and not re.search(r"\b(?:none|hidden)\b|^0(?:px)?$",
+                                                                  declarations[f"border-{side}"])
+           for side in ("top", "right", "bottom", "left")):
+        return "boxed"
+    return None
 
 
 _HEADINGS = {"h1", "h2", "h3", "h4", "h5", "h6", "hd", "levelhd", "bridgehead"}
@@ -242,6 +326,7 @@ def _walk_xml(element: ET.Element, flat: _Flattener) -> None:
         flat.text(element.tail)
         return
     if name in _XML_MARKERS:
+        flat.note_ref("".join(element.itertext()))
         flat.report.drop("note_marker", "".join(element.itertext()), "Marca de llamada a nota; la nota se lee "
                          "al final del capítulo.", flat.location)
         flat.text(element.tail)
@@ -258,6 +343,10 @@ def _walk_xml(element: ET.Element, flat: _Flattener) -> None:
         return
     block = name in _XML_BLOCKS
     depth = int(name[5]) if re.fullmatch(r"level[1-6]", name) else None
+    # A DTBook sidebar is text set apart, "often boxed"; a class can say so too.
+    frame = _frame_from_classes(element.get("class", "")) or ("boxed" if name == "sidebar" else None)
+    if frame and depth is None:
+        flat.open_frame(frame, f"<{name}{' class=' + repr(element.get('class')) if element.get('class') else ''}>")
     if block:
         flat.open("heading" if name in _HEADINGS or name == "title" else name, _heading_level(name, flat.level_depth))
     outer_depth = flat.level_depth
@@ -271,6 +360,8 @@ def _walk_xml(element: ET.Element, flat: _Flattener) -> None:
     flat.level_depth = outer_depth
     if block:
         flat.close()
+    if frame and depth is None:
+        flat.close_frame()
     flat.text(element.tail)
 
 
@@ -283,6 +374,41 @@ def _heading_level(name: str, level_depth: int) -> int | None:
     return None
 
 
+def _check_frames(sources: list[dict], report: ExtractionReport, location: str) -> None:
+    """Keep a frame only where it really sets some text apart.
+
+    A class or style around a whole chapter is how a publisher lays out its
+    pages, not a box in the text: announcing "Texto en recuadro" around every
+    paragraph would be wrong, so such a frame is dropped and reported for a
+    person to look at instead of being announced.
+    """
+    framed: dict[str, list[dict]] = {}
+    covered: dict[str, int] = {}
+    for source in sources:
+        if source.get("frame"):
+            framed.setdefault(source["frame"]["id"], []).append(source)
+        # A frame covers what is inside the frames it contains too.
+        for frame_id in source.pop("frame_outer", None) or ([source["frame"]["id"]] if source.get("frame") else []):
+            covered[frame_id] = covered.get(frame_id, 0) + 1
+    for frame_id, members in framed.items():
+        kind = members[0]["frame"]["kind"]
+        inside = covered.get(frame_id, len(members))
+        whole = inside >= 4 and inside >= 0.9 * max(1, len(sources))
+        if whole:
+            evidence = members[0]["frame"].get("evidence", "")
+            for source in members:
+                source.pop("frame", None)
+            report.issue(WARNING, "frame_rejected",
+                         f"Un {'recuadro' if kind == 'boxed' else 'sombreado'} rodea casi todo el capítulo "
+                         f"({inside} párrafos): parece maquetación, no un texto destacado, y no se anuncia. "
+                         "Revísalo.", location=location, text=evidence)
+        else:
+            report.issue(INFO, f"frame_{kind}",
+                         f"{'Texto en recuadro' if kind == 'boxed' else 'Texto sombreado'} detectado "
+                         f"({len(members)} párrafo{'s' if len(members) != 1 else ''}); se anuncia al empezar y al acabar.",
+                         location=location, text=members[0]["frame"].get("evidence", ""))
+
+
 def _chapter_from_blocks(flat: _Flattener, fallback_title: str, method: str) -> BookChapter:
     blocks = list(flat.blocks)
     title, generated = fallback_title, True
@@ -293,6 +419,7 @@ def _chapter_from_blocks(flat: _Flattener, fallback_title: str, method: str) -> 
         blocks = blocks[1:]
     paragraphs = [text for _kind, text, _source in blocks]
     sources = [{**source, "method": method} for _kind, _text, source in blocks]
+    _check_frames(sources, flat.report, flat.location)
     paragraphs += flat.notes
     sources += [{"element": "note", "method": method} for _ in flat.notes]
     return BookChapter(title, paragraphs, title_generated=generated, sources=sources, title_source=title_source)
@@ -435,6 +562,7 @@ def _walk_html(node: Tag, flat: _Flattener, title_heading: list) -> None:
                              "Marca de página del original; no se narra.", flat.location)
             continue
         if _is_note_marker(child):
+            flat.note_ref(child.get_text(""))
             flat.report.drop("note_marker", child.get_text(""), "Marca de llamada a nota; la nota se lee al "
                              "final del capítulo.", flat.location)
             continue
@@ -457,6 +585,14 @@ def _walk_html(node: Tag, flat: _Flattener, title_heading: list) -> None:
                 flat.report.drop("image_alt", alt, "Texto alternativo de una imagen; no se narra.", flat.location)
             continue
         block = name in _HTML_BLOCKS
+        frame = None
+        if name not in _HTML_HEADINGS and name not in {"html", "body", "main"}:
+            frame = (("boxed" if name == "aside" or "sidebar" in semantics else None)
+                     or _frame_from_classes(" ".join(child.get("class") or []) if isinstance(child.get("class"), list)
+                                            else child.get("class", ""))
+                     or _frame_from_style(child.get("style", "")))
+        if frame:
+            flat.open_frame(frame, f"<{name} class={child.get('class')!r} style={child.get('style', '')!r}>")
         if block:
             flat.open("heading" if name in _HTML_HEADINGS else name,
                       int(name[1]) if name in _HTML_HEADINGS else None)
@@ -467,6 +603,8 @@ def _walk_html(node: Tag, flat: _Flattener, title_heading: list) -> None:
             flat.text("; ")
         if block:
             flat.close()
+        if frame:
+            flat.close_frame()
 
 
 def _flatten_inline(node: Tag) -> str:
@@ -589,7 +727,22 @@ def _from_docx(content: bytes, result: BookStructure, fallback_text: str, report
             active.sources.append({"element": "note", "method": "docx"})
         active_notes = []
 
+    # Consecutive paragraphs with the same borders or shading are one box, as
+    # Word draws them; anything else in between ends it.
+    frame_state: dict = {"signature": None, "id": None, "count": 0}
+
+    def frame_of(signature: tuple[str, str] | None, evidence: str) -> dict | None:
+        if signature is None:
+            frame_state.update(signature=None, id=None)
+            return None
+        if frame_state["signature"] != signature or frame_state["id"] is None:
+            frame_state["count"] += 1
+            frame_state.update(signature=signature, id=f"docx#{signature[0]}-{frame_state['count']}")
+        return {"kind": signature[0], "id": frame_state["id"], "evidence": evidence}
+
     for element in document.element.body.iterchildren():
+        if element.tag != qn("w:p"):
+            frame_of(None, "")
         if element.tag == qn("w:tbl"):
             # Tables used to be skipped entirely: python-docx's paragraph list
             # does not include them.
@@ -620,10 +773,23 @@ def _from_docx(content: bytes, result: BookStructure, fallback_text: str, report
             if body and (kind, reference) not in note_numbers:
                 note_numbers[(kind, reference)] = len(note_numbers) + 1
                 active_notes.append(note_text(f"{note_numbers[(kind, reference)]}. {body}"))
+        boxes = _docx_text_boxes(element)
         if not text:
+            frame_of(None, "")
+            for box_texts in boxes:
+                box = frame_of(("boxed", f"textbox-{id(box_texts)}"), "cuadro de texto de Word")
+                for box_text in box_texts:
+                    active.paragraphs.append(box_text)
+                    active.sources.append({"element": "p", "method": "docx", "frame": box})
+                frame_of(None, "")
             continue
-        level = _docx_heading_level(paragraph)
+        signature = _docx_frame(paragraph)
+        frame = frame_of(signature, f"párrafo de Word con {'sombreado' if signature and signature[0] == 'shaded' else 'borde'}"
+                                    f" ({signature[1]})" if signature else "")
+        level = None if frame else _docx_heading_level(paragraph)
         page_source = {"page_breaks": pending_pages} if pending_pages else {}
+        if frame:
+            page_source["frame"] = frame
         if level == 1:
             close_chapter()
             if active.paragraphs:
@@ -638,11 +804,23 @@ def _from_docx(content: bytes, result: BookStructure, fallback_text: str, report
         else:
             for index, part in enumerate(_paragraphs(text)):
                 active.paragraphs.append(part)
-                active.sources.append({"element": "p", "method": "docx", **(page_source if index == 0 else {})})
+                source = {"element": "p", "method": "docx", **(page_source if index == 0 else {})}
+                if frame:
+                    source["frame"] = frame
+                active.sources.append(source)
+        # A text box anchored in the paragraph is read after it, as its own box.
+        for box_texts in boxes:
+            box = frame_of(("boxed", f"textbox-{id(box_texts)}"), "cuadro de texto de Word")
+            for box_text in box_texts:
+                active.paragraphs.append(box_text)
+                active.sources.append({"element": "p", "method": "docx", "frame": box})
+            frame_of(None, "")
         pending_pages = []
     close_chapter()
     if active.paragraphs or not chapters:
         chapters.append(active)
+    for index, chapter in enumerate(chapters, 1):
+        _check_frames(chapter.sources, report, f"capítulo {index}")
     result.chapters = chapters
     for section in document.sections:
         for part, label in ((section.header, "cabecera"), (section.footer, "pie de página")):
@@ -691,6 +869,62 @@ def _docx_note_references(paragraph_element) -> list[tuple[str, str]]:
         kind = "footnote" if node.tag.endswith("footnoteReference") else "endnote"
         references.append((kind, node.get(f"{_WORD_NS}id", "")))
     return references
+
+
+_MC_FALLBACK = "{http://schemas.openxmlformats.org/markup-compatibility/2006}Fallback"
+
+
+def _docx_text_boxes(paragraph_element) -> list[list[str]]:
+    """The text boxes anchored in a paragraph, each as its paragraphs' texts.
+
+    python-docx does not read them, so their words were lost. Word stores a
+    text box twice (the drawing, and a VML copy for old readers under
+    mc:Fallback): only the first is read.
+    """
+    boxes = []
+    for box in paragraph_element.iter(f"{_WORD_NS}txbxContent"):
+        if any(ancestor.tag == _MC_FALLBACK for ancestor in box.iterancestors()):
+            continue
+        texts = [_spoken("".join(node.text or "" for node in inner.iter(f"{_WORD_NS}t")))
+                 for inner in box.iter(f"{_WORD_NS}p")]
+        texts = [item for item in texts if item]
+        if texts:
+            boxes.append(texts)
+    return boxes
+
+
+def _docx_frame(paragraph) -> tuple[str, str] | None:
+    """("boxed" | "shaded", signature) for a paragraph Word draws in a box or on shading.
+
+    Shading is a fill other than white or automatic; a box is a border on at
+    least three sides (a single rule under a heading is not a box). The
+    paragraph's own properties count first, then its style's; a style named
+    like a box ("Recuadro", "Texto sombreado") counts too.
+    """
+    candidates = [paragraph._p.pPr]
+    style = paragraph.style
+    while style is not None and len(candidates) < 6:
+        candidates.append(getattr(style.element, "pPr", None))
+        style = style.base_style
+    for properties in candidates:
+        if properties is None:
+            continue
+        shading = properties.find(f"{_WORD_NS}shd")
+        if shading is not None:
+            fill = (shading.get(f"{_WORD_NS}fill") or "").casefold()
+            pattern = (shading.get(f"{_WORD_NS}val") or "").casefold()
+            if (fill and fill not in {"auto", "ffffff"}) or (pattern and pattern not in {"clear", "nil", "none"}):
+                return "shaded", f"fondo {fill or pattern}"
+        borders = properties.find(f"{_WORD_NS}pBdr")
+        if borders is not None:
+            sides = sorted(child.tag.rsplit("}", 1)[-1] for child in borders
+                           if (child.get(f"{_WORD_NS}val") or "").casefold() not in {"", "nil", "none"}
+                           and child.tag.rsplit("}", 1)[-1] in {"top", "left", "bottom", "right"})
+            if len(sides) >= 3:
+                return "boxed", "borde " + "-".join(sides)
+    name = paragraph.style.name if paragraph.style is not None else ""
+    kind = _frame_from_classes(name)
+    return (kind, f"estilo {name}") if kind else None
 
 
 def _is_daisy_page_number(style) -> bool:
@@ -1121,6 +1355,39 @@ def _heading_text(lines: list[str]) -> str:
     return _join_lines(parts)
 
 
+def _page_frames(page) -> list[tuple[str, tuple[float, float, float, float]]]:
+    """Rectangles drawn on a page that set text apart: filled is shading, outlined a box.
+
+    A rectangle as large as the page is its background, and one only a few
+    points high or wide is a rule or an underline: neither sets text apart.
+    """
+    try:
+        drawings = page.get_drawings()
+    except Exception:
+        return []
+    area = abs(page.rect) or 1.0
+    frames = []
+    for drawing in drawings:
+        rect = drawing.get("rect")
+        if rect is None or rect.width < 30 or rect.height < 14 or rect.width * rect.height > 0.85 * area:
+            continue
+        fill, stroke = drawing.get("fill"), drawing.get("color")
+        if fill is not None and not all(channel > 0.94 for channel in fill):
+            frames.append(("shaded", (rect.x0, rect.y0, rect.x1, rect.y1)))
+        elif stroke is not None and drawing.get("type") in {"s", "fs"} and (drawing.get("width") or 1) > 0:
+            frames.append(("boxed", (rect.x0, rect.y0, rect.x1, rect.y1)))
+    return frames
+
+
+def _frame_for_block(bbox, frames: list, page: int) -> dict | None:
+    x0, y0, x1, y1 = bbox
+    for index, (kind, (left, top, right, bottom)) in enumerate(frames):
+        if x0 >= left - 4 and y0 >= top - 4 and x1 <= right + 4 and y1 <= bottom + 4:
+            return {"kind": kind, "id": f"página {page}#{kind}-{index + 1}",
+                    "evidence": f"rectángulo {'relleno' if kind == 'shaded' else 'con borde'} en la página {page}"}
+    return None
+
+
 def _pdf_layout_chapters(pdf, pages: tuple[int, int] | None, *, ocr_pages: dict | None = None,
                          report: ExtractionReport | None = None) -> list[BookChapter]:
     first, last = pages or (1, pdf.page_count)
@@ -1136,6 +1403,7 @@ def _pdf_layout_chapters(pdf, pages: tuple[int, int] | None, *, ocr_pages: dict 
             continue
         page = pdf[number - 1]
         height = page.rect.height
+        frames = _page_frames(page)
         for block in page.get_text("dict", sort=True)["blocks"]:
             if block.get("type") != 0 or not block.get("lines"):
                 continue
@@ -1148,7 +1416,7 @@ def _pdf_layout_chapters(pdf, pages: tuple[int, int] | None, *, ocr_pages: dict 
             for value, count in text_size:
                 sizes[round(value * 2) / 2] = sizes.get(round(value * 2) / 2, 0) + count
             blocks.append({"page": number, "top": block["bbox"][1] / height, "bottom": block["bbox"][3] / height,
-                           "size": size, "lines": lines})
+                           "size": size, "lines": lines, "frame": _frame_for_block(block["bbox"], frames, number)})
     if not blocks or not sizes:
         return []
     body = max(sizes, key=sizes.get)
@@ -1175,7 +1443,8 @@ def _pdf_layout_chapters(pdf, pages: tuple[int, int] | None, *, ocr_pages: dict 
         elif block["size"] <= body - 1.25 and block["top"] > 0.6 and match:
             block["kind"] = "footnote"
             block["number"] = match.group(1)
-        elif block["size"] >= body + 2.5:
+        elif block["size"] >= body + 2.5 and not block.get("frame"):
+            # A larger title inside a box is the box's own title, not a chapter.
             block["kind"] = "heading"
     notes_on_page: dict[int, set[str]] = {}
     for block in blocks:
@@ -1234,8 +1503,11 @@ def _pdf_layout_chapters(pdf, pages: tuple[int, int] | None, *, ocr_pages: dict 
         if not text:
             continue
         previous = current.paragraphs[-1] if current.paragraphs else ""
+        # A paragraph in a box never carries on outside it, nor the reverse.
+        previous_frame = (current.sources[-1].get("frame") or {}).get("kind") if current.sources else None
         continues = (previous and block is _first_body_on_page(blocks, block["page"])
-                     and not _SENTENCE_END.search(previous))
+                     and not _SENTENCE_END.search(previous)
+                     and previous_frame == (block.get("frame") or {}).get("kind"))
         if continues:
             # The paragraph carries on from the previous page.
             if previous.endswith("-") and text[:1].islower():
@@ -1245,9 +1517,13 @@ def _pdf_layout_chapters(pdf, pages: tuple[int, int] | None, *, ocr_pages: dict 
         else:
             current.paragraphs.append(text)
             current.sources.append({"page": str(block["page"]),
-                                    "method": "ocr" if block.get("ocr") else "pdf-layout"})
+                                    "method": "ocr" if block.get("ocr") else "pdf-layout",
+                                    **({"frame": block["frame"]} if block.get("frame") else {})})
     close_chapter()
     result = [chapter for chapter in chapters if chapter.paragraphs]
+    if report is not None:
+        for chapter in result:
+            _check_frames(chapter.sources, report, chapter.title or "PDF")
     for chapter in result:
         if not chapter.title:
             chapter.title_generated = True

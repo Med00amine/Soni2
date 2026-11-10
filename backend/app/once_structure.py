@@ -26,10 +26,12 @@ of files 1–3 and, for a book without page numbers, the pages of its index.
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from dataclasses import dataclass, field
 
 from app import planilla as planilla_module
+from app import toc as toc_module
 from app.narration_plan import SelectedChapter, is_generated
 
 KIND_TITLE = "once_title"
@@ -38,6 +40,8 @@ KIND_INDEX = "once_index"
 KIND_CHAPTER = "chapter"
 KIND_SUBCHAPTER = "subchapter"
 INITIAL_KINDS = (KIND_TITLE, KIND_BIBLIOGRAPHIC, KIND_INDEX)
+# Roles of the words the production adds around a box or a shaded block.
+FRAME_ROLES = ("frame_open", "frame_close")
 
 _NOTE_ELEMENTS = {"note", "footnote", "endnote"}
 _NOTE_TEXT = re.compile(r"^nota\s+(\d{1,4})\s*[.:]\s*(.*)$", re.I | re.S)
@@ -57,9 +61,16 @@ class Paragraph:
     source: dict | None = None
     # What the extractor recorded about it (page, element, method).
     origin: dict = field(default_factory=dict)
+    # The box or shading it is set in: {"kind": "boxed" | "shaded", "id"}.
+    frame: dict | None = None
 
     def record(self) -> dict:
-        return {"role": self.role, "page_breaks": self.page_breaks, "note": self.note, "source": self.source}
+        record = {"role": self.role, "page_breaks": self.page_breaks, "note": self.note, "source": self.source}
+        if self.frame:
+            record["frame"] = {"kind": self.frame["kind"], "id": self.frame["id"]}
+        if self.role == "text" and self.origin.get("note_refs"):
+            record["note_refs"] = list(self.origin["note_refs"])
+        return record
 
 
 @dataclass
@@ -207,10 +218,27 @@ def _note(text: str, counter: int, plan: planilla_module.Planilla) -> tuple[str,
     return f"{opening} {body} {closing}".strip(), number
 
 
+def _announcement(frame: dict, plan: planilla_module.Planilla, closing: bool) -> Paragraph:
+    """ "Texto en recuadro." / "Fin de texto en recuadro." (or the shaded wording)."""
+    texts = {("boxed", False): plan.boxed_open, ("boxed", True): plan.boxed_close,
+             ("shaded", False): plan.shaded_open, ("shaded", True): plan.shaded_close}
+    return Paragraph(texts[(frame["kind"], closing)], "frame_close" if closing else "frame_open",
+                     frame={"kind": frame["kind"], "id": frame["id"]})
+
+
 def _body_sections(selected: list, provenance: list[tuple[dict, list[dict]]],
                    plan: planilla_module.Planilla, book_title: str) -> list[Section]:
     sections: list[Section] = []
     note_counter = 0
+    # The box or shading being read, so its end can be announced.
+    open_frame: dict | None = None
+
+    def close_frame(section: Section) -> None:
+        nonlocal open_frame
+        if open_frame is not None:
+            section.paragraphs.append(_announcement(open_frame, plan, closing=True))
+            open_frame = None
+
     for chapter_index, (chapter, (title_origin, origins)) in enumerate(zip(selected, provenance)):
         title, paragraphs = chapter[0], list(chapter[1])
         generated = is_generated(chapter) or not title.strip()
@@ -231,6 +259,9 @@ def _body_sections(selected: list, provenance: list[tuple[dict, list[dict]]],
             pages = list(origin.get("page_breaks") or [])
             source = {"chapter": chapter_index, "paragraph": paragraph_index,
                       **({"slot": origin["slot"]} if origin.get("slot") else {})}
+            frame = origin.get("frame") if element not in _NOTE_ELEMENTS else None
+            if open_frame is not None and (not frame or frame.get("id") != open_frame.get("id")):
+                close_frame(current)
             if element == "heading" and level and (level <= title_level or level == sub_level):
                 # A heading of the chapter's own level is a sibling chapter; one
                 # level below is a subchapter with its own audio file.
@@ -245,7 +276,15 @@ def _body_sections(selected: list, provenance: list[tuple[dict, list[dict]]],
                 note_counter = max(note_counter, number)
                 current.paragraphs.append(Paragraph(framed, "note", pages, number, source, origin))
                 continue
-            current.paragraphs.append(Paragraph(text, "text", pages, None, source, origin))
+            if frame and open_frame is None:
+                # The page that begins with the box begins at its announcement.
+                opening = _announcement(frame, plan, closing=False)
+                opening.page_breaks, pages = pages, []
+                current.paragraphs.append(opening)
+                open_frame = frame
+            current.paragraphs.append(Paragraph(text, "text", pages, None, source, origin,
+                                                frame={"kind": frame["kind"], "id": frame["id"]} if frame else None))
+        close_frame(current)
     # Pages of a PDF read page by page arrive as one untitled section per page;
     # the audiobook reads them as one section, with a page marker at each page.
     merged: list[Section] = []
@@ -277,22 +316,58 @@ def _body_sections(selected: list, provenance: list[tuple[dict, list[dict]]],
     return result
 
 
-def _assign_pages(sections: list[Section], plan: planilla_module.Planilla, warnings: list[dict]) -> None:
-    """The page each section starts and ends on, in reading order."""
+def _with_book_toc_title(plan: planilla_module.Planilla, toc) -> planilla_module.Planilla:
+    """The index texts in the book's own words: "Sumario." where the book says sumario.
+
+    Only texts the planilla left at their defaults change, and only when the
+    book gives its table of contents a title; "Fin de sumario." follows the
+    model's "Fin de índice." (an inference to confirm with ONCE).
+    """
+    if toc is None or not toc.title or not plan.index_title_from_book:
+        return plan
+    word = toc.title.strip().rstrip(".:").strip()
+    if not word or toc_module.normal(word) == "indice":
+        return plan
+    defaults = planilla_module.Planilla()
+    changes = {}
+    if plan.index_heading == defaults.index_heading:
+        changes["index_heading"] = f"{word}."
+    if plan.index_self_entry == defaults.index_self_entry:
+        changes["index_self_entry"] = f"{word} página {{page}}."
+    if plan.index_end == defaults.index_end:
+        changes["index_end"] = f"Fin de {word[0].lower()}{word[1:]}."
+    return dataclasses.replace(plan, **changes) if changes else plan
+
+
+def _assign_pages(sections: list[Section], plan: planilla_module.Planilla, warnings: list[dict],
+                  toc_pages: dict[int, str] | None = None) -> None:
+    """The page each section starts and ends on, in reading order.
+
+    Where the book marks a page at the section, that page; otherwise the page
+    the planilla's index gives it, then the page the book's own table of
+    contents gives it (``toc_pages``, by section position); otherwise the page
+    already in effect, reported as inherited. Never a page nobody gave.
+    """
     in_effect = ""
     # True while the page in effect came from the planilla, not from the book.
     planned_only = False
     overrides = {_normal(heading): page for heading, page in plan.chapter_pages.items()}
+    toc_pages = toc_pages or {}
     for index, section in enumerate(sections):
         if not section.initial and index and sections[index - 1].initial:
             # The pages of files 1-3 are the planilla's; the book's own pages
             # start with the book. A chapter is never given the index's page.
             in_effect, planned_only = "", False
-        planned = overrides.get(_normal(section.title)) if not section.initial else None
+        planned = (overrides.get(_normal(section.title)) or toc_pages.get(index)) if not section.initial else None
         if section.title_pages:
             in_effect, planned_only = section.title_pages[-1], False
             section.page_start = section.title_pages[0]
-            if planned and planned != section.page_start:
+            if toc_pages.get(index) and toc_pages[index] != section.page_start:
+                warnings.append({"code": "toc_page_conflict", "section": index,
+                                 "message": f"El índice del libro sitúa «{section.title}» en la página "
+                                            f"{toc_pages[index]} y el texto la marca en la {section.page_start}; "
+                                            "se usa la del texto."})
+            elif planned and planned != section.page_start:
                 warnings.append({"code": "page_conflict", "section": index,
                                  "message": f"La planilla sitúa «{section.title}» en la página {planned} y el libro "
                                             f"en la {section.page_start}; se usa la del libro."})
@@ -321,8 +396,14 @@ def _assign_pages(sections: list[Section], plan: planilla_module.Planilla, warni
 
 
 def build(selected: list, provenance: list[tuple[dict, list[dict]]], metadata: dict,
-          plan: planilla_module.Planilla, *, today=None) -> OnceStructure:
-    """The whole audiobook as ONCE structures it, from the selected sections."""
+          plan: planilla_module.Planilla, *, today=None, toc=None) -> OnceStructure:
+    """The whole audiobook as ONCE structures it, from the selected sections.
+
+    ``toc`` is the book's own table of contents (app.toc), when it has one:
+    its title names the index file and its pages place the sections the
+    text itself gives no page to.
+    """
+    plan = _with_book_toc_title(plan, toc)
     resolved = planilla_module.resolve(plan, metadata, today=today)
     warnings: list[dict] = [{"code": "missing", "message": f"La planilla no indica: {item}."}
                             for item in resolved.missing]
@@ -357,7 +438,31 @@ def build(selected: list, provenance: list[tuple[dict, list[dict]]], metadata: d
     file3 = Section("once-index", KIND_INDEX, 1, plan.index_heading, False,
                     [plan.index_page] if plan.index_page else [], [])
     sections = [file1, file2, file3, *body]
-    _assign_pages(sections, plan, warnings)
+    toc_pages: dict[int, str] = {}
+    if toc is not None:
+        headings = [section.title if section.heading_spoken else "" for section in sections]
+        matched = toc_module.match_sections(toc, headings)
+        toc_pages = {index: entry.page for index, entry in matched.items() if entry.page}
+        unmatched = [entry.label for entry in toc.entries if all(entry is not other for other in matched.values())]
+        warnings.append({"code": "toc_detected",
+                         "message": f"El libro tiene su propio índice («{toc.title or 'sin título'}») con "
+                                    f"{len(toc.entries)} entradas, {len(toc.paged)} con página; "
+                                    f"{len(matched)} coinciden con capítulos del audiolibro."})
+        if unmatched:
+            warnings.append({"code": "toc_unmatched",
+                             "message": f"{len(unmatched)} entradas del índice del libro no coinciden con ningún "
+                                        "capítulo y no se usan: " + ", ".join(f"«{item}»" for item in unmatched[:5])
+                                        + ("…" if len(unmatched) > 5 else "") + "."})
+        if toc.out_of_order:
+            warnings.append({"code": "page_order",
+                             "message": "Páginas del índice del libro que retroceden (revísalas; no se corrigen): "
+                                        + ", ".join(toc.out_of_order[:5]) + "."})
+    _assign_pages(sections, plan, warnings, toc_pages)
+    if not any(section.page_start for section in body) and not any(
+            paragraph.page_breaks for section in body for paragraph in section.paragraphs):
+        warnings.append({"code": "no_source_pages",
+                         "message": "El libro no trae números de página (ni en el texto ni en su índice): el "
+                                    "audiolibro no tiene navegación por páginas del libro y no se inventa."})
 
     # The index lists the sections as they really are, with the page each starts on.
     entries: list[Paragraph] = []
@@ -422,6 +527,24 @@ def _check_pages(sections: list[Section], warnings: list[dict]) -> None:
 # From the structure to narration units and package layout
 # --------------------------------------------------------------------------- #
 
+def part_note_refs(refs: list[dict] | None, text: str, pieces: list[str], part: int) -> list[dict]:
+    """The note references of one part of a paragraph, at positions in that part.
+
+    A long paragraph is narrated in parts; each reference belongs to the part
+    its position falls in, and its position is moved to be counted from there.
+    """
+    if not refs or part >= len(pieces):
+        return []
+    starts, cursor = [], 0
+    for piece in pieces:
+        found = text.find(piece, cursor)
+        starts.append(found if found >= 0 else cursor)
+        cursor = starts[-1] + len(piece)
+    begin, end = starts[part], starts[part] + len(pieces[part])
+    return [{"label": ref["label"], "at": ref["at"] - begin, "before": ref.get("before", "")}
+            for ref in refs if begin <= ref["at"] <= end]
+
+
 def unit_layout(record: dict, paragraphs: list[str], heading_spoken: bool, split) -> list[dict]:
     """One layout entry per narration unit of a section, in order.
 
@@ -435,8 +558,12 @@ def unit_layout(record: dict, paragraphs: list[str], heading_spoken: bool, split
     details = record.get("paragraphs") or []
     for index, text in enumerate(paragraphs):
         detail = details[index] if index < len(details) else {}
-        for part, _piece in enumerate(split(text)):
+        pieces = split(text)
+        for part, _piece in enumerate(pieces):
+            refs = part_note_refs(detail.get("note_refs"), text, pieces, part)
             entries.append({"role": detail.get("role") or "text",
                             "page_breaks": list(detail.get("page_breaks") or []) if part == 0 else [],
-                            "note": detail.get("note"), "paragraph": index, "part": part})
+                            "note": detail.get("note"), "paragraph": index, "part": part,
+                            **({"frame": detail["frame"]} if detail.get("frame") else {}),
+                            **({"note_refs": refs} if refs else {})})
     return entries

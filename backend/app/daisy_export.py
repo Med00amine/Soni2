@@ -92,6 +92,53 @@ class PackagePaths:
         return root / self.smil_href(name)
 
 
+def _indent(element: ET.Element, level: int = 0, space: str = "  ") -> None:
+    """Indent the element tree two spaces per level, never inside text.
+
+    An element that holds text (a paragraph with a note reference in it) is
+    mixed content: whitespace added there would become part of what it says,
+    so it is written exactly as built.
+    """
+    children = list(element)
+    if not children or (element.text or "").strip() or any((child.tail or "").strip() for child in children):
+        return
+    inner = "\n" + space * (level + 1)
+    element.text = inner
+    for child in children:
+        _indent(child, level + 1, space)
+        child.tail = inner
+    children[-1].tail = "\n" + space * level
+
+
+def _with_note_refs(element: ET.Element, text: str, refs: list[dict] | None, note_ids: dict[int, str]) -> int:
+    """Write ``text`` into ``element`` with its note references back in place.
+
+    Each reference is a DTBook ``noteref`` pointing at its note. A reference
+    whose note is not in this section, or whose surrounding text is no longer
+    the same (the paragraph was edited), is left out rather than misplaced.
+    Returns how many were placed.
+    """
+    placed: list[tuple[int, str, str]] = []
+    for ref in sorted(refs or [], key=lambda item: item.get("at", -1)):
+        at, label, before = int(ref.get("at", -1)), str(ref.get("label", "")), ref.get("before", "")
+        number = int(label) if label.isdigit() else None
+        if number not in note_ids or not 0 <= at <= len(text):
+            continue
+        context = before[-at:] if at else ""
+        if text[at - len(context):at] != context:
+            continue
+        if placed and at < placed[-1][0]:
+            continue
+        placed.append((at, label, note_ids[number]))
+    element.text = text[:placed[0][0]] if placed else text
+    for index, (at, label, note_id) in enumerate(placed):
+        noteref = ET.SubElement(element, _q(DTBOOK_NS, "noteref"), {"idref": f"#{note_id}", "class": "once-noteref"})
+        noteref.text = label
+        following = placed[index + 1][0] if index + 1 < len(placed) else len(text)
+        noteref.tail = text[at:following]
+    return len(placed)
+
+
 def package_layout(value: str | None) -> str:
     layout = (value or "nested").strip().lower()
     if layout not in LAYOUTS:
@@ -123,7 +170,7 @@ def _write_xml(path: Path, root: ET.Element, doctype: str | None = None, default
             if isinstance(element.tag, str) and element.tag.startswith(prefix):
                 element.tag = element.tag[len(prefix):]
         root.set("xmlns", default_namespace)
-    ET.indent(root, space="  ")
+    _indent(root)
     body = ET.tostring(root, encoding="unicode", short_empty_elements=True)
     if default_namespace == OPF_NS:
         # <dc-metadata> declares the dc namespace itself, as the OEB 1.2 DTD
@@ -888,6 +935,21 @@ def _write_structured_text(
     audio_index = 0
     note_count = 0
     page_count = 0
+    frame_count = 0
+    # Every note of the book, (section, number, id), numbered as written below.
+    book_notes: list[tuple[int, int, str]] = []
+    upcoming = 0
+    for section_number, entry in enumerate(layout, start=1):
+        previous_note = None
+        for unit in entry["units"]:
+            if (unit.get("role") or "text") == "note":
+                if previous_note is None or unit.get("note") != previous_note:
+                    upcoming += 1
+                    if isinstance(unit.get("note"), int):
+                        book_notes.append((section_number, unit["note"], f"note-{upcoming}"))
+                previous_note = unit.get("note")
+            else:
+                previous_note = None
     current_chapter: ET.Element | None = None
     levels: list[ET.Element] = []
     for number, ((chapter_title, chapter_paragraphs), entry) in enumerate(zip(chapters, layout), start=1):
@@ -911,6 +973,13 @@ def _write_structured_text(
                                  {"id": f"seq-{section_id}", "dur": _clock_ms(chapter_ms[number - 1])})
         units = entry["units"]
         heading_id = f"{section_id}-title"
+        # A reference points at the first note with its number from here on:
+        # a note is read at the end of its chapter, which may be inside a
+        # subchapter by then, and numbering may start again in each chapter.
+        note_ids: dict[int, str] = {}
+        for section_number, note_number, note_id in book_notes:
+            if section_number >= number:
+                note_ids.setdefault(note_number, note_id)
         if not units or units[0].get("role") != "heading":
             # A title the book does not say labels navigation only.
             ET.SubElement(level, _q(DTBOOK_NS, heading_name), {"id": heading_id}).text = chapter_title
@@ -919,18 +988,35 @@ def _write_structured_text(
         note_element: ET.Element | None = None
         note_sequence: ET.Element | None = None
         note_number = None
+        # Boxed or shaded text: a DTBook sidebar (render="required": it is read),
+        # announced by producer's notes, with its own SMIL seq.
+        frame_element: ET.Element | None = None
+        frame_sequence: ET.Element | None = None
+        frame_id = None
         for text, unit in zip(chapter_paragraphs, units):
             role = unit.get("role") or "text"
             if role != "note" or unit.get("note") != note_number:
                 note_element = note_sequence = None
                 note_number = None
+            frame = unit.get("frame")
+            if not frame or frame.get("id") != frame_id:
+                frame_element = frame_sequence = None
+                frame_id = None
+            if frame and frame_element is None:
+                frame_count += 1
+                frame_id = frame.get("id")
+                frame_element = ET.SubElement(level, _q(DTBOOK_NS, "sidebar"), {
+                    "id": f"sidebar-{frame_count}", "render": "required",
+                    "class": "shaded" if frame.get("kind") == "shaded" else "boxed"})
+                frame_sequence = ET.SubElement(sequence, _q(SMIL_NS, "seq"), {
+                    "id": f"seq-sidebar-{frame_count}", "class": "sidebar"})
             for page in unit.get("page_breaks") or []:
                 page_count += 1
                 page_id, par_id = f"page-{page_count:04d}", f"par-page-{page_count:04d}"
-                ET.SubElement(level, _q(DTBOOK_NS, "pagenum"), {
+                ET.SubElement(frame_element if frame_element is not None else level, _q(DTBOOK_NS, "pagenum"), {
                     "id": page_id, "page": page_kind(page)[0], "smilref": f"{paths.smil_href(smil_name)}#{par_id}",
                 }).text = page
-                par = ET.SubElement(sequence, _q(SMIL_NS, "par"),
+                par = ET.SubElement(frame_sequence if frame_sequence is not None else sequence, _q(SMIL_NS, "par"),
                                     {"id": par_id, "class": "pagenum", "customTest": "pagenum"})
                 ET.SubElement(par, _q(SMIL_NS, "text"), {"src": f"{paths.root_from_smil(dtbook_name)}#{page_id}"})
                 page_targets.append((page, mark(f"{paths.smil_href(smil_name)}#{par_id}")))
@@ -955,6 +1041,16 @@ def _write_structured_text(
                 element = ET.SubElement(note_element, _q(DTBOOK_NS, "p"), {"id": f"p-{audio_index:04d}"})
                 par_id = f"par-{audio_index:04d}"
                 container = note_sequence
+            elif frame_element is not None and frame_sequence is not None:
+                # "Texto en recuadro." and its end are the producer's words: prodnote.
+                announcement = role in {"frame_open", "frame_close"}
+                attributes = {"id": f"p-{audio_index:04d}"}
+                if announcement:
+                    attributes.update({"render": "required", "class": "once-" + role.replace("_", "-")})
+                element = ET.SubElement(frame_element, _q(DTBOOK_NS, "prodnote" if announcement else "p"),
+                                        attributes)
+                par_id = f"par-{audio_index:04d}"
+                container = frame_sequence
             else:
                 attributes = {"id": f"p-{audio_index:04d}"}
                 if role != "text":
@@ -962,7 +1058,10 @@ def _write_structured_text(
                 element = ET.SubElement(level, _q(DTBOOK_NS, "p"), attributes)
                 par_id = f"par-{audio_index:04d}"
                 container = sequence
-            element.text = text
+            if role == "text" and unit.get("note_refs"):
+                _with_note_refs(element, text, unit.get("note_refs"), note_ids)
+            else:
+                element.text = text
             element.set("smilref", f"{paths.smil_href(smil_name)}#{par_id}")
             par = ET.SubElement(container, _q(SMIL_NS, "par"), {"id": par_id})
             ET.SubElement(par, _q(SMIL_NS, "text"), {"src": f"{paths.root_from_smil(dtbook_name)}#{element.get('id')}"})

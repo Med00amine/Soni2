@@ -94,9 +94,19 @@ class Planilla:
     index_end: str = "Fin de índice."
     # 1: chapters only (as the model's index); 2: chapters and subchapters.
     index_depth: int = 2
+    # The index file takes the title the book gives its own table of contents
+    # ("Sumario.", "Contenido.") where the three index texts above are left at
+    # their defaults; False always says "Índice.".
+    index_title_from_book: bool = True
     closing: str = "Aquí finaliza la grabación de {title_and_author}."
     note_open: str = "Nota {n}."
     note_close: str = "Fin de nota {n}."
+    # Text the book sets apart in a box or on a shaded background is announced
+    # where it begins and where it ends (ONCE's wording).
+    boxed_open: str = "Texto en recuadro."
+    boxed_close: str = "Fin de texto en recuadro."
+    shaded_open: str = "Texto sombreado."
+    shaded_close: str = "Fin de texto sombreado."
     # Heading -> page, from a planilla's own index. Used only where the book
     # itself carries no page numbers.
     chapter_pages: dict[str, str] = field(default_factory=dict)
@@ -138,6 +148,10 @@ def from_dict(payload: dict) -> Planilla:
             if value is not None and not isinstance(value, str):
                 raise ValueError(f"El dato «{key}» de la planilla debe ser texto.")
             values[key] = value.strip() if isinstance(value, str) else None
+        elif key == "index_title_from_book":
+            if not isinstance(value, bool):
+                raise ValueError("«index_title_from_book» de la planilla debe ser verdadero o falso.")
+            values[key] = value
         elif key == "index_depth":
             if value not in (1, 2):
                 raise ValueError("La profundidad del índice debe ser 1 (capítulos) o 2 (capítulos y subcapítulos).")

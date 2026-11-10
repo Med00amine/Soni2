@@ -39,6 +39,7 @@ from app.book_structure import extract_book_structure
 from app.daisy_validation import validate_daisy_package
 from app.sentences import apply_pronunciation_lexicon, build_spoken_text, build_synthesis_text, segment_paragraphs
 from app import book_edits
+from app import toc as toc_module
 from app import jobs as job_store
 from app import (audio_integrity, audio_master, completeness, daisy_dtd, daisy_timing, ocr, once_structure,
                  once_validation,
@@ -2143,7 +2144,8 @@ def prepare_book(structure, metadata: dict, *, narration_plan_json: str, correct
         if provenance is not None:
             provenance = once_structure.regroup_provenance(chapters, provenance, regrouped)
         chapters = regrouped
-    once = once_structure.build(chapters, provenance, metadata, sheet) if sheet is not None else None
+    once = (once_structure.build(chapters, provenance, metadata, sheet, toc=toc_module.detect(plan))
+            if sheet is not None else None)
     return chapters, once
 
 
@@ -2157,7 +2159,9 @@ def once_layout(sections: list[dict], units_by_chapter: list[list[dict]]) -> lis
             provenance = unit.get("provenance") or {}
             entries.append({"role": provenance.get("role") or ("heading" if unit.get("is_heading") else "text"),
                             "page_breaks": list(provenance.get("page_breaks") or []),
-                            "note": provenance.get("note")})
+                            "note": provenance.get("note"),
+                            **({"frame": provenance["frame"]} if provenance.get("frame") else {}),
+                            **({"note_refs": provenance["note_refs"]} if provenance.get("note_refs") else {})})
         layout.append({"kind": once.get("kind") or "chapter", "level": once.get("level") or 1, "units": entries})
     return layout
 
@@ -2257,9 +2261,12 @@ def build_units(chapters, source_hash: str, lexicon: dict[str, str], structure=N
                 extra = {}
                 if record:
                     # A page that begins at the paragraph begins at its first part.
+                    refs = once_structure.part_note_refs(detail.get("note_refs"), paragraph, pieces, part_index)
                     extra = {"role": detail.get("role") or "text", "note": detail.get("note"),
                              "page_breaks": list(detail.get("page_breaks") or []) if part_index == 0 else [],
-                             "source": detail.get("source"), **section}
+                             "source": detail.get("source"), **section,
+                             **({"frame": detail["frame"]} if detail.get("frame") else {}),
+                             **({"note_refs": refs} if refs else {})}
                 parts.append((part, {"chapter": chapter_index, "paragraph": paragraph_index,
                                      "part": part_index, "parts": len(pieces), **source, **extra}))
         for sentence, (_part, provenance) in zip(
@@ -2412,7 +2419,7 @@ def from_planilla(unit: dict) -> bool:
     """True for a unit whose text the planilla or the generated index supplies."""
     provenance = unit.get("provenance") or {}
     role = provenance.get("role")
-    return role in {"legal", "bibliographic", "index_entry", "closing"} or (
+    return role in {"legal", "bibliographic", "index_entry", "closing", *once_structure.FRAME_ROLES} or (
         role == "heading" and provenance.get("kind") in once_structure.INITIAL_KINDS)
 
 
@@ -3117,7 +3124,8 @@ def outline_sections(chapters: list, once) -> list[dict]:
                 for part, piece in enumerate(pieces):
                     units.append({"role": paragraph.role, "text": piece, "note": paragraph.note,
                                   "page_breaks": list(paragraph.page_breaks) if part == 0 else [],
-                                  "source": unit_source(paragraph.source, mode, part, len(pieces)), "part": part})
+                                  "source": unit_source(paragraph.source, mode, part, len(pieces)), "part": part,
+                                  **({"frame": paragraph.frame} if paragraph.frame else {})})
             sections.append({"index": index, "key": section.key, "kind": section.kind, "level": section.level,
                              "title": section.title, "heading_spoken": section.heading_spoken,
                              "page_start": section.page_start, "page_end": section.page_end,

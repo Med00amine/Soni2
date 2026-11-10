@@ -104,6 +104,21 @@ def units_to_audio(units: list[dict], job_dir: Path) -> dict:
                   formats=[list(map(list, item)) for item in formats])
 
 
+def reading_text(element: ET.Element) -> str:
+    """What an element says when read: its text without note reference marks.
+
+    A ``noteref`` keeps the place of a note's mark in the text; it is not read
+    (the note is read where the note is), so it is not part of the narration
+    the element is compared with.
+    """
+    parts = [element.text or ""]
+    for child in element:
+        if child.tag.rsplit("}", 1)[-1] != "noteref":
+            parts.append(reading_text(child))
+        parts.append(child.tail or "")
+    return "".join(parts)
+
+
 def _package_files(package: Path) -> tuple[Path, ET.Element, Path, ET.Element]:
     opf_path = next(package.glob("*.opf"))
     opf = ET.parse(opf_path).getroot()
@@ -120,7 +135,7 @@ def units_to_package(units: list[dict], package: Path) -> list[dict]:
     synchronized = [element for element in dtbook.iter() if element.get("smilref")
                     and not (element.get("id") or "").startswith("frontmatter-")
                     and element.tag != f"{DTBOOK}pagenum"]
-    texts = ["".join(element.itertext()).strip() for element in synchronized]
+    texts = [reading_text(element).strip() for element in synchronized]
     expected = [unit["text"].strip() for unit in units]
     mismatch = [{"position": index, "expected": expected[index] if index < len(expected) else None,
                  "package": texts[index] if index < len(texts) else None}

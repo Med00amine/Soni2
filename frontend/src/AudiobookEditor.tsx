@@ -78,6 +78,8 @@ const ROLE_LABEL: Record<string, string> = {
   bibliographic: 'Dato bibliográfico',
   index_entry: 'Entrada del índice',
   closing: 'Frase final',
+  frame_open: 'Inicio de recuadro o sombreado',
+  frame_close: 'Fin de recuadro o sombreado',
 }
 
 const STATE_LABEL: Record<string, string> = {
