@@ -1,0 +1,1231 @@
+{
+  "book": "el-faro-de-los-viajeros.epub",
+  "job": {
+    "state": "completed",
+    "release_state": "BLOCKED",
+    "blockers": [
+      "El audio es simulado (proveedor de prueba): no hay nada que escuchar ni publicar."
+    ],
+    "chain": {
+      "source_to_units": "passed",
+      "units_to_audio": "passed",
+      "units_to_dtbook": "passed",
+      "smil_sync": "passed",
+      "audio_format": "passed",
+      "navigation": "passed",
+      "timing_xml": "passed",
+      "timing_clips": "passed",
+      "timing_contiguity": "passed",
+      "timing_totals": "passed",
+      "timing_audio_format": "passed",
+      "timing_edges": "passed",
+      "timing_transitions": "passed",
+      "once_initial_files": "passed",
+      "once_hierarchy": "passed",
+      "once_pages": "passed",
+      "once_index": "passed",
+      "once_notes": "passed",
+      "once_frames": "passed",
+      "once_photos": "passed",
+      "once_closing": "passed",
+      "once_play_order": "passed"
+    },
+    "units": [
+      {
+        "role": "heading",
+        "text": "El faro de los viajeros, De Ana Pérez",
+        "spoken": "El faro de los viajeros, De Ana Pérez",
+        "context": "heading"
+      },
+      {
+        "role": "legal",
+        "text": "Esta adaptación es propiedad de la Organización Nacional de Ciegos Españoles (ONCE) y ha sido realizada en sistema Daisy exclusivamente para su reproducción por personas afiliadas a esta Organización; para un uso privado, sin finalidad comercial, conforme a lo dispuesto en la Ley española de Propiedad Intelectual. En consecuencia, estas no podrán distribuirla, comunicarla públicamente ni transformarla en todo o en parte, y tampoco utilizarla con fines distintos de los contemplados en la ley mencionada y en este aviso. También queda rigurosamente prohibida la utilización, reproducción, distribución, transformación, comunicación pública o explotación de esta adaptación por otras personas distintas.",
+        "spoken": "Esta adaptación es propiedad de la Organización Nacional de Ciegos Españoles (ONCE) y ha sido realizada en sistema Daisy exclusivamente para su reproducción por personas afiliadas a esta Organización; para un uso privado, sin finalidad comercial, conforme a lo dispuesto en la Ley española de Propiedad Intelectual. En consecuencia, estas no podrán distribuirla, comunicarla públicamente ni transformarla en todo o en parte, y tampoco utilizarla con fines distintos de los contemplados en la ley mencionada y en este aviso. También queda rigurosamente prohibida la utilización, reproducción, distribución, transformación, comunicación pública o explotación de esta adaptación por otras personas distintas.",
+        "context": null
+      },
+      {
+        "role": "legal",
+        "text": "Todo esto, sin perjuicio de la facultad de la ONCE para intercambiar ejemplares de obras en formato accesible con entidades autorizadas, al amparo de la normativa y los tratados internacionales aplicables en cada momento. Servicio Bibliográfico ONCE 2026”",
+        "spoken": "Todo esto, sin perjuicio de la facultad de la ONCE para intercambiar ejemplares de obras en formato accesible con entidades autorizadas, al amparo de la normativa y los tratados internacionales aplicables en cada momento. Servicio Bibliográfico ONCE 2026”",
+        "context": null
+      },
+      {
+        "role": "heading",
+        "text": "DATOS BIBLIOGRÁFICOS",
+        "spoken": "DATOS BIBLIOGRÁFICOS",
+        "context": "heading"
+      },
+      {
+        "role": "bibliographic",
+        "text": "El faro de los viajeros, De Ana Pérez",
+        "spoken": "El faro de los viajeros, De Ana Pérez",
+        "context": null
+      },
+      {
+        "role": "bibliographic",
+        "text": "Obra grabada en formato digital para el Servicio Bibliográfico de la ONCE, Sonidos S-2 Productions, S.L. noviembre de 2026",
+        "spoken": "Obra grabada en formato digital para el Servicio Bibliográfico de la ONCE, Sonidos S-2 Productions, S.L. noviembre de 2026",
+        "context": null
+      },
+      {
+        "role": "heading",
+        "text": "Sumario.",
+        "spoken": "Sumario.",
+        "context": "heading"
+      },
+      {
+        "role": "index_entry",
+        "text": "Sumario página 3.",
+        "spoken": "Sumario página 3.",
+        "context": "heading"
+      },
+      {
+        "role": "index_entry",
+        "text": "Prólogo. Página ix.",
+        "spoken": "Prólogo. Página ix.",
+        "context": "heading"
+      },
+      {
+        "role": "index_entry",
+        "text": "Capítulo I. La llegada. Página 11.",
+        "spoken": "Capítulo uno. La llegada. Página 11.",
+        "context": "heading"
+      },
+      {
+        "role": "index_entry",
+        "text": "Capítulo II. William Shakespeare en la isla. Página 15.",
+        "spoken": "Capítulo dos. William (uve doble, i, ele, ele, i, a, eme) Shakespeare (ese, hache, a, ka, e, ese, pe, e, a, erre, e) en la isla. Página 15.",
+        "context": "heading"
+      },
+      {
+        "role": "index_entry",
+        "text": "III. El regreso. Página 15.",
+        "spoken": "tres. El regreso. Página 15.",
+        "context": "heading"
+      },
+      {
+        "role": "index_entry",
+        "text": "Bibliografía. Página 19.",
+        "spoken": "Bibliografía. Página 19.",
+        "context": "heading"
+      },
+      {
+        "role": "index_entry",
+        "text": "Fotografías.",
+        "spoken": "Fotografías.",
+        "context": "heading"
+      },
+      {
+        "role": "index_entry",
+        "text": "Fin de sumario.",
+        "spoken": "Fin de sumario.",
+        "context": "heading"
+      },
+      {
+        "role": "heading",
+        "text": "Prólogo",
+        "spoken": "Prólogo",
+        "context": "heading"
+      },
+      {
+        "role": "text",
+        "text": "Este libro reúne historias del faro.",
+        "spoken": "Este libro reúne historias del faro.",
+        "context": null
+      },
+      {
+        "role": "heading",
+        "text": "Capítulo I. La llegada",
+        "spoken": "Capítulo uno. La llegada",
+        "context": "heading"
+      },
+      {
+        "role": "text",
+        "text": "La barca dejó a Clara en el muelle de la isla cuando el sol ya rozaba el agua. Traía una maleta, un cuaderno de tapas azules y la carta del farero anterior. La luz parpadeó antes de apagarse.",
+        "spoken": "La barca dejó a Clara en el muelle de la isla cuando el sol ya rozaba el agua. Traía una maleta, un cuaderno de tapas azules y la carta del farero anterior. La luz parpadeó antes de apagarse.",
+        "context": null
+      },
+      {
+        "role": "frame_open",
+        "text": "Texto en recuadro.",
+        "spoken": "Texto en recuadro.",
+        "context": null
+      },
+      {
+        "role": "text",
+        "text": "Los faros de la costa se encendían a mano.",
+        "spoken": "Los faros de la costa se encendían a mano.",
+        "context": null
+      },
+      {
+        "role": "text",
+        "text": "Funcionaban con aceite de ballena.",
+        "spoken": "Funcionaban con aceite de ballena.",
+        "context": null
+      },
+      {
+        "role": "frame_close",
+        "text": "Fin de texto en recuadro.",
+        "spoken": "Fin de texto en recuadro.",
+        "context": null
+      },
+      {
+        "role": "text",
+        "text": "Clara subió por el camino de piedras hasta la puerta.",
+        "spoken": "Clara subió por el camino de piedras hasta la puerta.",
+        "context": null
+      },
+      {
+        "role": "frame_open",
+        "text": "Texto sombreado.",
+        "spoken": "Texto sombreado.",
+        "context": null
+      },
+      {
+        "role": "text",
+        "text": "Recuerda: la luz nunca se apaga.",
+        "spoken": "Recuerda: la luz nunca se apaga.",
+        "context": null
+      },
+      {
+        "role": "frame_close",
+        "text": "Fin de texto sombreado.",
+        "spoken": "Fin de texto sombreado.",
+        "context": null
+      },
+      {
+        "role": "note",
+        "text": "Nota 1. Véase Smith (2004), p. 12. Fin de nota 1.",
+        "spoken": "Nota 1. Véase Smith (ese, eme, i, te, hache) (2004), página 12. Fin de nota 1.",
+        "context": "note"
+      },
+      {
+        "role": "photo_reference",
+        "text": "Encarte de fotografías: las fotografías 1 a 2 se leen al final del libro.",
+        "spoken": "Encarte de fotografías: las fotografías 1 a 2 se leen al final del libro.",
+        "context": null
+      },
+      {
+        "role": "heading",
+        "text": "Capítulo II. William Shakespeare en la isla",
+        "spoken": "Capítulo dos. William (uve doble, i, ele, ele, i, a, eme) Shakespeare (ese, hache, a, ka, e, ese, pe, e, a, erre, e) en la isla",
+        "context": "heading"
+      },
+      {
+        "role": "text",
+        "text": "La barca dejó a Clara en el muelle de la isla cuando el sol ya rozaba el agua. Traía una maleta, un cuaderno de tapas azules y la carta del farero anterior.",
+        "spoken": "La barca dejó a Clara en el muelle de la isla cuando el sol ya rozaba el agua. Traía una maleta, un cuaderno de tapas azules y la carta del farero anterior.",
+        "context": null
+      },
+      {
+        "role": "heading",
+        "text": "III. El regreso",
+        "spoken": "tres. El regreso",
+        "context": "heading"
+      },
+      {
+        "role": "text",
+        "text": "Cuando llegó la primavera volvió al puerto.",
+        "spoken": "Cuando llegó la primavera volvió al puerto.",
+        "context": null
+      },
+      {
+        "role": "heading",
+        "text": "Bibliografía",
+        "spoken": "Bibliografía",
+        "context": "heading"
+      },
+      {
+        "role": "text",
+        "text": "Smith, J. (2004). The Lighthouse. Londres, pp. 23-45.",
+        "spoken": "Smith (ese, eme, i, te, hache), J. (2004). The Lighthouse. Londres, páginas 23 a 45.",
+        "context": "bibliography"
+      },
+      {
+        "role": "text",
+        "text": "García, P. (1999). Faros de España. Madrid: Espasa, 2.ª ed.",
+        "spoken": "García, P. (1999). Faros de España. Madrid: Espasa, segunda edición.",
+        "context": "bibliography"
+      },
+      {
+        "role": "heading",
+        "text": "Fotografías.",
+        "spoken": "Fotografías.",
+        "context": "heading"
+      },
+      {
+        "role": "photo",
+        "text": "Fotografía 1.",
+        "spoken": "Fotografía 1.",
+        "context": null
+      },
+      {
+        "role": "photo_caption",
+        "text": "El faro en 1910.",
+        "spoken": "El faro en 1910.",
+        "context": null
+      },
+      {
+        "role": "photo",
+        "text": "Fotografía 2.",
+        "spoken": "Fotografía 2.",
+        "context": null
+      },
+      {
+        "role": "closing",
+        "text": "Aquí finaliza la grabación de El faro de los viajeros, De Ana Pérez.",
+        "spoken": "Aquí finaliza la grabación de El faro de los viajeros, De Ana Pérez.",
+        "context": null
+      }
+    ],
+    "warnings": [
+      "missing",
+      "missing",
+      "photo_insert",
+      "toc_detected"
+    ],
+    "zip": {
+      "package": "C:\\Users\\MSI\\AppData\\Local\\Temp\\claude\\d--Amine-github-Soni2\\780cd010-7fbe-4954-aa0e-22678a0bf1d7\\scratchpad\\once-features\\unpacked-job\\DAISY 3",
+      "structural": "passed",
+      "dtd": {
+        "status": "passed",
+        "method": "dtd_z3986_2005",
+        "files": [
+          {
+            "file": "El_faro_de_los_viajeros.ncx",
+            "dtd": "ncx-2005-1.dtd",
+            "valid": true
+          },
+          {
+            "file": "El_faro_de_los_viajeros.opf",
+            "dtd": "oebpkg12.dtd",
+            "valid": true
+          },
+          {
+            "file": "El_faro_de_los_viajeros.res",
+            "dtd": "resource-2005-1.dtd",
+            "valid": true
+          },
+          {
+            "file": "El_faro_de_los_viajeros.xml",
+            "dtd": "dtbook-2005-3.dtd",
+            "valid": true
+          },
+          {
+            "file": "smil/chapter-0001.smil",
+            "dtd": "dtbsmil-2005-2.dtd",
+            "valid": true
+          },
+          {
+            "file": "smil/chapter-0002.smil",
+            "dtd": "dtbsmil-2005-2.dtd",
+            "valid": true
+          },
+          {
+            "file": "smil/chapter-0003.smil",
+            "dtd": "dtbsmil-2005-2.dtd",
+            "valid": true
+          },
+          {
+            "file": "smil/chapter-0004.smil",
+            "dtd": "dtbsmil-2005-2.dtd",
+            "valid": true
+          },
+          {
+            "file": "smil/chapter-0005.smil",
+            "dtd": "dtbsmil-2005-2.dtd",
+            "valid": true
+          },
+          {
+            "file": "smil/chapter-0006.smil",
+            "dtd": "dtbsmil-2005-2.dtd",
+            "valid": true
+          },
+          {
+            "file": "smil/chapter-0007.smil",
+            "dtd": "dtbsmil-2005-2.dtd",
+            "valid": true
+          },
+          {
+            "file": "smil/chapter-0008.smil",
+            "dtd": "dtbsmil-2005-2.dtd",
+            "valid": true
+          },
+          {
+            "file": "smil/chapter-0009.smil",
+            "dtd": "dtbsmil-2005-2.dtd",
+            "valid": true
+          }
+        ],
+        "errors": []
+      },
+      "timing": {
+        "status": "passed",
+        "failed": [],
+        "checks": {
+          "timing_xml": "passed",
+          "timing_clips": "passed",
+          "timing_contiguity": "passed",
+          "timing_totals": "passed",
+          "timing_audio_format": "passed",
+          "timing_edges": "passed",
+          "timing_transitions": "passed"
+        }
+      },
+      "checks": [
+        {
+          "id": "timing_xml",
+          "label": "XML bien formado",
+          "status": "passed",
+          "detail": "13 documentos XML, todos bien formados",
+          "problems": []
+        },
+        {
+          "id": "timing_clips",
+          "label": "Fragmentos de audio SMIL",
+          "status": "passed",
+          "detail": "41 fragmentos en 9 archivos SMIL; cada uno con su audio y su texto, y dentro de su audio",
+          "problems": [],
+          "clips": 41
+        },
+        {
+          "id": "timing_contiguity",
+          "label": "Fragmentos contiguos",
+          "status": "passed",
+          "detail": "9 archivos de audio: los fragmentos cubren cada archivo de principio a fin, sin huecos ni solapes",
+          "problems": []
+        },
+        {
+          "id": "timing_totals",
+          "label": "Tiempos del libro (totalElapsedTime, dur, totalTime)",
+          "status": "passed",
+          "detail": "9 archivos SMIL, 144.218 s en total; cada tiempo declarado coincide con la suma de sus fragmentos",
+          "problems": [],
+          "total_seconds": 144.218,
+          "declared_total": "0:02:24.218"
+        },
+        {
+          "id": "timing_audio_format",
+          "label": "Formato del audio",
+          "status": "passed",
+          "detail": "9 archivos MP3, todos a velocidad constante y con la misma frecuencia y canales",
+          "problems": [],
+          "files": [
+            {
+              "file": "audio/chapter-001.mp3",
+              "bitrates_kbps": [
+                128
+              ],
+              "sample_rates": [
+                44100
+              ],
+              "channels": [
+                2
+              ],
+              "duration": 21.055
+            },
+            {
+              "file": "audio/chapter-002.mp3",
+              "bitrates_kbps": [
+                128
+              ],
+              "sample_rates": [
+                44100
+              ],
+              "channels": [
+                2
+              ],
+              "duration": 12.878
+            },
+            {
+              "file": "audio/chapter-003.mp3",
+              "bitrates_kbps": [
+                128
+              ],
+              "sample_rates": [
+                44100
+              ],
+              "channels": [
+                2
+              ],
+              "duration": 21.76
+            },
+            {
+              "file": "audio/chapter-004.mp3",
+              "bitrates_kbps": [
+                128
+              ],
+              "sample_rates": [
+                44100
+              ],
+              "channels": [
+                2
+              ],
+              "duration": 5.016
+            },
+            {
+              "file": "audio/chapter-005.mp3",
+              "bitrates_kbps": [
+                128
+              ],
+              "sample_rates": [
+                44100
+              ],
+              "channels": [
+                2
+              ],
+              "duration": 37.486
+            },
+            {
+              "file": "audio/chapter-006.mp3",
+              "bitrates_kbps": [
+                128
+              ],
+              "sample_rates": [
+                44100
+              ],
+              "channels": [
+                2
+              ],
+              "duration": 17.607
+            },
+            {
+              "file": "audio/chapter-007.mp3",
+              "bitrates_kbps": [
+                128
+              ],
+              "sample_rates": [
+                44100
+              ],
+              "channels": [
+                2
+              ],
+              "duration": 5.878
+            },
+            {
+              "file": "audio/chapter-008.mp3",
+              "bitrates_kbps": [
+                128
+              ],
+              "sample_rates": [
+                44100
+              ],
+              "channels": [
+                2
+              ],
+              "duration": 12.042
+            },
+            {
+              "file": "audio/chapter-009.mp3",
+              "bitrates_kbps": [
+                128
+              ],
+              "sample_rates": [
+                44100
+              ],
+              "channels": [
+                2
+              ],
+              "duration": 10.501
+            }
+          ]
+        },
+        {
+          "id": "timing_edges",
+          "label": "Silencio al principio y al final de cada audio",
+          "status": "passed",
+          "detail": "10 archivos medidos sobre la forma de onda: todos empiezan con al menos 1.00 s y acaban con al menos 1.20 s",
+          "problems": [],
+          "files": [
+            {
+              "file": "audio/chapter-001.mp3",
+              "leading_seconds": 1.014,
+              "trailing_seconds": 1.208,
+              "duration_seconds": 21.055,
+              "start_rms_db": -Infinity,
+              "end_rms_db": -Infinity
+            },
+            {
+              "file": "audio/chapter-002.mp3",
+              "leading_seconds": 1.017,
+              "trailing_seconds": 1.222,
+              "duration_seconds": 12.878,
+              "start_rms_db": -Infinity,
+              "end_rms_db": -Infinity
+            },
+            {
+              "file": "audio/chapter-003.mp3",
+              "leading_seconds": 1.025,
+              "trailing_seconds": 1.203,
+              "duration_seconds": 21.76,
+              "start_rms_db": -Infinity,
+              "end_rms_db": -Infinity
+            },
+            {
+              "file": "audio/chapter-004.mp3",
+              "leading_seconds": 1.013,
+              "trailing_seconds": 1.221,
+              "duration_seconds": 5.016,
+              "start_rms_db": -Infinity,
+              "end_rms_db": -Infinity
+            },
+            {
+              "file": "audio/chapter-005.mp3",
+              "leading_seconds": 1.016,
+              "trailing_seconds": 1.229,
+              "duration_seconds": 37.486,
+              "start_rms_db": -Infinity,
+              "end_rms_db": -Infinity
+            },
+            {
+              "file": "audio/chapter-006.mp3",
+              "leading_seconds": 1.023,
+              "trailing_seconds": 1.215,
+              "duration_seconds": 17.607,
+              "start_rms_db": -Infinity,
+              "end_rms_db": -Infinity
+            },
+            {
+              "file": "audio/chapter-007.mp3",
+              "leading_seconds": 1.025,
+              "trailing_seconds": 1.202,
+              "duration_seconds": 5.878,
+              "start_rms_db": -Infinity,
+              "end_rms_db": -Infinity
+            },
+            {
+              "file": "audio/chapter-008.mp3",
+              "leading_seconds": 1.025,
+              "trailing_seconds": 1.215,
+              "duration_seconds": 12.042,
+              "start_rms_db": -Infinity,
+              "end_rms_db": -Infinity
+            },
+            {
+              "file": "audio/chapter-009.mp3",
+              "leading_seconds": 1.025,
+              "trailing_seconds": 1.217,
+              "duration_seconds": 10.501,
+              "start_rms_db": -Infinity,
+              "end_rms_db": -Infinity
+            },
+            {
+              "file": "El_faro_de_los_viajeros.mp3",
+              "leading_seconds": 1.014,
+              "trailing_seconds": 1.217,
+              "duration_seconds": 144.222,
+              "start_rms_db": -Infinity,
+              "end_rms_db": -Infinity
+            }
+          ],
+          "leading_target": 1.0,
+          "trailing_target": 1.2
+        },
+        {
+          "id": "timing_transitions",
+          "label": "Transiciones entre capítulos y audiolibro completo",
+          "status": "passed",
+          "detail": "cada archivo SMIL tiene su entrada, en orden; el audiolibro completo dura lo que sus partes",
+          "problems": []
+        }
+      ],
+      "alignment": {
+        "boundaries": 32,
+        "in_a_pause_then_speech": 32,
+        "not_confirmed": []
+      },
+      "once": {
+        "once_initial_files": [
+          "passed",
+          "título y autor, texto legal, datos bibliográficos e índice, en orden"
+        ],
+        "once_hierarchy": [
+          "passed",
+          "9 archivos, 1 subcapítulos en el nivel 2"
+        ],
+        "once_pages": [
+          "passed",
+          "8 marcas de página silenciosas, en orden"
+        ],
+        "once_index": [
+          "passed",
+          "7 entradas, cada una con la página en que empieza su sección"
+        ],
+        "once_notes": [
+          "passed",
+          "1 notas con su principio y su fin"
+        ],
+        "once_frames": [
+          "passed",
+          "1 recuadros y 1 sombreados, cada uno con su anuncio al empezar y al acabar"
+        ],
+        "once_photos": [
+          "passed",
+          "2 fotografías al final, numeradas en orden, cada una con su imagen"
+        ],
+        "once_closing": [
+          "passed",
+          "«Aquí finaliza la grabación de El faro de los viajeros, De Ana Pérez.»"
+        ],
+        "once_play_order": [
+          "passed",
+          "20 destinos numerados en orden de lectura"
+        ]
+      },
+      "files": [
+        "El_faro_de_los_viajeros.mp3",
+        "El_faro_de_los_viajeros.ncx",
+        "El_faro_de_los_viajeros.opf",
+        "El_faro_de_los_viajeros.res",
+        "El_faro_de_los_viajeros.xml",
+        "audio/chapter-001.mp3",
+        "audio/chapter-002.mp3",
+        "audio/chapter-003.mp3",
+        "audio/chapter-004.mp3",
+        "audio/chapter-005.mp3",
+        "audio/chapter-006.mp3",
+        "audio/chapter-007.mp3",
+        "audio/chapter-008.mp3",
+        "audio/chapter-009.mp3",
+        "dtbookbasic.css",
+        "images/photo-001.png",
+        "images/photo-002.png",
+        "smil/chapter-0001.smil",
+        "smil/chapter-0002.smil",
+        "smil/chapter-0003.smil",
+        "smil/chapter-0004.smil",
+        "smil/chapter-0005.smil",
+        "smil/chapter-0006.smil",
+        "smil/chapter-0007.smil",
+        "smil/chapter-0008.smil",
+        "smil/chapter-0009.smil"
+      ]
+    }
+  },
+  "direct_download_flat": {
+    "status": 200,
+    "zip": {
+      "package": "C:\\Users\\MSI\\AppData\\Local\\Temp\\claude\\d--Amine-github-Soni2\\780cd010-7fbe-4954-aa0e-22678a0bf1d7\\scratchpad\\once-features\\unpacked-direct-flat\\DAISY 3",
+      "structural": "passed",
+      "dtd": {
+        "status": "passed",
+        "method": "dtd_z3986_2005",
+        "files": [
+          {
+            "file": "chapter-0001.smil",
+            "dtd": "dtbsmil-2005-2.dtd",
+            "valid": true
+          },
+          {
+            "file": "chapter-0002.smil",
+            "dtd": "dtbsmil-2005-2.dtd",
+            "valid": true
+          },
+          {
+            "file": "chapter-0003.smil",
+            "dtd": "dtbsmil-2005-2.dtd",
+            "valid": true
+          },
+          {
+            "file": "chapter-0004.smil",
+            "dtd": "dtbsmil-2005-2.dtd",
+            "valid": true
+          },
+          {
+            "file": "chapter-0005.smil",
+            "dtd": "dtbsmil-2005-2.dtd",
+            "valid": true
+          },
+          {
+            "file": "chapter-0006.smil",
+            "dtd": "dtbsmil-2005-2.dtd",
+            "valid": true
+          },
+          {
+            "file": "chapter-0007.smil",
+            "dtd": "dtbsmil-2005-2.dtd",
+            "valid": true
+          },
+          {
+            "file": "chapter-0008.smil",
+            "dtd": "dtbsmil-2005-2.dtd",
+            "valid": true
+          },
+          {
+            "file": "chapter-0009.smil",
+            "dtd": "dtbsmil-2005-2.dtd",
+            "valid": true
+          },
+          {
+            "file": "El_faro_de_los_viajeros.ncx",
+            "dtd": "ncx-2005-1.dtd",
+            "valid": true
+          },
+          {
+            "file": "El_faro_de_los_viajeros.opf",
+            "dtd": "oebpkg12.dtd",
+            "valid": true
+          },
+          {
+            "file": "El_faro_de_los_viajeros.res",
+            "dtd": "resource-2005-1.dtd",
+            "valid": true
+          },
+          {
+            "file": "El_faro_de_los_viajeros.xml",
+            "dtd": "dtbook-2005-3.dtd",
+            "valid": true
+          }
+        ],
+        "errors": []
+      },
+      "timing": {
+        "status": "passed",
+        "failed": [],
+        "checks": {
+          "timing_xml": "passed",
+          "timing_clips": "passed",
+          "timing_contiguity": "passed",
+          "timing_totals": "passed",
+          "timing_audio_format": "passed",
+          "timing_edges": "passed",
+          "timing_transitions": "passed"
+        }
+      },
+      "checks": [
+        {
+          "id": "timing_xml",
+          "label": "XML bien formado",
+          "status": "passed",
+          "detail": "13 documentos XML, todos bien formados",
+          "problems": []
+        },
+        {
+          "id": "timing_clips",
+          "label": "Fragmentos de audio SMIL",
+          "status": "passed",
+          "detail": "41 fragmentos en 9 archivos SMIL; cada uno con su audio y su texto, y dentro de su audio",
+          "problems": [],
+          "clips": 41
+        },
+        {
+          "id": "timing_contiguity",
+          "label": "Fragmentos contiguos",
+          "status": "passed",
+          "detail": "9 archivos de audio: los fragmentos cubren cada archivo de principio a fin, sin huecos ni solapes",
+          "problems": []
+        },
+        {
+          "id": "timing_totals",
+          "label": "Tiempos del libro (totalElapsedTime, dur, totalTime)",
+          "status": "passed",
+          "detail": "9 archivos SMIL, 144.218 s en total; cada tiempo declarado coincide con la suma de sus fragmentos",
+          "problems": [],
+          "total_seconds": 144.218,
+          "declared_total": "0:02:24.218"
+        },
+        {
+          "id": "timing_audio_format",
+          "label": "Formato del audio",
+          "status": "passed",
+          "detail": "9 archivos MP3, todos a velocidad constante y con la misma frecuencia y canales",
+          "problems": [],
+          "files": [
+            {
+              "file": "chapter-001.mp3",
+              "bitrates_kbps": [
+                128
+              ],
+              "sample_rates": [
+                44100
+              ],
+              "channels": [
+                2
+              ],
+              "duration": 21.055
+            },
+            {
+              "file": "chapter-002.mp3",
+              "bitrates_kbps": [
+                128
+              ],
+              "sample_rates": [
+                44100
+              ],
+              "channels": [
+                2
+              ],
+              "duration": 12.878
+            },
+            {
+              "file": "chapter-003.mp3",
+              "bitrates_kbps": [
+                128
+              ],
+              "sample_rates": [
+                44100
+              ],
+              "channels": [
+                2
+              ],
+              "duration": 21.76
+            },
+            {
+              "file": "chapter-004.mp3",
+              "bitrates_kbps": [
+                128
+              ],
+              "sample_rates": [
+                44100
+              ],
+              "channels": [
+                2
+              ],
+              "duration": 5.016
+            },
+            {
+              "file": "chapter-005.mp3",
+              "bitrates_kbps": [
+                128
+              ],
+              "sample_rates": [
+                44100
+              ],
+              "channels": [
+                2
+              ],
+              "duration": 37.486
+            },
+            {
+              "file": "chapter-006.mp3",
+              "bitrates_kbps": [
+                128
+              ],
+              "sample_rates": [
+                44100
+              ],
+              "channels": [
+                2
+              ],
+              "duration": 17.607
+            },
+            {
+              "file": "chapter-007.mp3",
+              "bitrates_kbps": [
+                128
+              ],
+              "sample_rates": [
+                44100
+              ],
+              "channels": [
+                2
+              ],
+              "duration": 5.878
+            },
+            {
+              "file": "chapter-008.mp3",
+              "bitrates_kbps": [
+                128
+              ],
+              "sample_rates": [
+                44100
+              ],
+              "channels": [
+                2
+              ],
+              "duration": 12.042
+            },
+            {
+              "file": "chapter-009.mp3",
+              "bitrates_kbps": [
+                128
+              ],
+              "sample_rates": [
+                44100
+              ],
+              "channels": [
+                2
+              ],
+              "duration": 10.501
+            }
+          ]
+        },
+        {
+          "id": "timing_edges",
+          "label": "Silencio al principio y al final de cada audio",
+          "status": "passed",
+          "detail": "10 archivos medidos sobre la forma de onda: todos empiezan con al menos 1.00 s y acaban con al menos 1.20 s",
+          "problems": [],
+          "files": [
+            {
+              "file": "chapter-001.mp3",
+              "leading_seconds": 1.014,
+              "trailing_seconds": 1.208,
+              "duration_seconds": 21.055,
+              "start_rms_db": -Infinity,
+              "end_rms_db": -Infinity
+            },
+            {
+              "file": "chapter-002.mp3",
+              "leading_seconds": 1.017,
+              "trailing_seconds": 1.222,
+              "duration_seconds": 12.878,
+              "start_rms_db": -Infinity,
+              "end_rms_db": -Infinity
+            },
+            {
+              "file": "chapter-003.mp3",
+              "leading_seconds": 1.025,
+              "trailing_seconds": 1.203,
+              "duration_seconds": 21.76,
+              "start_rms_db": -Infinity,
+              "end_rms_db": -Infinity
+            },
+            {
+              "file": "chapter-004.mp3",
+              "leading_seconds": 1.013,
+              "trailing_seconds": 1.221,
+              "duration_seconds": 5.016,
+              "start_rms_db": -Infinity,
+              "end_rms_db": -Infinity
+            },
+            {
+              "file": "chapter-005.mp3",
+              "leading_seconds": 1.016,
+              "trailing_seconds": 1.229,
+              "duration_seconds": 37.486,
+              "start_rms_db": -Infinity,
+              "end_rms_db": -Infinity
+            },
+            {
+              "file": "chapter-006.mp3",
+              "leading_seconds": 1.023,
+              "trailing_seconds": 1.215,
+              "duration_seconds": 17.607,
+              "start_rms_db": -Infinity,
+              "end_rms_db": -Infinity
+            },
+            {
+              "file": "chapter-007.mp3",
+              "leading_seconds": 1.025,
+              "trailing_seconds": 1.202,
+              "duration_seconds": 5.878,
+              "start_rms_db": -Infinity,
+              "end_rms_db": -Infinity
+            },
+            {
+              "file": "chapter-008.mp3",
+              "leading_seconds": 1.025,
+              "trailing_seconds": 1.215,
+              "duration_seconds": 12.042,
+              "start_rms_db": -Infinity,
+              "end_rms_db": -Infinity
+            },
+            {
+              "file": "chapter-009.mp3",
+              "leading_seconds": 1.025,
+              "trailing_seconds": 1.217,
+              "duration_seconds": 10.501,
+              "start_rms_db": -Infinity,
+              "end_rms_db": -Infinity
+            },
+            {
+              "file": "El_faro_de_los_viajeros.mp3",
+              "leading_seconds": 1.014,
+              "trailing_seconds": 1.217,
+              "duration_seconds": 144.222,
+              "start_rms_db": -Infinity,
+              "end_rms_db": -Infinity
+            }
+          ],
+          "leading_target": 1.0,
+          "trailing_target": 1.2
+        },
+        {
+          "id": "timing_transitions",
+          "label": "Transiciones entre capítulos y audiolibro completo",
+          "status": "passed",
+          "detail": "cada archivo SMIL tiene su entrada, en orden; el audiolibro completo dura lo que sus partes",
+          "problems": []
+        }
+      ],
+      "alignment": {
+        "boundaries": 32,
+        "in_a_pause_then_speech": 32,
+        "not_confirmed": []
+      },
+      "once": {
+        "once_initial_files": [
+          "passed",
+          "título y autor, texto legal, datos bibliográficos e índice, en orden"
+        ],
+        "once_hierarchy": [
+          "passed",
+          "9 archivos, 1 subcapítulos en el nivel 2"
+        ],
+        "once_pages": [
+          "passed",
+          "8 marcas de página silenciosas, en orden"
+        ],
+        "once_index": [
+          "passed",
+          "7 entradas, cada una con la página en que empieza su sección"
+        ],
+        "once_notes": [
+          "passed",
+          "1 notas con su principio y su fin"
+        ],
+        "once_frames": [
+          "passed",
+          "1 recuadros y 1 sombreados, cada uno con su anuncio al empezar y al acabar"
+        ],
+        "once_photos": [
+          "passed",
+          "2 fotografías al final, numeradas en orden, cada una con su imagen"
+        ],
+        "once_closing": [
+          "passed",
+          "«Aquí finaliza la grabación de El faro de los viajeros, De Ana Pérez.»"
+        ],
+        "once_play_order": [
+          "passed",
+          "20 destinos numerados en orden de lectura"
+        ]
+      },
+      "files": [
+        "El_faro_de_los_viajeros.mp3",
+        "El_faro_de_los_viajeros.ncx",
+        "El_faro_de_los_viajeros.opf",
+        "El_faro_de_los_viajeros.res",
+        "El_faro_de_los_viajeros.xml",
+        "chapter-0001.smil",
+        "chapter-0002.smil",
+        "chapter-0003.smil",
+        "chapter-0004.smil",
+        "chapter-0005.smil",
+        "chapter-0006.smil",
+        "chapter-0007.smil",
+        "chapter-0008.smil",
+        "chapter-0009.smil",
+        "chapter-001.mp3",
+        "chapter-002.mp3",
+        "chapter-003.mp3",
+        "chapter-004.mp3",
+        "chapter-005.mp3",
+        "chapter-006.mp3",
+        "chapter-007.mp3",
+        "chapter-008.mp3",
+        "chapter-009.mp3",
+        "dtbookbasic.css",
+        "photo-001.png",
+        "photo-002.png",
+        "quality-status.json"
+      ]
+    },
+    "quality_status": {
+      "structural": "passed",
+      "dtd": "passed",
+      "dtd_errors": [],
+      "timing": [
+        {
+          "id": "timing_xml",
+          "label": "XML bien formado",
+          "status": "passed",
+          "detail": "13 documentos XML, todos bien formados"
+        },
+        {
+          "id": "timing_clips",
+          "label": "Fragmentos de audio SMIL",
+          "status": "passed",
+          "detail": "41 fragmentos en 9 archivos SMIL; cada uno con su audio y su texto, y dentro de su audio"
+        },
+        {
+          "id": "timing_contiguity",
+          "label": "Fragmentos contiguos",
+          "status": "passed",
+          "detail": "9 archivos de audio: los fragmentos cubren cada archivo de principio a fin, sin huecos ni solapes"
+        },
+        {
+          "id": "timing_totals",
+          "label": "Tiempos del libro (totalElapsedTime, dur, totalTime)",
+          "status": "passed",
+          "detail": "9 archivos SMIL, 144.218 s en total; cada tiempo declarado coincide con la suma de sus fragmentos"
+        },
+        {
+          "id": "timing_audio_format",
+          "label": "Formato del audio",
+          "status": "passed",
+          "detail": "9 archivos MP3, todos a velocidad constante y con la misma frecuencia y canales"
+        },
+        {
+          "id": "timing_edges",
+          "label": "Silencio al principio y al final de cada audio",
+          "status": "passed",
+          "detail": "10 archivos medidos sobre la forma de onda: todos empiezan con al menos 1.00 s y acaban con al menos 1.20 s"
+        },
+        {
+          "id": "timing_transitions",
+          "label": "Transiciones entre capítulos y audiolibro completo",
+          "status": "passed",
+          "detail": "cada archivo SMIL tiene su entrada, en orden; el audiolibro completo dura lo que sus partes"
+        }
+      ],
+      "once_structure": [
+        {
+          "id": "once_initial_files",
+          "label": "Estructura ONCE: archivos iniciales 1, 2 y 3",
+          "status": "passed",
+          "detail": "título y autor, texto legal, datos bibliográficos e índice, en orden"
+        },
+        {
+          "id": "once_hierarchy",
+          "label": "Estructura ONCE: niveles (archivos iniciales y capítulos 1, subcapítulos 2)",
+          "status": "passed",
+          "detail": "9 archivos, 1 subcapítulos en el nivel 2"
+        },
+        {
+          "id": "once_pages",
+          "label": "Estructura ONCE: marcas de página silenciosas",
+          "status": "passed",
+          "detail": "8 marcas de página silenciosas, en orden"
+        },
+        {
+          "id": "once_index",
+          "label": "Estructura ONCE: índice coherente con el libro",
+          "status": "passed",
+          "detail": "7 entradas, cada una con la página en que empieza su sección"
+        },
+        {
+          "id": "once_notes",
+          "label": "Estructura ONCE: notas «Nota N.» … «Fin de nota N.»",
+          "status": "passed",
+          "detail": "1 notas con su principio y su fin"
+        },
+        {
+          "id": "once_frames",
+          "label": "Estructura ONCE: texto en recuadro y sombreado anunciados",
+          "status": "passed",
+          "detail": "1 recuadros y 1 sombreados, cada uno con su anuncio al empezar y al acabar"
+        },
+        {
+          "id": "once_photos",
+          "label": "Estructura ONCE: encarte de fotografías",
+          "status": "passed",
+          "detail": "2 fotografías al final, numeradas en orden, cada una con su imagen"
+        },
+        {
+          "id": "once_closing",
+          "label": "Estructura ONCE: frase final, una sola vez y al final",
+          "status": "passed",
+          "detail": "«Aquí finaliza la grabación de El faro de los viajeros, De Ana Pérez.»"
+        },
+        {
+          "id": "once_play_order",
+          "label": "Navegación: playOrder en orden de lectura",
+          "status": "passed",
+          "detail": "20 destinos numerados en orden de lectura"
+        }
+      ]
+    }
+  }
+}

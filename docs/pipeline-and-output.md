@@ -1,5 +1,7 @@
 # Soni2 — providers, cost control, output layout, logs and reports
 
+> **2026-11-10:** every delivered MP3 is constant bitrate and starts with 1.0 s and ends with 1.2 s of digital silence; SMIL clips tile their audio and every SMIL time is summed from them; the package adds `dtbookbasic.css` (and `images/` for photo inserts) and can be flat (`DAISY_PACKAGE_LAYOUT=flat`). See [once-compliance.md](once-compliance.md).
+
 > **2026-11-05:** a paragraph ends with a second of silence and short pauses at
 > punctuation are lengthened; step 2 edits phrases and chapters and saves them
 > on the server; producing an edited book pays only for what changed; chapter

@@ -1,0 +1,195 @@
+{
+  "package": "C:\\Users\\MSI\\AppData\\Local\\Temp\\claude\\d--Amine-github-Soni2\\780cd010-7fbe-4954-aa0e-22678a0bf1d7\\scratchpad\\final-faro\\unpacked-new\\DAISY 3",
+  "structural": "passed",
+  "dtd": {
+    "status": "passed",
+    "method": "dtd_z3986_2005",
+    "files": [
+      {
+        "file": "El_faro_de_Cabo_Gris.ncx",
+        "dtd": "ncx-2005-1.dtd",
+        "valid": true
+      },
+      {
+        "file": "El_faro_de_Cabo_Gris.opf",
+        "dtd": "oebpkg12.dtd",
+        "valid": true
+      },
+      {
+        "file": "El_faro_de_Cabo_Gris.res",
+        "dtd": "resource-2005-1.dtd",
+        "valid": true
+      },
+      {
+        "file": "El_faro_de_Cabo_Gris.xml",
+        "dtd": "dtbook-2005-3.dtd",
+        "valid": true
+      },
+      {
+        "file": "smil/chapter-0001.smil",
+        "dtd": "dtbsmil-2005-2.dtd",
+        "valid": true
+      },
+      {
+        "file": "smil/chapter-0002.smil",
+        "dtd": "dtbsmil-2005-2.dtd",
+        "valid": true
+      },
+      {
+        "file": "smil/chapter-0003.smil",
+        "dtd": "dtbsmil-2005-2.dtd",
+        "valid": true
+      }
+    ],
+    "errors": []
+  },
+  "timing": {
+    "status": "passed",
+    "failed": [],
+    "checks": {
+      "timing_xml": "passed",
+      "timing_clips": "passed",
+      "timing_contiguity": "passed",
+      "timing_totals": "passed",
+      "timing_audio_format": "passed",
+      "timing_edges": "passed",
+      "timing_transitions": "passed"
+    }
+  },
+  "checks": [
+    {
+      "id": "timing_xml",
+      "label": "XML bien formado",
+      "status": "passed",
+      "detail": "7 documentos XML, todos bien formados",
+      "problems": []
+    },
+    {
+      "id": "timing_clips",
+      "label": "Fragmentos de audio SMIL",
+      "status": "passed",
+      "detail": "24 fragmentos en 3 archivos SMIL; cada uno con su audio y su texto, y dentro de su audio",
+      "problems": [],
+      "clips": 24
+    },
+    {
+      "id": "timing_contiguity",
+      "label": "Fragmentos contiguos",
+      "status": "passed",
+      "detail": "3 archivos de audio: los fragmentos cubren cada archivo de principio a fin, sin huecos ni solapes",
+      "problems": []
+    },
+    {
+      "id": "timing_totals",
+      "label": "Tiempos del libro (totalElapsedTime, dur, totalTime)",
+      "status": "passed",
+      "detail": "3 archivos SMIL, 248.946 s en total; cada tiempo declarado coincide con la suma de sus fragmentos",
+      "problems": [],
+      "total_seconds": 248.946,
+      "declared_total": "0:04:08.946"
+    },
+    {
+      "id": "timing_audio_format",
+      "label": "Formato del audio",
+      "status": "passed",
+      "detail": "3 archivos MP3, todos a velocidad constante y con la misma frecuencia y canales",
+      "problems": [],
+      "files": [
+        {
+          "file": "audio/chapter-001.mp3",
+          "bitrates_kbps": [
+            128
+          ],
+          "sample_rates": [
+            44100
+          ],
+          "channels": [
+            2
+          ],
+          "duration": 96.026
+        },
+        {
+          "file": "audio/chapter-002.mp3",
+          "bitrates_kbps": [
+            128
+          ],
+          "sample_rates": [
+            44100
+          ],
+          "channels": [
+            2
+          ],
+          "duration": 91.167
+        },
+        {
+          "file": "audio/chapter-003.mp3",
+          "bitrates_kbps": [
+            128
+          ],
+          "sample_rates": [
+            44100
+          ],
+          "channels": [
+            2
+          ],
+          "duration": 61.753
+        }
+      ]
+    },
+    {
+      "id": "timing_edges",
+      "label": "Silencio al principio y al final de cada audio",
+      "status": "passed",
+      "detail": "4 archivos medidos sobre la forma de onda: todos empiezan con al menos 1.00 s y acaban con al menos 1.20 s",
+      "problems": [],
+      "files": [
+        {
+          "file": "audio/chapter-001.mp3",
+          "leading_seconds": 1.025,
+          "trailing_seconds": 1.222,
+          "duration_seconds": 96.026,
+          "start_rms_db": -Infinity,
+          "end_rms_db": -Infinity
+        },
+        {
+          "file": "audio/chapter-002.mp3",
+          "leading_seconds": 1.025,
+          "trailing_seconds": 1.219,
+          "duration_seconds": 91.167,
+          "start_rms_db": -Infinity,
+          "end_rms_db": -Infinity
+        },
+        {
+          "file": "audio/chapter-003.mp3",
+          "leading_seconds": 1.023,
+          "trailing_seconds": 1.215,
+          "duration_seconds": 61.753,
+          "start_rms_db": -Infinity,
+          "end_rms_db": -Infinity
+        },
+        {
+          "file": "El_faro_de_Cabo_Gris.mp3",
+          "leading_seconds": 1.025,
+          "trailing_seconds": 1.215,
+          "duration_seconds": 248.947,
+          "start_rms_db": -Infinity,
+          "end_rms_db": -Infinity
+        }
+      ],
+      "leading_target": 1.0,
+      "trailing_target": 1.2
+    },
+    {
+      "id": "timing_transitions",
+      "label": "Transiciones entre capítulos y audiolibro completo",
+      "status": "passed",
+      "detail": "cada archivo SMIL tiene su entrada, en orden; el audiolibro completo dura lo que sus partes",
+      "problems": []
+    }
+  ],
+  "alignment": {
+    "boundaries": 21,
+    "in_a_pause_then_speech": 21,
+    "not_confirmed": []
+  }
+}

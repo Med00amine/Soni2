@@ -628,7 +628,8 @@ def _context_rules(builder: _Builder, text: str, context: str) -> None:
     if context in {"bibliography", "note"}:
         # "2.ª ed.": the ordinal is spelled by the ordinal rule, "ed." here.
         for match in re.finditer(r"(?<=[ªº])\s?ed\.", text):
-            builder.change("abbreviation", match.start(), match.end(), " edición")
+            ending = "." if match.end() == len(text.rstrip()) else ""
+            builder.change("abbreviation", match.start(), match.end(), " edición" + ending)
         for pattern, spoken in _CITATION:
             for match in pattern.finditer(text):
                 words = spoken(match)

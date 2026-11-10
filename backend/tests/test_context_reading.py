@@ -154,6 +154,8 @@ def test_letters_and_marks_have_their_spanish_names(word, letters) -> None:
     ("Pérez, A. (ed.) (2010). Islas, vol. 3, trad. de B. Ruiz, s. f.", "bibliography",
      "Pérez, A. (editor) (2010). Islas, volumen 3, traducción de B. Ruiz, sin fecha."),
     ("Ruiz et al., cap. 4, cf. p. 7.", "note", "Ruiz y otros, capítulo 4, compárese página 7."),
+    ("García, P. (1999). Faros. Madrid: Espasa, 2.ª ed.", "bibliography",
+     "García, P. (1999). Faros. Madrid: Espasa, segunda edición."),
     ("Asistieron 3.500 personas.", "text", "Asistieron tres mil quinientas personas."),
     ("Medía 2,5 metros.", "text", "Medía dos coma cinco metros."),
     ("Tenía 147 ventanas.", "text", "Tenía 147 ventanas."),

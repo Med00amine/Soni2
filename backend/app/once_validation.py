@@ -321,13 +321,15 @@ def _index(built: _Package, planned: list[dict], plan: dict) -> dict:
         if section["level"] > depth or not section["heading_synchronized"]:
             continue
         heading = section["heading"].rstrip(".").strip()
-        # An unpaginated insert has no page, by definition.
-        page = "" if "photo-insert" in section["class"].split() else starts.get(number, "")
+        # An unpaginated insert has no page, by definition: not a missing one.
+        unpaginated = "photo-insert" in section["class"].split()
+        page = "" if unpaginated else starts.get(number, "")
         if page:
             expected.append(planilla_module.render(template, heading=heading, page=page))
         else:
             expected.append(f"{heading}.")
-            warnings.append(heading)
+            if not unpaginated:
+                warnings.append(heading)
     expected.append(end)
     if entries != [" ".join(line.split()) for line in expected]:
         missing = [line for line in expected if line not in entries]
