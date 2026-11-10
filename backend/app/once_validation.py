@@ -19,6 +19,9 @@ package itself is read back here, independently of the code that wrote it:
   as a whole, that begins with "Texto en recuadro." (or "Texto sombreado.")
   and ends with "Fin de texto en recuadro." (or "Fin de texto sombreado."),
   with its paragraphs inside one SMIL ``seq``, in reading order.
+* **Photographs**: an unpaginated insert is read at the end, its photographs
+  numbered 1, 2, 3… in order, each with its image in the package, and its
+  place in the book says where they went.
 * **Closing phrase**: exactly once, as the last thing read.
 * **Navigation order**: ``playOrder`` follows the reading order, one number
   per SMIL time container (Z39.86-2005 §8.4.3).
@@ -153,6 +156,7 @@ def verify(package: Path, records: list[dict], plan: dict | None = None) -> list
         _index(built, planned, plan),
         _notes(built, plan),
         _frames(built, plan),
+        _photos(built, plan),
         _closing(built, planned),
         _play_order(built),
     ]
@@ -317,7 +321,8 @@ def _index(built: _Package, planned: list[dict], plan: dict) -> dict:
         if section["level"] > depth or not section["heading_synchronized"]:
             continue
         heading = section["heading"].rstrip(".").strip()
-        page = starts.get(number, "")
+        # An unpaginated insert has no page, by definition.
+        page = "" if "photo-insert" in section["class"].split() else starts.get(number, "")
         if page:
             expected.append(planilla_module.render(template, heading=heading, page=page))
         else:
@@ -422,6 +427,47 @@ def _frames(built: _Package, plan: dict) -> dict:
                                               "con su anuncio al empezar y al acabar" if found else
                                               "el libro no tiene texto en recuadro ni sombreado"),
                   problems=problems)
+
+
+def _photos(built: _Package, plan: dict) -> dict:
+    """Photographs of an insert: at the end, numbered in order, each with its image."""
+    groups = [element for element in built.dtbook.iter()
+              if _local(element.tag) == "imggroup" and "once-photo" in (element.get("class") or "").split()]
+    if not groups:
+        return _check("once_photos", "Estructura ONCE: encarte de fotografías", "passed",
+                      "el libro no tiene encartes de fotografías que leer al final")
+    problems: list[str] = []
+    template = plan.get("photo_entry") or "Fotografía {n}."
+    pattern = re.compile("^" + re.escape(template).replace(re.escape("{n}"), r"(\d+)") + "$")
+    manifest = {item.get("href") for item in built.opf.iter(f"{OPF}item")}
+    numbers = []
+    missing_images = 0
+    for group in groups:
+        note = next((child for child in group if _local(child.tag) == "prodnote"), None)
+        match = pattern.match(_text(note)) if note is not None else None
+        if not match or not note.get("smilref"):
+            problems.append(f"la fotografía {group.get('id')} no se anuncia como «{template.format(n='N')}»")
+            continue
+        numbers.append(int(match.group(1)))
+        image = next((child for child in group if _local(child.tag) == "img"), None)
+        if image is None:
+            missing_images += 1
+        elif not (built.dtbook_path.parent / image.get("src", "")).is_file() or image.get("src") not in manifest:
+            problems.append(f"la imagen de la fotografía {match.group(1)} no está en el paquete: {image.get('src')}")
+    if numbers != list(range(1, len(numbers) + 1)):
+        problems.append(f"las fotografías no van numeradas de 1 a {len(numbers)} en orden: {numbers[:10]}")
+    levels = [section for section in built.sections if section["level"] == 1 and section["matter"] == "bodymatter"]
+    if not levels or "photo-insert" not in levels[-1]["class"].split():
+        problems.append("las fotografías no se leen al final del libro")
+    references = [element for element in built.dtbook.iter()
+                  if _local(element.tag) == "p" and "once-photo-reference" in (element.get("class") or "").split()]
+    if not references:
+        problems.append("el libro no dice dónde estaba el encarte")
+    detail = "; ".join(problems[:5]) or (f"{len(numbers)} fotografías al final, numeradas en orden"
+                                         + (f"; {missing_images} sin imagen en el paquete" if missing_images
+                                            else ", cada una con su imagen"))
+    return _check("once_photos", "Estructura ONCE: encarte de fotografías",
+                  "failed" if problems else ("warning" if missing_images else "passed"), detail, problems=problems)
 
 
 def _closing(built: _Package, planned: list[dict]) -> dict:

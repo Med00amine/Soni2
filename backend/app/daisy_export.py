@@ -85,6 +85,10 @@ class PackagePaths:
     def root_from_smil(self, name: str) -> str:
         return name if self.flat else f"../{name}"
 
+    def image_href(self, name: str) -> str:
+        """A photograph, from the package root (the DTBook names it from there)."""
+        return name if self.flat else f"images/{name}"
+
     def audio_file(self, root: Path, name: str) -> Path:
         return root / self.audio_href(name)
 
@@ -470,7 +474,8 @@ CUSTOM_TESTS = {
 }
 # The navigation class of each kind of section in the ONCE structure.
 SECTION_CLASSES = {"once_title": "once-title", "once_bibliographic": "once-bibliographic",
-                   "once_index": "once-index", "chapter": "chapter", "subchapter": "subchapter"}
+                   "once_index": "once-index", "chapter": "chapter", "subchapter": "subchapter",
+                   "photo_insert": "photo-insert"}
 INITIAL_SECTION_KINDS = {"once_title", "once_bibliographic", "once_index"}
 
 
@@ -528,6 +533,7 @@ def build_daisy_package(
     package_layout_name: str = "nested",
     stylesheet: str | None = DTBOOK_STYLESHEET,
     stylesheet_media: str = "",
+    images: dict[int, tuple[bytes, str, str]] | None = None,
 ) -> Path:
     """Write a DAISY 3 package whose files carry the book's own name.
 
@@ -554,7 +560,9 @@ def build_daisy_package(
     ``package_layout_name`` is ``nested`` (``audio/`` and ``smil/``) or
     ``flat`` (every file beside the OPF). ``stylesheet`` is the CSS the DTBook
     declares and the package carries (``None``: none); ``stylesheet_media``
-    adds the media attribute to its declaration.
+    adds the media attribute to its declaration. ``images`` are the image
+    files of the photographs the layout announces (number -> bytes,
+    extension, media type), written as they are into ``images/``.
     """
     chapters = chapters or [(title, paragraphs)]
     paragraphs = [paragraph for _, body in chapters for paragraph in body]
@@ -716,9 +724,17 @@ def build_daisy_package(
     smil_names: list[str] = []
     # (label, SMIL reference, class, level) of every navigation point.
     chapter_targets: list[tuple[str, str, str, int]] = []
-    # (page label, SMIL reference) of every page, and of every note.
+    # (page label, SMIL reference) of every page, of every note and of every photograph.
     page_targets: list[tuple[str, str]] = []
     note_targets: list[tuple[str, str]] = []
+    photo_targets: list[tuple[str, str]] = []
+    image_names: dict[int, str] = {}
+    for number, (data, extension, media_type) in sorted((images or {}).items()):
+        name = f"photo-{number:03d}.{extension}"
+        image_names[number] = name
+        target = output_dir / paths.image_href(name)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
     # Every SMIL time container in reading order: playOrder follows it.
     reading_order: dict[str, int] = {}
     custom_tests_used: set[str] = set()
@@ -731,7 +747,7 @@ def build_daisy_package(
         elapsed = _write_structured_text(
             frontmatter, bodymatter, chapters, layout, smil_clips, chapter_ms, output_dir,
             dtbook_name, book_id, smil_names, chapter_targets, page_targets, note_targets, mark,
-            custom_tests_used, paths,
+            custom_tests_used, paths, image_names, photo_targets,
         )
     for index, ((label, text, _raw, filename), _audio) in enumerate(zip(front_matter, front_audio), start=1):
         front_id = f"frontmatter-{index}"
@@ -822,7 +838,7 @@ def build_daisy_package(
         # The style sheet travels with the book, beside the DTBook that names it.
         shutil.copyfile(STYLESHEET_SOURCE, output_dir / stylesheet)
     _write_ncx(output_dir / ncx_name, book_id, title, chapter_targets, page_targets, note_targets, reading_order,
-               custom_tests_used, unique_page_ids=layout is not None)
+               custom_tests_used, unique_page_ids=layout is not None, photo_targets=photo_targets)
 
     # The resource DTD declares no xml:lang on <resources>; the language is
     # stated on each <resource>.
@@ -889,6 +905,8 @@ def build_daisy_package(
     ]
     if stylesheet:
         items.append(("dtbook-css", stylesheet, "text/css"))
+    for number, name in sorted(image_names.items()):
+        items.append((f"photo-{number:03d}", paths.image_href(name), (images or {})[number][2]))
     items.extend((f"smil-{index:04d}", paths.smil_href(name), "application/smil") for index, name in enumerate(smil_names, start=1))
     items.extend(
         (f"chapter-audio-{index:04d}", paths.audio_href(path), "audio/mpeg")
@@ -920,7 +938,8 @@ def _write_structured_text(
     smil_clips: list[tuple[str, int, int]], chapter_ms: list[int], output_dir: Path,
     dtbook_name: str, book_id: str, smil_names: list[str], chapter_targets: list[tuple[str, str, str, int]],
     page_targets: list[tuple[str, str]], note_targets: list[tuple[str, str]], mark, custom_tests_used: set[str],
-    paths: PackagePaths,
+    paths: PackagePaths, image_names: dict[int, str] | None = None,
+    photo_targets: list[tuple[str, str]] | None = None,
 ) -> int:
     """The DTBook levels and SMIL files of a book with the ONCE structure.
 
@@ -936,6 +955,8 @@ def _write_structured_text(
     note_count = 0
     page_count = 0
     frame_count = 0
+    image_names = image_names or {}
+    photo_groups: dict[int, ET.Element] = {}
     # Every note of the book, (section, number, id), numbered as written below.
     book_notes: list[tuple[int, int, str]] = []
     upcoming = 0
@@ -1041,6 +1062,29 @@ def _write_structured_text(
                 element = ET.SubElement(note_element, _q(DTBOOK_NS, "p"), {"id": f"p-{audio_index:04d}"})
                 par_id = f"par-{audio_index:04d}"
                 container = note_sequence
+            elif role in {"photo", "photo_caption"} and (unit.get("photo") or {}).get("number"):
+                # A photograph of an insert: an imggroup with its image, the
+                # "Fotografía N." that is read (a producer's note) and the
+                # book's own caption. Never a description.
+                number_of_photo = int(unit["photo"]["number"])
+                group = photo_groups.get(number_of_photo)
+                if group is None:
+                    group = ET.SubElement(level, _q(DTBOOK_NS, "imggroup"),
+                                          {"id": f"photo-{number_of_photo}", "class": "once-photo"})
+                    photo_groups[number_of_photo] = group
+                    if number_of_photo in image_names:
+                        ET.SubElement(group, _q(DTBOOK_NS, "img"), {
+                            "id": f"img-{number_of_photo}", "src": paths.image_href(image_names[number_of_photo]),
+                            "alt": text.strip().rstrip(".")})
+                if role == "photo":
+                    element = ET.SubElement(group, _q(DTBOOK_NS, "prodnote"), {
+                        "id": f"p-{audio_index:04d}", "render": "required", "class": "once-photo"})
+                else:
+                    element = ET.SubElement(group, _q(DTBOOK_NS, "caption"), {"id": f"p-{audio_index:04d}"})
+                par_id = f"par-{audio_index:04d}"
+                container = sequence
+                if role == "photo" and photo_targets is not None:
+                    photo_targets.append((text.strip().rstrip("."), f"{paths.smil_href(smil_name)}#{par_id}"))
             elif frame_element is not None and frame_sequence is not None:
                 # "Texto en recuadro." and its end are the producer's words: prodnote.
                 announcement = role in {"frame_open", "frame_close"}
@@ -1088,7 +1132,7 @@ def _write_structured_text(
 def _write_ncx(
     path: Path, book_id: str, title: str, chapter_targets: list[tuple[str, str, str, int]],
     page_targets: list[tuple[str, str]], note_targets: list[tuple[str, str]], reading_order: dict[str, int],
-    custom_tests: set[str], *, unique_page_ids: bool,
+    custom_tests: set[str], *, unique_page_ids: bool, photo_targets: list[tuple[str, str]] | None = None,
 ) -> None:
     """The navigation file: nested sections, pages, notes.
 
@@ -1100,6 +1144,7 @@ def _write_ncx(
     referenced = {reference for _label, reference, _class, _level in chapter_targets}
     referenced |= {reference for _label, reference in page_targets}
     referenced |= {reference for _label, reference in note_targets}
+    referenced |= {reference for _label, reference in photo_targets or []}
     ordered = sorted(referenced, key=lambda reference: reading_order.get(reference, len(reading_order)))
     play = {reference: str(position) for position, reference in enumerate(ordered, start=1)}
 
@@ -1150,6 +1195,17 @@ def _write_ncx(
         for index, (label, reference) in enumerate(note_targets, start=1):
             nav_target = ET.SubElement(nav_list, _q(NCX_NS, "navTarget"),
                                        {"id": f"note-target-{index}", "class": "note", "playOrder": play[reference]})
+            target_label = ET.SubElement(nav_target, _q(NCX_NS, "navLabel"))
+            ET.SubElement(target_label, _q(NCX_NS, "text")).text = label
+            ET.SubElement(nav_target, _q(NCX_NS, "content"), {"src": reference})
+    if photo_targets:
+        # Jump from photograph to photograph, as from note to note.
+        nav_list = ET.SubElement(ncx, _q(NCX_NS, "navList"), {"class": "photo"})
+        list_label = ET.SubElement(nav_list, _q(NCX_NS, "navLabel"))
+        ET.SubElement(list_label, _q(NCX_NS, "text")).text = "Fotografías"
+        for index, (label, reference) in enumerate(photo_targets, start=1):
+            nav_target = ET.SubElement(nav_list, _q(NCX_NS, "navTarget"),
+                                       {"id": f"photo-target-{index}", "class": "photo", "playOrder": play[reference]})
             target_label = ET.SubElement(nav_target, _q(NCX_NS, "navLabel"))
             ET.SubElement(target_label, _q(NCX_NS, "text")).text = label
             ET.SubElement(nav_target, _q(NCX_NS, "content"), {"src": reference})

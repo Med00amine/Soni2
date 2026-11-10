@@ -29,7 +29,7 @@ from bs4 import BeautifulSoup, Comment, NavigableString, Tag
 from docx import Document
 from ebooklib import epub
 
-from app import extraction_qa, ocr
+from app import extraction_qa, ocr, photo_inserts
 from app.extraction_qa import BLOCKING, INFO, WARNING, ExtractionReport
 
 
@@ -61,6 +61,8 @@ class BookStructure:
     publisher: str = ""
     chapters: list[BookChapter] = field(default_factory=list)
     extraction: ExtractionReport | None = None
+    # Photo inserts found in the source, strong or candidate (app.photo_inserts).
+    photo_inserts: list = field(default_factory=list)
 
     def as_text(self) -> str:
         blocks: list[str] = []
@@ -692,6 +694,7 @@ def _from_epub(filename: str, content: bytes, result: BookStructure, fallback_te
     toc_titles = _epub_toc_titles(book)
     page = ""
     pending: list[str] = []
+    previous_document = ""
     for index, (item_id, _linear) in enumerate(book.spine, 1):
         item = book.get_item_with_id(item_id)
         if item is None or item.get_type() != ebooklib.ITEM_DOCUMENT:
@@ -708,6 +711,20 @@ def _from_epub(filename: str, content: bytes, result: BookStructure, fallback_te
             raw.append(raw_text)
             continue
         raw.append(raw_text)
+        insert = photo_inserts.epub_document_insert(item_name, soup)
+        if insert is not None:
+            insert.location["previous_document"] = previous_document
+            result.photo_inserts.append(insert)
+            if insert.strong:
+                report.issue(INFO, "photo_insert", f"Encarte de {len(insert.photos)} fotografías ({insert.reason}); "
+                             "se lee al final del audiolibro con las fotografías numeradas.", location=item_name)
+                report.drop("photo_insert", raw_text, "Encarte de fotografías: se lee al final del audiolibro.",
+                            item_name)
+                continue
+            report.issue(WARNING, "photo_insert_candidate",
+                         f"Posible encarte de fotografías ({insert.reason}). No se mueve sin confirmarlo: "
+                         "indícalo en la planilla (documento del encarte) si lo es.", location=item_name)
+        previous_document = item_name
         flat = _Flattener(report, item_name, page, pending)
         title_heading: list = []
         _walk_html(root, flat, title_heading)
@@ -1041,10 +1058,33 @@ def _from_pdf(content: bytes, result: BookStructure, fallback_text: str, pages: 
         result.author = (metadata.get("author") or "").strip()
         first, last = span or (1, pdf.page_count)
         profiles = [_page_profile(pdf[number - 1], number) for number in range(first, last + 1)]
+        result.photo_inserts = photo_inserts.detect_pdf(pdf, profiles)
+        insert_pages: set[int] = set()
+        for insert in result.photo_inserts:
+            first_page, last_page = insert.location["pdf_pages"]
+            if insert.strong:
+                insert_pages.update(range(first_page, last_page + 1))
+                report.issue(INFO, "photo_insert", f"Encarte de {len(insert.photos)} fotografías sin paginar "
+                             f"({insert.reason}); se lee al final del audiolibro con las fotografías numeradas.",
+                             location=f"páginas {first_page}-{last_page}")
+            else:
+                report.issue(WARNING, "photo_insert_candidate",
+                             f"Posible encarte de fotografías ({insert.reason}). No se mueve sin confirmarlo: "
+                             "indícalo en la planilla (páginas del encarte) si lo es.",
+                             location=f"páginas {first_page}-{last_page}")
         ocr_ready = ocr.available("spa")
         ocr_pages: dict[int, ocr.OcrPage] = {}
         for profile in profiles:
             number, status = profile["page"], profile["status"]
+            if number in insert_pages:
+                # Photographs, not text to recover: nothing is missing here.
+                profile["status"], profile["method"] = "photo_insert", "photo"
+                caption = " ".join(profile["_text"].split())
+                raw.append(profile["_text"])
+                if caption:
+                    report.drop("photo_caption", caption, "Pie de una fotografía del encarte: se lee con su "
+                                "fotografía al final del audiolibro.", f"página {number}")
+                continue
             if status == "image_only":
                 if ocr_ready:
                     page_result = ocr.ocr_pdf_page(pdf[number - 1], number)
@@ -1094,12 +1134,13 @@ def _from_pdf(content: bytes, result: BookStructure, fallback_text: str, pages: 
                 profile["method"] = "none"
         report.pages = [{key: value for key, value in profile.items() if not key.startswith("_")}
                         for profile in profiles]
-        result.chapters = _pdf_layout_chapters(pdf, span, ocr_pages=ocr_pages, report=report)
+        result.chapters = _pdf_layout_chapters(pdf, span, ocr_pages=ocr_pages, report=report, skip=insert_pages)
         if result.chapters:
             report.method = "pdf-layout" + ("+ocr" if ocr_pages else "")
         else:
             report.method = "pdf-pages" + ("+ocr" if ocr_pages else "")
-            result.chapters = _pdf_page_chapters(profiles, ocr_pages, report)
+            result.chapters = _pdf_page_chapters([profile for profile in profiles if profile["page"] not in insert_pages],
+                                                 ocr_pages, report)
     if not result.chapters:
         result.chapters = [BookChapter(result.title, _paragraphs(fallback_text), title_generated=True)]
 
@@ -1424,12 +1465,14 @@ def _frame_for_block(bbox, frames: list, page: int) -> dict | None:
 
 
 def _pdf_layout_chapters(pdf, pages: tuple[int, int] | None, *, ocr_pages: dict | None = None,
-                         report: ExtractionReport | None = None) -> list[BookChapter]:
+                         report: ExtractionReport | None = None, skip: set[int] | None = None) -> list[BookChapter]:
     first, last = pages or (1, pdf.page_count)
     ocr_pages = ocr_pages or {}
     blocks = []  # (page, kind-independent data)
     sizes: dict[float, int] = {}
     for number in range(first, last + 1):
+        if number in (skip or set()):
+            continue  # a photo insert's page: read with the photographs, not here
         if number in ocr_pages:
             # A scanned page has no font sizes; its paragraphs are body text.
             for position, paragraph in enumerate(ocr_pages[number].paragraphs):

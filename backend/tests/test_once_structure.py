@@ -323,7 +323,8 @@ def test_the_demo_package_passes_the_dtds_and_every_once_check(tmp_path) -> None
     checks = once_validation.verify(package, _records(built), built.resolved.as_dict())
     assert {check["id"]: check["status"] for check in checks} == {
         "once_initial_files": "passed", "once_hierarchy": "passed", "once_pages": "passed",
-        "once_index": "passed", "once_notes": "passed", "once_frames": "passed", "once_closing": "passed",
+        "once_index": "passed", "once_notes": "passed", "once_frames": "passed", "once_photos": "passed",
+        "once_closing": "passed",
         "once_play_order": "passed"}
 
 
@@ -465,7 +466,7 @@ def test_a_reviewed_production_delivers_the_once_structure(offline) -> None:
         key: "passed" for key in statuses if key != "audio_format"}
     assert {key for key in statuses if key.startswith("once_")} == {
         "once_initial_files", "once_hierarchy", "once_pages", "once_index", "once_notes", "once_frames",
-        "once_closing", "once_play_order"}
+        "once_photos", "once_closing", "once_play_order"}
     # The legal notice and the closing phrase were narrated and checked like the rest.
     roles = [(unit.get("provenance") or {}).get("role") for unit in job["sentences"]]
     assert roles.count("closing") == 1 and "legal" in roles and "index_entry" in roles and "note" in roles

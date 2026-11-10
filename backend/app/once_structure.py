@@ -30,6 +30,7 @@ import dataclasses
 import re
 from dataclasses import dataclass, field
 
+from app import photo_inserts as photo_module
 from app import planilla as planilla_module
 from app import toc as toc_module
 from app.narration_plan import SelectedChapter, is_generated
@@ -39,7 +40,11 @@ KIND_BIBLIOGRAPHIC = "once_bibliographic"
 KIND_INDEX = "once_index"
 KIND_CHAPTER = "chapter"
 KIND_SUBCHAPTER = "subchapter"
+# The photographs of the book's unpaginated inserts, read at the end.
+KIND_PHOTOS = "photo_insert"
 INITIAL_KINDS = (KIND_TITLE, KIND_BIBLIOGRAPHIC, KIND_INDEX)
+# Roles of texts the production writes about the photographs.
+PHOTO_ROLES = ("photo", "photo_reference")
 # Roles of the words the production adds around a box or a shaded block.
 FRAME_ROLES = ("frame_open", "frame_close")
 
@@ -63,6 +68,8 @@ class Paragraph:
     origin: dict = field(default_factory=dict)
     # The box or shading it is set in: {"kind": "boxed" | "shaded", "id"}.
     frame: dict | None = None
+    # The photograph it announces or captions: {"number", "source"}.
+    photo: dict | None = None
 
     def record(self) -> dict:
         record = {"role": self.role, "page_breaks": self.page_breaks, "note": self.note, "source": self.source}
@@ -70,6 +77,8 @@ class Paragraph:
             record["frame"] = {"kind": self.frame["kind"], "id": self.frame["id"]}
         if self.role == "text" and self.origin.get("note_refs"):
             record["note_refs"] = list(self.origin["note_refs"])
+        if self.photo:
+            record["photo"] = dict(self.photo)
         return record
 
 
@@ -395,13 +404,77 @@ def _assign_pages(sections: list[Section], plan: planilla_module.Planilla, warni
             section.page_start = section.page_end = ""
 
 
+def _place_photo_reference(body: list[Section], insert, reference: Paragraph) -> None:
+    """Say, where the insert was, that its photographs are read at the end.
+
+    In a PDF, before the first paragraph found on a page after the insert; in
+    an EPUB, after the last paragraph of the document before it; failing
+    both, at the end of the book's text.
+    """
+    location = insert.location
+    if location.get("pdf_pages"):
+        last = int(location["pdf_pages"][-1])
+        for section in body:
+            for index, paragraph in enumerate(section.paragraphs):
+                page = str(paragraph.origin.get("page") or "")
+                if page.isdigit() and int(page) > last:
+                    section.paragraphs.insert(index, reference)
+                    return
+    previous = location.get("previous_document")
+    if previous:
+        spots = [(section, index) for section in body for index, paragraph in enumerate(section.paragraphs)
+                 if paragraph.origin.get("document") == previous]
+        if spots:
+            section, index = spots[-1]
+            section.paragraphs.insert(index + 1, reference)
+            return
+    if location.get("document") and not previous and body:
+        body[0].paragraphs.insert(0, reference)
+        return
+    body[-1].paragraphs.append(reference)
+
+
+def _photo_section(body: list[Section], inserts: list, plan: planilla_module.Planilla,
+                   warnings: list[dict]) -> Section | None:
+    """The photographs of the inserts the book is read with, as one section at the end."""
+    used, left = photo_module.selected(inserts, plan.photo_inserts, plan.photo_insert_pages,
+                                       plan.photo_insert_documents)
+    for insert in left:
+        warnings.append({"code": "photo_insert_candidate" if not insert.strong else "photo_insert_off",
+                         "message": (f"Posible encarte de fotografías no confirmado: {insert.reason}. Si lo es, "
+                                     "indícalo en la planilla." if not insert.strong else
+                                     f"Encarte de fotografías que la planilla deja fuera: {insert.reason}.")})
+    photos = photo_module.renumber(used)
+    if not photos:
+        return None
+    number = 0
+    for insert in used:
+        first, last = number + 1, number + len(insert.photos)
+        number = last
+        _place_photo_reference(body, insert, Paragraph(
+            planilla_module.render(plan.photo_reference, first=first, last=last, count=len(insert.photos)),
+            "photo_reference"))
+    section = Section("photos", KIND_PHOTOS, 1, plan.photo_section_title, False, [], [])
+    for photo in photos:
+        section.paragraphs.append(Paragraph(planilla_module.render(plan.photo_entry, n=photo.number), "photo",
+                                            photo={"number": photo.number, "source": photo.source}))
+        if photo.caption:
+            section.paragraphs.append(Paragraph(photo.caption, "photo_caption", photo={"number": photo.number}))
+    warnings.append({"code": "photo_insert",
+                     "message": f"{len(photos)} fotografías de {len(used)} encarte(s) se leen al final, numeradas; "
+                                "solo con su pie del libro, sin descripción."})
+    return section
+
+
 def build(selected: list, provenance: list[tuple[dict, list[dict]]], metadata: dict,
-          plan: planilla_module.Planilla, *, today=None, toc=None) -> OnceStructure:
+          plan: planilla_module.Planilla, *, today=None, toc=None, photo_inserts=None) -> OnceStructure:
     """The whole audiobook as ONCE structures it, from the selected sections.
 
     ``toc`` is the book's own table of contents (app.toc), when it has one:
     its title names the index file and its pages place the sections the
-    text itself gives no page to.
+    text itself gives no page to. ``photo_inserts`` (app.photo_inserts) are
+    the inserts found in the source; the ones the evidence or the planilla
+    confirms are read at the end.
     """
     plan = _with_book_toc_title(plan, toc)
     resolved = planilla_module.resolve(plan, metadata, today=today)
@@ -412,6 +485,10 @@ def build(selected: list, provenance: list[tuple[dict, list[dict]]], metadata: d
     body = _body_sections(selected, provenance, plan, resolved.title)
     if not body:
         raise ValueError("No hay contenido del libro que narrar después de los archivos iniciales.")
+    photos = _photo_section(body, list(photo_inserts or []), plan, warnings)
+    if photos is not None:
+        # Before the closing phrase, which stays the last thing read.
+        body.append(photos)
 
     # The closing phrase ends the last chapter, once. If the book already says
     # it at the end it is marked rather than repeated.
@@ -458,6 +535,10 @@ def build(selected: list, provenance: list[tuple[dict, list[dict]]], metadata: d
                              "message": "Páginas del índice del libro que retroceden (revísalas; no se corrigen): "
                                         + ", ".join(toc.out_of_order[:5]) + "."})
     _assign_pages(sections, plan, warnings, toc_pages)
+    for section in sections:
+        if section.kind == KIND_PHOTOS:
+            # The insert has no page numbers: none is given to it.
+            section.page_start = section.page_end = ""
     if not any(section.page_start for section in body) and not any(
             paragraph.page_breaks for section in body for paragraph in section.paragraphs):
         warnings.append({"code": "no_source_pages",
@@ -478,7 +559,8 @@ def build(selected: list, provenance: list[tuple[dict, list[dict]]], metadata: d
                                                             page=section.page_start), "index_entry"))
         else:
             entries.append(Paragraph(f"{heading}.", "index_entry"))
-            missing_pages.append(heading)
+            if section.kind != KIND_PHOTOS:
+                missing_pages.append(heading)
     entries.append(Paragraph(plan.index_end, "index_entry"))
     file3.paragraphs = entries
     if missing_pages:
@@ -561,9 +643,10 @@ def unit_layout(record: dict, paragraphs: list[str], heading_spoken: bool, split
         pieces = split(text)
         for part, _piece in enumerate(pieces):
             refs = part_note_refs(detail.get("note_refs"), text, pieces, part)
+            photo = {"photo": detail["photo"]} if detail.get("photo") and part == 0 else {}
             entries.append({"role": detail.get("role") or "text",
                             "page_breaks": list(detail.get("page_breaks") or []) if part == 0 else [],
                             "note": detail.get("note"), "paragraph": index, "part": part,
                             **({"frame": detail["frame"]} if detail.get("frame") else {}),
-                            **({"note_refs": refs} if refs else {})})
+                            **({"note_refs": refs} if refs else {}), **photo})
     return entries

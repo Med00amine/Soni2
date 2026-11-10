@@ -61,6 +61,8 @@ _PLACEHOLDERS = {
     "index_entry": {"heading", "page"},
     "note_open": {"n"},
     "note_close": {"n"},
+    "photo_entry": {"n"},
+    "photo_reference": {"first", "last", "count"},
 }
 _PAGE_LABEL = re.compile(r"^[0-9]{1,5}$|^[ivxlcdm]{1,8}$", re.I)
 _TEXT_LIMITS = {"legal_text": 6000, "closing": 600}
@@ -107,6 +109,17 @@ class Planilla:
     boxed_close: str = "Fin de texto en recuadro."
     shaded_open: str = "Texto sombreado."
     shaded_close: str = "Fin de texto sombreado."
+    # Photo inserts without page numbers are read at the end, numbered.
+    # "auto": inserts the source itself shows to be one, plus those confirmed
+    # below; "off": none (they are reported instead).
+    photo_inserts: str = "auto"
+    # Confirmations for possible inserts: PDF page ranges ("33-36"), EPUB documents.
+    photo_insert_pages: list[str] = field(default_factory=list)
+    photo_insert_documents: list[str] = field(default_factory=list)
+    photo_section_title: str = "Fotografías."
+    photo_entry: str = "Fotografía {n}."
+    # Read where the insert was in the printed book.
+    photo_reference: str = "Encarte de fotografías: las fotografías {first} a {last} se leen al final del libro."
     # Heading -> page, from a planilla's own index. Used only where the book
     # itself carries no page numbers.
     chapter_pages: dict[str, str] = field(default_factory=dict)
@@ -148,6 +161,14 @@ def from_dict(payload: dict) -> Planilla:
             if value is not None and not isinstance(value, str):
                 raise ValueError(f"El dato «{key}» de la planilla debe ser texto.")
             values[key] = value.strip() if isinstance(value, str) else None
+        elif key in {"photo_insert_pages", "photo_insert_documents"}:
+            if not isinstance(value, list) or len(value) > 500 or any(not isinstance(item, (str, int)) for item in value):
+                raise ValueError(f"«{key}» de la planilla debe ser una lista.")
+            values[key] = [str(item).strip() for item in value if str(item).strip()]
+        elif key == "photo_inserts":
+            if value not in {"auto", "off"}:
+                raise ValueError("«photo_inserts» de la planilla debe ser «auto» u «off».")
+            values[key] = value
         elif key == "index_title_from_book":
             if not isinstance(value, bool):
                 raise ValueError("«index_title_from_book» de la planilla debe ser verdadero o falso.")

@@ -70,6 +70,7 @@ export const KIND_LABEL: Record<string, string> = {
   once_index: 'Índice',
   chapter: 'Capítulo',
   subchapter: 'Subcapítulo',
+  photo_insert: 'Fotografías',
 }
 
 const ROLE_LABEL: Record<string, string> = {
@@ -80,6 +81,9 @@ const ROLE_LABEL: Record<string, string> = {
   closing: 'Frase final',
   frame_open: 'Inicio de recuadro o sombreado',
   frame_close: 'Fin de recuadro o sombreado',
+  photo: 'Fotografía',
+  photo_caption: 'Pie de fotografía',
+  photo_reference: 'Aviso del encarte',
 }
 
 const STATE_LABEL: Record<string, string> = {

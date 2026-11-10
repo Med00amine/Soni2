@@ -40,6 +40,7 @@ from app.daisy_validation import validate_daisy_package
 from app.sentences import apply_pronunciation_lexicon, build_spoken_text, build_synthesis_text, segment_paragraphs
 from app import book_edits
 from app import foreign_spelling
+from app import photo_inserts as photo_inserts_module
 from app import toc as toc_module
 from app import jobs as job_store
 from app import (audio_integrity, audio_master, completeness, daisy_dtd, daisy_timing, ocr, once_structure,
@@ -315,6 +316,28 @@ def speech_context(role: str | None, heading: bool, chapter_title: str, once: bo
     if role in {None, "text"} and _BIBLIOGRAPHY_TITLE.match((chapter_title or "").strip()):
         return "bibliography"
     return "text"
+
+
+def photo_images(filename: str, source: Path | bytes, photos: list[dict | None], log=None
+                 ) -> dict[int, tuple[bytes, str, str]]:
+    """The image file of each photograph the book is read with, from its source.
+
+    A photograph whose image cannot be read is reported and announced all the
+    same: the package then has its number and caption without the picture.
+    """
+    photos = [photo for photo in photos if photo]
+    if not photos:
+        return {}
+    content = source.read_bytes() if isinstance(source, Path) else source
+    images = photo_inserts_module.load_images(filename, content, photos)
+    missing = [photo["number"] for photo in photos if photo["number"] not in images]
+    message = (f"{len(images)} imágenes de fotografías del encarte en el paquete"
+               + (f"; no se pudieron leer las de las fotografías {missing[:10]}" if missing else ""))
+    if log is not None:
+        (log.warning if missing else log.info)("assemble.photos", message, photos=len(photos), missing=len(missing))
+    elif missing:
+        logger.warning(message)
+    return images
 
 
 def timing_targets() -> dict:
@@ -1735,6 +1758,9 @@ async def _assemble_job_delivery(job_id: str) -> None:
             audio, _reused = await synthesize_cached(text, job["voice_speed"], job["voice_id"])
             front_matter.append(("Datos bibliográficos", text, audio, settings.once_bibliographic_filename))
     absys = ((once_info or {}).get("planilla") or {}).get("absys", "")
+    images = photo_images(job["source_name"], Path(job["source_path"]), [
+        (item.get("provenance") or {}).get("photo") for item in job["sentences"]
+        if (item.get("provenance") or {}).get("role") == "photo"], log)
 
     if delivery_dir.exists():
         shutil.rmtree(delivery_dir)
@@ -1760,7 +1786,7 @@ async def _assemble_job_delivery(job_id: str) -> None:
         chapter_audio=chapter_audio, chapter_clips=chapter_clips, use_ffmpeg=use_ffmpeg,
         clips_out=clips, chapter_starts_out=chapter_starts, mastering=mastering,
         layout=layout, identifiers=[("ABSYS", absys)] if absys else None,
-        **package_options(),
+        images=images, **package_options(),
     ))
     try:
         validate_daisy_package(package)
@@ -2193,7 +2219,8 @@ def prepare_book(structure, metadata: dict, *, narration_plan_json: str, correct
         if provenance is not None:
             provenance = once_structure.regroup_provenance(chapters, provenance, regrouped)
         chapters = regrouped
-    once = (once_structure.build(chapters, provenance, metadata, sheet, toc=toc_module.detect(plan))
+    once = (once_structure.build(chapters, provenance, metadata, sheet, toc=toc_module.detect(plan),
+                                 photo_inserts=getattr(structure, "photo_inserts", None))
             if sheet is not None else None)
     return chapters, once
 
@@ -2210,7 +2237,8 @@ def once_layout(sections: list[dict], units_by_chapter: list[list[dict]]) -> lis
                             "page_breaks": list(provenance.get("page_breaks") or []),
                             "note": provenance.get("note"),
                             **({"frame": provenance["frame"]} if provenance.get("frame") else {}),
-                            **({"note_refs": provenance["note_refs"]} if provenance.get("note_refs") else {})})
+                            **({"note_refs": provenance["note_refs"]} if provenance.get("note_refs") else {}),
+                            **({"photo": provenance["photo"]} if provenance.get("photo") else {})})
         layout.append({"kind": once.get("kind") or "chapter", "level": once.get("level") or 1, "units": entries})
     return layout
 
@@ -2332,7 +2360,8 @@ def build_units(chapters, source_hash: str, lexicon: dict[str, str], structure=N
                              "page_breaks": list(detail.get("page_breaks") or []) if part_index == 0 else [],
                              "source": detail.get("source"), **section,
                              **({"frame": detail["frame"]} if detail.get("frame") else {}),
-                             **({"note_refs": refs} if refs else {})}
+                             **({"note_refs": refs} if refs else {}),
+                             **({"photo": detail["photo"]} if detail.get("photo") and part_index == 0 else {})}
                 parts.append((part, {"chapter": chapter_index, "paragraph": paragraph_index,
                                      "part": part_index, "parts": len(pieces), **source, **extra}))
         for sentence, (_part, provenance) in zip(
@@ -2485,7 +2514,8 @@ def from_planilla(unit: dict) -> bool:
     """True for a unit whose text the planilla or the generated index supplies."""
     provenance = unit.get("provenance") or {}
     role = provenance.get("role")
-    return role in {"legal", "bibliographic", "index_entry", "closing", *once_structure.FRAME_ROLES} or (
+    return role in {"legal", "bibliographic", "index_entry", "closing", *once_structure.FRAME_ROLES,
+                    *once_structure.PHOTO_ROLES} or (
         role == "heading" and provenance.get("kind") in once_structure.INITIAL_KINDS)
 
 
@@ -3946,6 +3976,8 @@ async def _build_direct_package(
         # The pauses inside each passage follow what the voice read.
         segment_texts=texts, segment_continues=continues if len(continues) == len(texts) else None,
         on_chapter=chapter_started,
+        images=photo_images(filename, content, [paragraph.photo for section in (once.sections if once else [])
+                                                for paragraph in section.paragraphs if paragraph.role == "photo"]),
         **package_options(),
     ))
     progress.stage = "packaging"
