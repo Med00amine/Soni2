@@ -104,6 +104,21 @@ def units_to_audio(units: list[dict], job_dir: Path) -> dict:
                   formats=[list(map(list, item)) for item in formats])
 
 
+def reading_text(element: ET.Element) -> str:
+    """What an element says when read: its text without note reference marks.
+
+    A ``noteref`` keeps the place of a note's mark in the text; it is not read
+    (the note is read where the note is), so it is not part of the narration
+    the element is compared with.
+    """
+    parts = [element.text or ""]
+    for child in element:
+        if child.tag.rsplit("}", 1)[-1] != "noteref":
+            parts.append(reading_text(child))
+        parts.append(child.tail or "")
+    return "".join(parts)
+
+
 def _package_files(package: Path) -> tuple[Path, ET.Element, Path, ET.Element]:
     opf_path = next(package.glob("*.opf"))
     opf = ET.parse(opf_path).getroot()
@@ -120,7 +135,7 @@ def units_to_package(units: list[dict], package: Path) -> list[dict]:
     synchronized = [element for element in dtbook.iter() if element.get("smilref")
                     and not (element.get("id") or "").startswith("frontmatter-")
                     and element.tag != f"{DTBOOK}pagenum"]
-    texts = ["".join(element.itertext()).strip() for element in synchronized]
+    texts = [reading_text(element).strip() for element in synchronized]
     expected = [unit["text"].strip() for unit in units]
     mismatch = [{"position": index, "expected": expected[index] if index < len(expected) else None,
                  "package": texts[index] if index < len(texts) else None}
@@ -244,14 +259,22 @@ def _seconds(clock: str) -> float | None:
 
 
 def verify(chapters: list[dict], units: list[dict], job_dir: Path, package: Path | None,
-           corrected_ids: set[str], once_plan: dict | None = None) -> dict:
-    """The whole chain; with ``once_plan`` (the resolved planilla) the ONCE structure too."""
+           corrected_ids: set[str], once_plan: dict | None = None, timing: dict | None = None) -> dict:
+    """The whole chain; with ``once_plan`` (the resolved planilla) the ONCE structure too.
+
+    ``timing`` (the arguments of ``daisy_timing.verify``: the silence wanted at
+    the edges, the bitrate, the chapter gap) adds the timing checks of the
+    package against its real audio; without it they run with no edge targets.
+    """
     checks = [source_to_units(chapters, units, corrected_ids), units_to_audio(units, job_dir)]
     if package is not None:
         try:
             checks.extend(units_to_package(units, package))
         except (ET.ParseError, StopIteration, KeyError, OSError) as exc:
             checks.append(_check("package_readable", "Paquete legible", "failed", f"No se pudo leer el paquete: {exc}"))
+        from app import daisy_timing
+
+        checks.extend(daisy_timing.verify(package, **(timing or {})))
         if once_plan is not None:
             from app import once_validation
 

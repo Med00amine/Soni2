@@ -259,7 +259,7 @@
 .ed-page-mark::before, .ed-page-mark::after { content: ""; height: 1px; flex: 1; background: var(--s-line-strong); }
 .ed-phrase {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: start;
   gap: 4px;
   padding: 4px;
@@ -314,7 +314,51 @@
 .ed-edit { display: grid; gap: 6px; margin: 4px 4px 8px 38px; }
 .ed-edit label { color: var(--s-ink-soft); font-size: .76rem; font-weight: 700; }
 .ed-edit textarea { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--s-line-strong); border-radius: 8px; background: var(--s-panel); color: var(--s-ink); font: inherit; font-size: .92rem; line-height: 1.55; resize: vertical; }
-.ed-edit-actions { display: flex; justify-content: flex-end; }
+.ed-edit-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+
+/* Correct, add after, delete: always visible, so a keyboard or screen reader
+   user finds them in reading order rather than on hover. */
+.ed-phrase-tools, .ed-phrase-lead { display: inline-flex; gap: 1px; }
+.ed-tree-actions { position: sticky; bottom: 0; display: grid; gap: 6px; margin-top: auto; padding: 10px 14px; border-top: 1px solid var(--s-line); background: var(--s-panel); }
+.ed-tree-actions p { margin: 0; color: var(--s-ink-soft); font-size: .76rem; }
+.ed-tree-actions small { overflow: hidden; color: var(--s-ink-soft); text-overflow: ellipsis; white-space: nowrap; }
+.ed-tree-actions .ed-secondary { justify-content: center; }
+.ed-tree-actions .ed-confirm { margin: 0; }
+.ed-phrase-edit.is-danger { color: var(--s-bad); }
+.ed-phrase-edit.is-danger:hover { background: var(--s-bad-soft); }
+.ed-phrase-edit:focus-visible, .ed-danger:focus-visible { outline: 3px solid var(--s-accent); outline-offset: 2px; }
+.ed-secondary.is-danger { color: var(--s-bad); }
+.ed-confirm {
+  display: grid;
+  gap: 8px;
+  margin: 4px 4px 8px 38px;
+  padding: 10px 12px;
+  border: 1px solid var(--s-bad);
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: var(--s-bad-soft);
+  color: var(--s-ink);
+  font-size: .86rem;
+}
+.ed-workspace > .ed-confirm { margin: 0 14px 6px; }
+.ed-confirm p { margin: 0; line-height: 1.5; }
+.ed-confirm blockquote { margin: 0; padding: 6px 10px; border-left: 3px solid var(--s-line-strong); background: var(--s-panel); font-size: .9rem; line-height: 1.55; overflow-wrap: anywhere; }
+.ed-danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--s-bad);
+  color: var(--s-accent-ink);
+  font: 700 .8rem 'DM Sans', sans-serif;
+  cursor: pointer;
+}
+.ed-save { display: inline-flex; align-items: center; gap: 5px; color: var(--s-ink-soft); font-size: .78rem; font-weight: 600; }
+.ed-save.is-saved { color: var(--s-ok); }
+.ed-save.is-error { color: var(--s-bad); }
+.ed-produce { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 
 /* ------------------------------------------------------------ inspector */
 

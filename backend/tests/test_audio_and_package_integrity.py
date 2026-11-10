@@ -145,10 +145,14 @@ def test_a_built_package_passes_the_dtds_and_the_whole_completeness_chain(tmp_pa
     audio = [_tone(tmp_path / f"t{index}.mp3", 1.5) for index in range(4)]
     package = _package(tmp_path, audio)
     assert daisy_dtd.validate_package(package)["status"] == "passed"
-    result = completeness.verify(CHAPTERS, _units(audio, tmp_path), tmp_path, package, set())
+    lead, tail = MasteringOptions().edges
+    timing = {"leading": lead, "trailing": tail, "bitrate_kbps": 128, "chapter_gap": 2.0}
+    result = completeness.verify(CHAPTERS, _units(audio, tmp_path), tmp_path, package, set(), timing=timing)
     assert result["status"] == "passed", json.dumps(result, ensure_ascii=False, indent=1)
     assert [check["id"] for check in result["checks"]] == [
-        "source_to_units", "units_to_audio", "units_to_dtbook", "smil_sync", "audio_format", "navigation"]
+        "source_to_units", "units_to_audio", "units_to_dtbook", "smil_sync", "audio_format", "navigation",
+        "timing_xml", "timing_clips", "timing_contiguity", "timing_totals", "timing_audio_format", "timing_edges",
+        "timing_transitions"]
 
 
 def test_a_missing_duplicated_or_reordered_paragraph_breaks_the_chain(tmp_path) -> None:

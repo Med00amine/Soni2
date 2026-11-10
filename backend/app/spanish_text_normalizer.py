@@ -22,6 +22,18 @@ Rules, applied once each over non-overlapping spans of the original text:
 Plain integers are left as digits: voices read them correctly in context and
 spelling them out would force a gender guess ("21 cartas").
 
+Some rules depend on where the text is (``context``): a heading, a
+bibliography entry or a note. Ordinary text (``"text"``, the default) is
+normalized exactly as before, so its narration and cache keys do not change.
+
+* **heading**: a Roman numeral that opens it ("IV. La llegada" → "cuatro. La
+  llegada"); words in another language are spelled out (app.foreign_spelling);
+* **bibliography**: page references ("p. 12", "pp. 23-45"), the role of a
+  name ("(ed.)", "(coord.)"), "2.ª ed.", "trad.", "et al.", "s. f."; foreign
+  surnames of the authors are spelled out;
+* **note**: the same citation abbreviations ("op. cit.", "ibid.", "cf.",
+  "vid.", "p.") and foreign surnames in citations spelled out.
+
 The result is idempotent: normalizing the spoken text again changes nothing.
 """
 
@@ -31,6 +43,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import date
 
+from app import foreign_spelling
 from app.spanish_speech import roman_to_int
 
 _UNITS = ("cero", "uno", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve",
@@ -578,9 +591,81 @@ def _foreign_looking(word: str) -> bool:
 
 
 _LONE_ROMAN = re.compile(r"^\s*([IVXLC]{1,7})\.?\s*$")
+CONTEXTS = ("text", "heading", "bibliography", "note")
+
+# A Roman numeral opening a heading: "IV. La llegada", "XII — El regreso", "II La casa".
+_HEADING_ROMAN = re.compile(r"^\s*([IVXLCDM]{1,8})(?=\s*[.:—–\-]\s|\s+[A-ZÁÉÍÓÚÑ¿¡«\"“])")
+# Citation abbreviations, read the way Spanish readers say them. Only in a
+# bibliography or a note: elsewhere "ed." or "cap." may be something else.
+_CITATION = [
+    (re.compile(r"(?<!\w)pp\.\s?(\d+)\s?[-–]\s?(\d+)"), lambda m: f"páginas {m.group(1)} a {m.group(2)}"),
+    (re.compile(r"(?<!\w)págs?\.\s?(\d+)\s?[-–]\s?(\d+)"), lambda m: f"páginas {m.group(1)} a {m.group(2)}"),
+    (re.compile(r"(?<!\w)pp\.\s?(?=\d)"), lambda m: "páginas "),
+    (re.compile(r"(?<![\w.])p\.\s?(?=\d)"), lambda m: "página "),
+    (re.compile(r"\((eds?|coords?|comps?|dirs?)\.\)"),
+     lambda m: "(" + {"ed": "editor", "eds": "editores", "coord": "coordinador", "coords": "coordinadores",
+                      "comp": "compilador", "comps": "compiladores", "dir": "director", "dirs": "directores"}[m.group(1)] + ")"),
+    (re.compile(r"(?<=[a-záéíóú])\s(ed)\.(?=\s|,|;|$)"), lambda m: " edición"),
+    (re.compile(r"(?<!\w)trad\.(?=\s|,|;|$)"), lambda m: "traducción"),
+    (re.compile(r"(?<!\w)et\sal\.(?=\s|,|;|$|\))"), lambda m: "y otros"),
+    (re.compile(r"(?<!\w)op\.\s?cit\.(?=\s|,|;|$)"), lambda m: "obra citada"),
+    (re.compile(r"(?<!\w)(?:ibid|ibíd|ib)\.(?=\s|,|;|$)"), lambda m: "ibídem"),
+    (re.compile(r"(?<!\w)(?:cf|cfr)\.(?=\s|,|;|$)"), lambda m: "compárese"),
+    (re.compile(r"(?<!\w)vid\.(?=\s|,|;|$)"), lambda m: "véase"),
+    (re.compile(r"(?<!\w)s\.\s?f\.(?=\s|,|;|$|\))"), lambda m: "sin fecha"),
+    (re.compile(r"(?<!\w)s\.\s?l\.(?=\s|,|;|$|\))"), lambda m: "sin lugar"),
+    (re.compile(r"(?<!\w)caps\.\s?(?=\d)"), lambda m: "capítulos "),
+    (re.compile(r"(?<!\w)cap\.\s?(?=\d)"), lambda m: "capítulo "),
+]
 
 
-def normalize_for_speech(text: str) -> SpokenText:
+def _context_rules(builder: _Builder, text: str, context: str) -> None:
+    if context == "heading":
+        match = _HEADING_ROMAN.match(text)
+        value = roman_to_int(match.group(1)) if match else None
+        if match and value is not None:
+            builder.change("roman", match.start(1), match.end(1), cardinal(value, "n"))
+    if context in {"bibliography", "note"}:
+        # "2.ª ed.": the ordinal is spelled by the ordinal rule, "ed." here.
+        for match in re.finditer(r"(?<=[ªº])\s?ed\.", text):
+            ending = "." if match.end() == len(text.rstrip()) else ""
+            builder.change("abbreviation", match.start(), match.end(), " edición" + ending)
+        for pattern, spoken in _CITATION:
+            for match in pattern.finditer(text):
+                words = spoken(match)
+                # An abbreviation's full stop that also ends the text stays.
+                if match.end() == len(text.rstrip()) and text[match.end() - 1] == ".":
+                    words += "."
+                builder.change("abbreviation", match.start(), match.end(), words)
+
+
+def _spelling(builder: _Builder, text: str, context: str, foreign_terms: set[str],
+              rules: foreign_spelling.SpellingRules) -> None:
+    letters = [character for character in text if character.isalpha()]
+    shouting = len(letters) >= 6 and sum(character.isupper() for character in letters) / len(letters) > 0.8
+    for start, end, word in foreign_spelling.candidates(text, context):
+        if not builder.free(start, end):
+            continue
+        if foreign_spelling.is_acronym(word) and not shouting and word.casefold() not in foreign_terms:
+            continue
+        decision = rules.decide(word, foreign_terms)
+        if decision == "spell":
+            builder.change("foreign_spelling", start, end, rules.render(word))
+        elif decision == "flag":
+            builder.flag("foreign_word_review", start, end,
+                         f"«{word}» puede no ser español; no se deletrea sin una señal clara. Decide si debe "
+                         "deletrearse (lista de palabras a deletrear).")
+
+
+def normalize_for_speech(text: str, context: str = "text", *, foreign_terms: tuple[str, ...] | list[str] = (),
+                         spelling: foreign_spelling.SpellingRules | None = None) -> SpokenText:
+    """The spoken form of ``text`` in its ``context`` ("text", "heading", "bibliography", "note").
+
+    ``foreign_terms`` are words the book marks as another language; with
+    ``spelling`` rules, the words ONCE asks to spell in this context are spelled.
+    """
+    if context not in CONTEXTS:
+        raise ValueError(f"Unknown normalization context: {context}")
     builder = _Builder(text)
     lone = _LONE_ROMAN.match(text)
     if lone and roman_to_int(lone.group(1)) is not None:
@@ -597,13 +682,16 @@ def normalize_for_speech(text: str) -> SpokenText:
     _units(builder, text)
     _numbers(builder, text)
     _romans(builder, text)
+    _context_rules(builder, text, context)
     _abbreviations(builder, text)
     _symbols(builder, text)
+    if spelling is not None and spelling.enabled:
+        _spelling(builder, text, context, {term.casefold() for term in foreign_terms}, spelling)
     _watch_list(builder, text)
     builder.changes.sort(key=lambda item: item.start)
     builder.flags.sort(key=lambda item: item.start)
     return SpokenText(text, builder.render(), builder.changes, builder.flags)
 
 
-def spoken_form(text: str) -> str:
-    return normalize_for_speech(text).spoken
+def spoken_form(text: str, context: str = "text") -> str:
+    return normalize_for_speech(text, context).spoken

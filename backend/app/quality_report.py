@@ -605,6 +605,29 @@ _STATUS = {"passed": "superado", "failed": "fallido", "needs_review": "requiere 
            "partial": "parcial", "in_progress": "en curso", "not_run": "no realizado"}
 
 
+def _dimension_detail(key: str, value: dict[str, Any]) -> str:
+    """One dimension's summary. Each reads only its own fields: ``failed`` is a
+    count in "technical" and a list in "audio"."""
+    if key == "technical":
+        return (f"{value.get('verified', 0)} de {value.get('segments', 0)} párrafos verificados, "
+                f"{value.get('quality_retakes', 0)} retomas, {value.get('failed', 0)} fallos")
+    if key == "source":
+        return (f"cobertura {((value.get('coverage') or {}).get('ratio') or 0):.1%}, "
+                f"{len(value.get('open_warnings') or [])} avisos abiertos, "
+                f"{value.get('ocr_pages', 0)} páginas con OCR")
+    if key == "content":
+        return (f"WER {value['wer']:.2%} sobre {value.get('reference_words', 0)} palabras"
+                if value.get("wer") is not None else "sin medir")
+    if key == "audio":
+        return f"{len(value.get('failed') or [])} defectuosos, {value.get('suspicious', 0)} sospechosos"
+    if key == "package":
+        return (f"estructura {_STATUS.get(value.get('structural'), '—')}, "
+                f"DTD {_STATUS.get(value.get('dtd'), '—')}, "
+                f"cadena completa {_STATUS.get(value.get('completeness'), '—')}, DAISY Pipeline sin ejecutar")
+    return (f"{value.get('decisions', 0)} decisiones, {len(value.get('listening_recommended') or [])} "
+            "párrafos recomendados para escuchar")
+
+
 def _release_block(report: dict[str, Any]) -> str:
     release = report.get("release") or {}
     if not release:
@@ -614,23 +637,8 @@ def _release_block(report: dict[str, Any]) -> str:
     for key, label in _DIMENSIONS:
         value = dimensions.get(key) or {}
         status = value.get("status") or ("superado" if key == "human" and not value.get("awaiting") else "")
-        detail = {
-            "technical": f"{value.get('verified', 0)} de {value.get('segments', 0)} párrafos verificados, "
-                         f"{value.get('quality_retakes', 0)} retomas, {value.get('failed', 0)} fallos",
-            "source": f"cobertura {((value.get('coverage') or {}).get('ratio') or 0):.1%}, "
-                      f"{len(value.get('open_warnings') or [])} avisos abiertos, "
-                      f"{value.get('ocr_pages', 0)} páginas con OCR",
-            "content": f"WER {value['wer']:.2%} sobre {value.get('reference_words', 0)} palabras"
-                       if value.get("wer") is not None else "sin medir",
-            "audio": f"{len(value.get('failed') or [])} defectuosos, {value.get('suspicious', 0)} sospechosos",
-            "package": f"estructura {_STATUS.get(value.get('structural'), '—')}, "
-                       f"DTD {_STATUS.get(value.get('dtd'), '—')}, "
-                       f"cadena completa {_STATUS.get(value.get('completeness'), '—')}, DAISY Pipeline sin ejecutar",
-            "human": f"{value.get('decisions', 0)} decisiones, {len(value.get('listening_recommended') or [])} "
-                     "párrafos recomendados para escuchar",
-        }[key]
         rows.append(f"<tr><th scope='row'>{_e(label)}</th><td>{_e(_STATUS.get(status, status or '—'))}</td>"
-                    f"<td>{_e(detail)}</td></tr>")
+                    f"<td>{_e(_dimension_detail(key, value))}</td></tr>")
     items = "".join(f"<li>{_e(text)}</li>" for text in (release.get("blockers") or []) + (release.get("reviews") or []))
     doubts = "".join(f"<li>{_e(text)}</li>" for text in release.get("uncertainty") or [])
     return (f"<h2>Estado de calidad: {_e(release.get('label', ''))}</h2>"

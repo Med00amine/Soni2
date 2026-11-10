@@ -10,6 +10,7 @@ out of credit. Every provider failure is translated into a classified
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 from dataclasses import dataclass, field
 from urllib.parse import quote
@@ -646,11 +647,22 @@ def _voice_profile(voice_id: str, name: str, accent: str, verified: list, source
             "peninsular_models": peninsular_models}
 
 
-def cache_fingerprint(provider: str, voice: Voice, model: str, speed: float, text: str) -> str:
-    """Stable cache key: identical requests to identical settings reuse audio."""
+def cache_fingerprint(provider: str, voice: Voice, model: str, speed: float, text: str,
+                      voice_settings: dict | None = None) -> str:
+    """Stable cache key: identical requests to identical settings reuse audio.
+
+    ``voice_settings`` (ElevenLabs stability, similarity, style) change the
+    reading, so audio made with other settings is not reused. Unset settings
+    add nothing to the key, so the audio already paid for under the voice's
+    own settings keeps its key.
+    """
     speed_key = f"{speed:.3f}" if supports_speed(provider) else "n/a"
     # An ElevenLabs voice id fully identifies the voice; its language is only
     # what the operator declared, and declaring it must not void paid audio.
     language = "" if provider.casefold() == "elevenlabs" else voice.language
-    identity = "\u0000".join([provider.casefold(), voice.voice_id, language, model, speed_key, text])
+    parts = [provider.casefold(), voice.voice_id, language, model, speed_key, text]
+    if voice_settings:
+        parts.append("settings=" + json.dumps({key: voice_settings[key] for key in sorted(voice_settings)},
+                                              separators=(",", ":")))
+    identity = "\u0000".join(parts)
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()

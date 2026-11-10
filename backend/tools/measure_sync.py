@@ -50,7 +50,7 @@ async def main_async(package: Path) -> dict:
     provider = main.active_asr_provider()
     results = []
     transcripts: dict[Path, list[dict]] = {}
-    for smil in sorted((package / "smil").glob("chapter-*.smil")):
+    for smil in sorted(package.rglob("chapter-*.smil")):  # smil/ or, in a flat package, the root
         for par in ET.parse(smil).getroot().iter(f"{SMIL}par"):
             text_ref = par.find(f"{SMIL}text").get("src").partition("#")[2]
             audio = par.find(f"{SMIL}audio")

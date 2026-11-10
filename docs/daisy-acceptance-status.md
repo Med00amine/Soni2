@@ -1,5 +1,7 @@
 # Soni2 pipeline acceptance status
 
+**Updated 2026-11-10.** The ONCE compliance upgrade (timing fixed against the real audio, silence at every file edge, constant-bitrate MP3, indented XML, the style sheet, a flat layout option, boxed and shaded text, the book's own table of contents, note references, context reading and spelling, photo inserts) is described with its checklist, evidence and open questions in [once-compliance.md](once-compliance.md). Backend `pytest`: **714 passed, 1 skipped**; frontend `vitest`: **91 passed**.
+
 **Updated 2026-10-28.** The ONCE structure (planilla, files 1–3, levels,
 silent page markers, notes, closing phrase) and the step-2 editor are
 described, with their measured results, in [once-structure.md](once-structure.md).

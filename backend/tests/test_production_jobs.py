@@ -5,6 +5,7 @@ import json
 import subprocess
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 
@@ -221,8 +222,8 @@ def test_mocked_multichapter_job_builds_ordered_delivery_and_logs(tmp_path: Path
         assert len(opf) == 1 and opf[0] != "DAISY 3/book.opf"
         base = opf[0].removesuffix(".opf")
         assert f"{base}.xml" in names and f"{base}.mp3" in names
-        assert "DAISY 3/audio/chapter-001/chapter-001.mp3" in names
-        assert "DAISY 3/audio/chapter-002/chapter-002.mp3" in names
+        assert "DAISY 3/audio/chapter-001.mp3" in names
+        assert "DAISY 3/audio/chapter-002.mp3" in names
         assert "DAISY 3/smil/chapter-0001.smil" in names
         assert "DAISY 3/smil/chapter-0002.smil" in names
         assert "job.log" in names and "tts.log" in names and "quality-report.json" in names
@@ -242,3 +243,11 @@ def test_mocked_multichapter_job_builds_ordered_delivery_and_logs(tmp_path: Path
     log = (job_dir / "job.log").read_text(encoding="utf-8")
     assert "job.complete: delivery assembled" in log
     assert not log.lstrip().startswith("{")
+
+
+def test_disk_shortfall_keeps_the_reserve_free(tmp_path: Path, monkeypatch) -> None:
+    mb = 1024 * 1024
+    monkeypatch.setattr(main, "storage_root", tmp_path)
+    monkeypatch.setattr(main.shutil, "disk_usage", lambda _path: SimpleNamespace(free=150 * mb))
+    assert main.disk_shortfall(50 * mb) == 0
+    assert main.disk_shortfall(60 * mb) == 10 * mb

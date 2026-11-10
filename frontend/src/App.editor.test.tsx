@@ -2,6 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import { draftResponse, forgetDraft, lastSavedState } from './test/draftApi'
 
 // Step 2, the audiobook editor: the ONCE structure, its planilla, playback
 // that follows the text phrase by phrase, and review from problem to problem.
@@ -120,8 +121,7 @@ function stub(extra: (url: string) => unknown = () => undefined) {
     if (custom) return ok(custom)
     if (url.endsWith('/api/capabilities')) return ok(capabilities)
     if (url.endsWith('/api/planilla/defaults')) return ok({ planilla: { legal_text: LEGAL, file1_page: '1' }, production_date: 'octubre de 2026' })
-    if (url.endsWith('/api/books/structure')) return ok(structure)
-    if (url.endsWith('/api/books/outline')) return ok(outline)
+    if (url.includes('/api/drafts')) return ok(draftResponse(url, init, structure, { outline }))
     if (url.endsWith('/api/books/jobs')) return ok({ job_id: 'job-1', state: 'queued', total_sentences: flat.length })
     if (url.endsWith('/api/jobs/job-1/structure')) return ok(structureFor(finalAudio))
     if (url.endsWith('/api/jobs/job-1/review')) return ok({ sentence: { ...job.sentences[12], state: 'verified', issues: [] } })
@@ -168,6 +168,7 @@ function form(url: string) {
 
 beforeEach(() => {
   window.localStorage.clear()
+  forgetDraft()
   finalAudio = false
   vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} }))
   const media = window.HTMLMediaElement.prototype
@@ -257,7 +258,9 @@ describe('the planilla', () => {
     })
     await act(async () => { button('Producir el audiolibro con revisión')!.click() })
     await flush()
-    expect(JSON.parse(String(form('/api/books/jobs')?.get('planilla_json')))).toMatchObject({ file2_page: '2' })
+    // The planilla is saved with the book, and the production narrates what was saved.
+    expect(lastSavedState()?.planilla).toMatchObject({ file2_page: '2' })
+    expect(form('/api/books/jobs')?.get('draft_id')).toBe('draft-1')
 
     await render()
     await openEditor()
@@ -266,7 +269,7 @@ describe('the planilla', () => {
     await act(async () => { toggle.click() })
     await act(async () => { button('Producir el audiolibro con revisión')!.click() })
     await flush()
-    expect(form('/api/books/jobs')?.get('planilla_json')).toBe('')
+    expect(lastSavedState()?.once_enabled).toBe(false)
   })
 
   it('is filled from a Word planilla for a person to check', async () => {

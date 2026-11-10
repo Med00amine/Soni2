@@ -2,6 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import { draftResponse, forgetDraft, lastSavedState } from './test/draftApi'
 
 let root: Root
 
@@ -37,15 +38,32 @@ let calls: string[]
 let packageResponse: unknown
 let taskStatus: unknown
 let artifactResponse: unknown
+let jobResponse: unknown
+
+function finishedJob(state: string, reviews: string[] = []) {
+  return ok({
+    job_id: 'job-1', state: 'completed', source_name: 'libro.txt', total_sentences: 1, progress: { verified: 1 }, sentences: [],
+    release: { state, label: state, blockers: [], reviews, dimensions: {}, uncertainty: [] },
+  })
+}
+
+// Every anchor the page clicks to hand a file to the browser.
+function watchDownloads() {
+  const started: { href: string; name: string }[] = []
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+    started.push({ href: this.href, name: this.download })
+  })
+  return started
+}
 
 function stubApi() {
   calls = []
-  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     calls.push(url)
     if (url.endsWith('/api/capabilities')) return ok(capabilities)
     if (url.endsWith('/api/voices')) return ok(voices)
-    if (url.endsWith('/api/books/structure')) return ok(structure)
+    if (url.includes('/api/drafts')) return ok(draftResponse(url, init, structure))
     // The direct download: start a task, poll it, then fetch the ZIP.
     if (url.endsWith('/api/books/package-tasks')) return packageResponse
     if (url.endsWith('/api/books/package-tasks/task-1/download')) return ok({})
@@ -53,7 +71,7 @@ function stubApi() {
     if (url.endsWith('/api/books/package-tasks/task-1')) return taskStatus
     if (url.includes('/artifacts')) return artifactResponse
     if (url.endsWith('/api/books/jobs')) return ok({ job_id: 'job-1', state: 'queued', total_sentences: 1 })
-    if (url.includes('/api/jobs/job-1')) return ok({
+    if (url.includes('/api/jobs/job-1')) return jobResponse ?? ok({
       job_id: 'job-1', state: 'partially_completed', source_name: 'libro.txt', total_sentences: 1,
       progress: { needs_human_review: 1 }, sentences: [],
     })
@@ -92,15 +110,96 @@ function task(state: string, done: number, total: number, reused = 0) {
 
 beforeEach(() => {
   window.localStorage.clear()
+  forgetDraft()
   packageResponse = task('running', 0, 0)
   taskStatus = task('completed', 3, 3)
   artifactResponse = ok({})
+  jobResponse = undefined
   stubApi()
 })
 
 afterEach(() => {
   act(() => root?.unmount())
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
+
+describe('taking away a finished book', () => {
+  it('downloads a validated book as the reviewed package', async () => {
+    jobResponse = finishedJob('PASSED')
+    const started = watchDownloads()
+    await render()
+    await startJob()
+    await act(async () => { buttonLabelled('Descargar paquete revisado')!.click() })
+    expect(started).toHaveLength(1)
+    expect(started[0].href).toMatch(/\/api\/jobs\/job-1\/artifacts$/)
+    expect(document.querySelector('.export-actions-notice')?.textContent).toContain('La descarga ha empezado')
+    expect(document.querySelector<HTMLAnchorElement>('.export-actions-notice a')?.href).toMatch(/\/artifacts$/)
+  })
+
+  it('still downloads a book waiting for a person, named as not validated, and says what is missing', async () => {
+    jobResponse = finishedJob('NEEDS_REVIEW', ['OCR de la página 1: 1 palabras dudosas.'])
+    const started = watchDownloads()
+    await render()
+    await startJob()
+    expect(buttonLabelled('Descargar paquete revisado')).toBeUndefined()
+    expect(document.querySelector('.export-actions-status')?.textContent).toContain('OCR de la página 1')
+    await act(async () => { buttonLabelled('Descargar el ZIP')!.click() })
+    expect(started).toHaveLength(1)
+    expect(started[0].href).toMatch(/artifacts\?diagnostic=true$/)
+    expect(started[0].name).toContain('(SIN VALIDAR)')
+  })
+
+  it('explains a refused download beside the button', async () => {
+    jobResponse = finishedJob('PASSED')
+    artifactResponse = fail(409, 'El paquete completo todavía no está disponible.')
+    const started = watchDownloads()
+    await render()
+    await startJob()
+    await act(async () => { buttonLabelled('Descargar paquete revisado')!.click() })
+    expect(started).toHaveLength(0)
+    expect(document.querySelector('.export-actions')?.textContent).toContain('todavía no está disponible')
+  })
+
+  it('keeps following a production through a moment without connection', async () => {
+    jobResponse = finishedJob('PASSED')
+    const real = globalThis.fetch
+    let failures = 1
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/api/jobs/job-1') && failures > 0) {
+        failures -= 1
+        throw new TypeError('Failed to fetch')
+      }
+      return real(input, init)
+    }))
+    await render()
+    await startJob()
+    expect(buttonLabelled('Descargar paquete revisado')).toBeUndefined()
+    await act(async () => { await new Promise(resolve => window.setTimeout(resolve, 2100)) })
+    expect(buttonLabelled('Descargar paquete revisado')).toBeTruthy()
+  })
+
+  it('says what to do next beside the buttons when a production fails', async () => {
+    jobResponse = ok({ job_id: 'job-1', state: 'failed', source_name: 'libro.txt', total_sentences: 1, progress: { pending: 1 }, sentences: [], error: 'El disco del servidor se ha llenado.' })
+    await render()
+    await startJob()
+    const status = document.querySelector('.export-actions-status')?.textContent
+    expect(status).toContain('El disco del servidor se ha llenado.')
+    expect(status).toContain('no se paga de nuevo')
+  })
+
+  it('follows a direct download chapter by chapter instead of stopping at the last paragraph', async () => {
+    const started = watchDownloads()
+    taskStatus = ok({ task_id: 'task-1', state: 'running', done: 3, total: 3, reused: 3, stage: 'assembling', chapters_done: 1, chapters_total: 2 })
+    await render()
+    await uploadBook()
+    await act(async () => { buttonLabelled('Descargar audiolibro ahora')!.click() })
+    await act(async () => { await new Promise(resolve => window.setTimeout(resolve, 50)) })
+    expect(document.querySelector('.export-actions-status')?.textContent).toContain('Montando el capítulo 2 de 2')
+    taskStatus = task('completed', 3, 3, 3)
+    await act(async () => { await new Promise(resolve => window.setTimeout(resolve, 1100)) })
+    expect(started).toHaveLength(1)
+  })
 })
 
 describe('downloading the audiobook', () => {
@@ -256,7 +355,7 @@ describe('the export step', () => {
       const url = String(input)
       if (url.endsWith('/api/capabilities')) return ok(capabilities)
       if (url.endsWith('/api/voices')) return ok(voices)
-      if (url.endsWith('/api/books/structure')) return ok(structure)
+      if (url.includes('/api/drafts')) return ok(draftResponse(url, init, structure))
       if (url.endsWith('/api/books/jobs')) return ok({ job_id: 'job-1', state: 'queued', total_sentences: 1 })
       if (url.endsWith('/api/jobs/job-1/cancel')) {
         cancellationRequested = init?.method === 'POST'
@@ -315,11 +414,11 @@ describe('the export step', () => {
   })
 
   it('names the voice a job used and warns when the selection has moved on', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.endsWith('/api/capabilities')) return ok(capabilities)
       if (url.endsWith('/api/voices')) return ok(voices)
-      if (url.endsWith('/api/books/structure')) return ok(structure)
+      if (url.includes('/api/drafts')) return ok(draftResponse(url, init, structure))
       if (url.endsWith('/api/books/jobs')) return ok({ job_id: 'job-1', state: 'queued', total_sentences: 1 })
       if (url.includes('/api/jobs/job-1')) return ok({
         job_id: 'job-1', state: 'partially_completed', source_name: 'libro.txt', total_sentences: 1,
@@ -340,11 +439,11 @@ describe('the export step', () => {
 
 describe('regenerating a sentence', () => {
   it('shows what is happening instead of looking frozen', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.endsWith('/api/capabilities')) return ok(capabilities)
       if (url.endsWith('/api/voices')) return ok(voices)
-      if (url.endsWith('/api/books/structure')) return ok(structure)
+      if (url.includes('/api/drafts')) return ok(draftResponse(url, init, structure))
       if (url.endsWith('/api/books/jobs')) return ok({ job_id: 'job-1', state: 'queued', total_sentences: 1 })
       if (url.includes('/api/jobs/job-1')) return ok({
         job_id: 'job-1', state: 'running', source_name: 'libro.txt', total_sentences: 3,
@@ -385,11 +484,11 @@ describe('the quality review queue', () => {
   }
 
   function stubFlagged() {
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.endsWith('/api/capabilities')) return ok(capabilities)
       if (url.endsWith('/api/voices')) return ok(voices)
-      if (url.endsWith('/api/books/structure')) return ok(structure)
+      if (url.includes('/api/drafts')) return ok(draftResponse(url, init, structure))
       if (url.endsWith('/api/books/jobs')) return ok({ job_id: 'job-1', state: 'queued', total_sentences: 1 })
       if (url.includes('/api/jobs/job-1')) return ok(flagged)
       return ok({})
@@ -435,11 +534,11 @@ describe('the quality review queue', () => {
   })
 
   it('cannot accept a sentence that has no audio to accept', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.endsWith('/api/capabilities')) return ok(capabilities)
       if (url.endsWith('/api/voices')) return ok(voices)
-      if (url.endsWith('/api/books/structure')) return ok(structure)
+      if (url.includes('/api/drafts')) return ok(draftResponse(url, init, structure))
       if (url.endsWith('/api/books/jobs')) return ok({ job_id: 'job-1', state: 'queued', total_sentences: 1 })
       if (url.includes('/api/jobs/job-1')) return ok({
         ...flagged,
@@ -463,7 +562,7 @@ describe('the quality review queue', () => {
       requests.push({ url, body: typeof init?.body === 'string' ? init.body : undefined })
       if (url.endsWith('/api/capabilities')) return ok(capabilities)
       if (url.endsWith('/api/voices')) return ok(voices)
-      if (url.endsWith('/api/books/structure')) return ok(structure)
+      if (url.includes('/api/drafts')) return ok(draftResponse(url, init, structure))
       if (url.endsWith('/api/books/jobs')) return ok({ job_id: 'job-1', state: 'queued', total_sentences: 1 })
       if (url.endsWith('/api/jobs/job-1/review')) {
         const sentence = (reply.body as { sentence?: (typeof flagged.sentences)[number] }).sentence
@@ -546,7 +645,7 @@ describe('narrating part of a PDF', () => {
       if (init?.body instanceof FormData) bodies.push(init.body)
       if (url.endsWith('/api/capabilities')) return ok(capabilities)
       if (url.endsWith('/api/voices')) return ok(voices)
-      if (url.endsWith('/api/books/structure')) return ok(structure)
+      if (url.includes('/api/drafts')) return ok(draftResponse(url, init, structure))
       return ok({})
     }))
     await render()
@@ -560,11 +659,10 @@ describe('narrating part of a PDF', () => {
       range.dispatchEvent(new Event('input', { bubbles: true }))
     })
     await act(async () => { buttonLabelled('Aplicar')!.click() })
-    const structures = bodies.filter(body => body.has('pages'))
-    expect(structures[structures.length - 1]?.get('pages')).toBe('20-114')
-    // And the export sends it too, so the audiobook has exactly those pages.
+    expect(lastSavedState()?.pages).toBe('20-114')
+    // And the export produces that saved draft, so the audiobook has exactly those pages.
     await act(async () => { buttonLabelled('Descargar audiolibro ahora')!.click() })
-    expect(bodies[bodies.length - 1]?.get('pages')).toBe('20-114')
+    expect(bodies[bodies.length - 1]?.get('draft_id')).toBe('draft-1')
   })
 })
 
@@ -586,7 +684,7 @@ describe('large downloads', () => {
       const url = String(input)
       if (url.endsWith('/api/capabilities')) return ok(capabilities)
       if (url.endsWith('/api/voices')) return ok(voices)
-      if (url.endsWith('/api/books/structure')) return ok(structure)
+      if (url.includes('/api/drafts')) return ok(draftResponse(url, init, structure))
       if (url.includes('/artifacts')) {
         probes.push((init?.headers as Record<string, string> | undefined)?.Range ?? '')
         return { ok: true, status: 206, json: async () => ({}), text: async () => '', blob }
@@ -608,11 +706,11 @@ describe('large downloads', () => {
   })
 
   it('still explains a package that is not ready yet', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.endsWith('/api/capabilities')) return ok(capabilities)
       if (url.endsWith('/api/voices')) return ok(voices)
-      if (url.endsWith('/api/books/structure')) return ok(structure)
+      if (url.includes('/api/drafts')) return ok(draftResponse(url, init, structure))
       if (url.includes('/artifacts')) return fail(409, 'El paquete completo todavía no está disponible.')
       if (url.endsWith('/api/books/jobs')) return ok({ job_id: 'job-1', state: 'queued', total_sentences: 1 })
       if (url.includes('/api/jobs/job-1')) return ok(completedJob)

@@ -273,7 +273,8 @@ def test_a_book_without_page_numbers_takes_its_index_pages_from_the_planilla(tmp
     # never gives a chapter the index's own page).
     built, listed, warnings = entries(MODEL)
     assert listed == ["Índice página 3.", "Capítulo 1.", "Capítulo 2.", "Fin de índice."]
-    assert warnings == ["index_without_page"]
+    # And it says plainly that the book has no page numbers at all.
+    assert warnings == ["no_source_pages", "index_without_page"]
     # The planilla's index pages: each chapter starts there, with its marker.
     built, listed, warnings = entries({**MODEL, "chapter_pages": {"Capítulo 1": "4", "Capítulo 2": "6"}})
     assert listed == ["Índice página 3.", "Capítulo 1. Página 4.", "Capítulo 2. Página 6.", "Fin de índice."]
@@ -322,7 +323,9 @@ def test_the_demo_package_passes_the_dtds_and_every_once_check(tmp_path) -> None
     checks = once_validation.verify(package, _records(built), built.resolved.as_dict())
     assert {check["id"]: check["status"] for check in checks} == {
         "once_initial_files": "passed", "once_hierarchy": "passed", "once_pages": "passed",
-        "once_index": "passed", "once_notes": "passed", "once_closing": "passed", "once_play_order": "passed"}
+        "once_index": "passed", "once_notes": "passed", "once_frames": "passed", "once_photos": "passed",
+        "once_closing": "passed",
+        "once_play_order": "passed"}
 
 
 def test_initial_files_are_front_matter_and_subchapters_nest(tmp_path) -> None:
@@ -336,9 +339,10 @@ def test_initial_files_are_front_matter_and_subchapters_nest(tmp_path) -> None:
     assert [level.find(f"{DTBOOK}h1").text for level in chapters] == [
         "Capítulo 1. La llegada", "Capítulo 2. La tormenta", "Capítulo 3. El relevo"]
     assert [level.find(f"{DTBOOK}h2").text for level in body.iter(f"{DTBOOK}level2")] == ["El inventario", "La reparación"]
-    # One audio file per section: «ARCHIVO N» is audio/chapter-00N.
-    assert sorted(path.parent.name for path in package.glob("audio/chapter-*/chapter-*.mp3")) == [
-        f"chapter-{number:03d}" for number in range(1, 9)]
+    # One audio file per section, directly in audio/: «ARCHIVO N» is audio/chapter-00N.mp3.
+    assert sorted(path.name for path in package.glob("audio/chapter-*.mp3")) == [
+        f"chapter-{number:03d}.mp3" for number in range(1, 9)]
+    assert not [path for path in (package / "audio").rglob("*") if path.is_dir()]
     opf = (next(package.glob("*.opf"))).read_text(encoding="utf-8")
     assert 'scheme="ABSYS"' not in opf  # the model has no ABSYS number
 
@@ -405,9 +409,12 @@ def test_the_checks_catch_a_package_that_is_not_what_the_planilla_says(tmp_path)
     _rewrite(tampered_book, "Capítulo 2. La tormenta. Página 5.", "Capítulo 2. La tormenta. Página 9.")
     _rewrite(tampered_book, 'class="once-closing"', 'class="once-text"')
     smil = tampered / "smil" / "chapter-0004.smil"
-    _rewrite(smil, 'customTest="pagenum"><text src="../El_faro_de_la_isla_Almendra.xml#page-0004" />',
-             'customTest="pagenum"><text src="../El_faro_de_la_isla_Almendra.xml#page-0004" />'
-             '<audio src="../audio/chapter-004/chapter-004.mp3" clipBegin="0:00:00.000" clipEnd="0:00:00.500" />')
+    # A page marker given audio: it would be read aloud instead of being silent.
+    marker = re.compile(r'(customTest="pagenum">\s*<text src="\.\./El_faro_de_la_isla_Almendra\.xml#page-0004" />)')
+    source = smil.read_text(encoding="utf-8")
+    assert marker.search(source)
+    smil.write_text(marker.sub(r'\1<audio src="../audio/chapter-004.mp3" clipBegin="0:00:00.000" '
+                               r'clipEnd="0:00:00.500" />', source, count=1), encoding="utf-8")
     statuses = {check["id"]: check for check in once_validation.verify(tampered, _records(built),
                                                                          built.resolved.as_dict())}
     assert statuses["once_initial_files"]["status"] == "failed"
@@ -458,15 +465,15 @@ def test_a_reviewed_production_delivers_the_once_structure(offline) -> None:
     assert {key: value for key, value in statuses.items() if key != "audio_format"} == {
         key: "passed" for key in statuses if key != "audio_format"}
     assert {key for key in statuses if key.startswith("once_")} == {
-        "once_initial_files", "once_hierarchy", "once_pages", "once_index", "once_notes", "once_closing",
-        "once_play_order"}
+        "once_initial_files", "once_hierarchy", "once_pages", "once_index", "once_notes", "once_frames",
+        "once_photos", "once_closing", "once_play_order"}
     # The legal notice and the closing phrase were narrated and checked like the rest.
     roles = [(unit.get("provenance") or {}).get("role") for unit in job["sentences"]]
     assert roles.count("closing") == 1 and "legal" in roles and "index_entry" in roles and "note" in roles
     assert all(unit["state"] == "verified" for unit in job["sentences"])
     with zipfile.ZipFile(job["output_path"]) as archive:
         names = archive.namelist()
-        assert sum(1 for name in names if re.fullmatch(r"DAISY 3/audio/chapter-\d{3}/chapter-\d{3}\.mp3", name)) == 8
+        assert sum(1 for name in names if re.fullmatch(r"DAISY 3/audio/chapter-\d{3}\.mp3", name)) == 8
         book = archive.read(next(name for name in names if name.endswith(".xml") and name.count("/") == 1)).decode()
         assert book.count("Aquí finaliza la grabación de El faro de la isla Almendra, De Antonio Pérez.") == 1
         assert "Fin de nota 1." in book
@@ -527,7 +534,7 @@ def test_a_direct_download_has_the_same_structure(offline) -> None:
     with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
         names = archive.namelist()
         status = json.loads(archive.read("DAISY 3/quality-status.json"))
-        assert sum(1 for name in names if re.fullmatch(r"DAISY 3/audio/chapter-\d{3}/chapter-\d{3}\.mp3", name)) == 8
+        assert sum(1 for name in names if re.fullmatch(r"DAISY 3/audio/chapter-\d{3}\.mp3", name)) == 8
         book = archive.read(next(name for name in names if name.endswith(".xml") and name.count("/") == 1)).decode()
     assert status["state"] == "UNVERIFIED"
     assert {check["status"] for check in status["package"]["once_structure"]} == {"passed"}

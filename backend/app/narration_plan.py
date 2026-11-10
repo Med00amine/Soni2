@@ -34,6 +34,10 @@ class SelectedChapter(tuple):
     """
 
     title_generated: bool = False
+    # The narration-plan section it was selected from, and the place in the
+    # book (see app.book_edits) each of its paragraphs comes from.
+    section_id: str = ""
+    slots: list[str] | None = None
 
     def __new__(cls, title: str, paragraphs: list[str], title_generated: bool = False):
         instance = super().__new__(cls, (title, paragraphs))
@@ -275,5 +279,7 @@ def apply_narration_selection(plan: list[NarrationSection], selected_ids: set[st
             title = section.title
             # PDF page labels are navigation metadata; don't make the TTS say them.
             if re.fullmatch(r"P[aá]gina\s+\d+", title, re.I): title = ""
-            chosen.append(SelectedChapter(title, section.paragraphs, section.title_generated or not title))
+            chapter = SelectedChapter(title, section.paragraphs, section.title_generated or not title)
+            chapter.section_id = section.id
+            chosen.append(chapter)
     return chosen
