@@ -512,7 +512,7 @@ def _numeric_tokens(text: str, allow_spoken_time: bool, source_has_time: bool, s
         result.append(Token(_plain(word.group()), original_start, original_end, word.start(), word.end()))
     result.extend(tokens)
     result.sort(key=lambda item: (item.norm_start, item.norm_end))
-    return _fold_spoken_forms(_fold_written_forms(result, text))
+    return _fold_spelled_letters(_fold_spoken_forms(_fold_written_forms(result, text)))
 
 
 # Company forms a narrator reads out in full: "S.L." is said "sociedad
@@ -578,6 +578,67 @@ def _fold_written_forms(tokens: list[Token], text: str) -> list[Token]:
             index += 1
             continue
         merged.append(token)
+        index += 1
+    return merged
+
+
+# The Spanish names of the letters, as plain tokens (accents folded), and the
+# names of two words. A spelled word ("ese, hache, a, ka…") and the letters a
+# recognizer writes for it ("S H A K…") are one and the same thing.
+_LETTER_NAMES = {"a": "a", "be": "b", "ce": "c", "de": "d", "e": "e", "efe": "f", "ge": "g", "hache": "h", "i": "i",
+                 "jota": "j", "ka": "k", "ele": "l", "eme": "m", "ene": "n", "o": "o", "pe": "p", "cu": "q", "ere": "r",
+                 "erre": "r", "ese": "s", "te": "t", "u": "u", "uve": "v", "equis": "x", "ye": "y", "zeta": "z",
+                 "ceta": "z"}
+_LETTER_PAIRS = {("uve", "doble"): "w", ("doble", "uve"): "w", ("doble", "ve"): "w", ("doble", "u"): "w",
+                 ("i", "griega"): "y", ("doble", "ese"): "ss"}
+_MARK_WORDS = {"tilde", "dieresis", "cedilla", "barra", "anillo", "virgulilla", "caron", "colita", "breve", "punto"}
+# Names that are also everyday words ("de", "te", "ese", the vowels) do not
+# make a run a spelling on their own.
+_WEAK_LETTERS = {"a", "e", "i", "o", "u", "de", "te", "ese", "ye"}
+
+
+def _fold_spelled_letters(tokens: list[Token]) -> list[Token]:
+    """Merge a spelled word into one token: "ese hache a ka e" and "s h a k e" are "spell:shake".
+
+    Only a run of three letters or more with at least one that is not also an
+    everyday word, so "a e i o u" or "ese te" in prose are left alone. A mark
+    after a letter ("u con diéresis") belongs to that letter.
+    """
+    merged: list[Token] = []
+    index = 0
+    while index < len(tokens):
+        letters: list[str] = []
+        strong = False
+        cursor = index
+        while cursor < len(tokens):
+            value = tokens[cursor].value
+            pair = (value, tokens[cursor + 1].value) if cursor + 1 < len(tokens) else None
+            if pair in _LETTER_PAIRS:
+                letters.append(_LETTER_PAIRS[pair])
+                strong = True
+                cursor += 2
+            elif value in _LETTER_NAMES:
+                letters.append(_LETTER_NAMES[value])
+                strong = strong or value not in _WEAK_LETTERS
+                cursor += 1
+            elif len(value) == 1 and value.isalpha():
+                letters.append(value)
+                strong = strong or value in _LONE_LETTERS
+                cursor += 1
+            else:
+                break
+            # "con diéresis", "con acento grave": a mark on the letter just named.
+            if cursor + 1 < len(tokens) and tokens[cursor].value == "con" and (
+                    tokens[cursor + 1].value in _MARK_WORDS or tokens[cursor + 1].value == "acento"):
+                cursor += 2
+                if cursor < len(tokens) and tokens[cursor].value in {"grave", "agudo", "circunflejo"}:
+                    cursor += 1
+        if len(letters) >= 3 and strong:
+            first, last = tokens[index], tokens[cursor - 1]
+            merged.append(Token("spell:" + "".join(letters), first.start, last.end, first.norm_start, last.norm_end))
+            index = cursor
+            continue
+        merged.append(tokens[index])
         index += 1
     return merged
 

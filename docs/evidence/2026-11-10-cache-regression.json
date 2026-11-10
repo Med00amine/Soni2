@@ -1,0 +1,22 @@
+{
+ "faro": {
+  "job": "a03c4acb-8ac4-469a-a46d-4f2729eae504",
+  "voice": "o0SveC0zgHFuCsEO3vHR",
+  "units_then": 24,
+  "units_now": 24,
+  "same_synthesis_texts": true,
+  "changed": [],
+  "cache_hits": 24,
+  "cache_misses": []
+ },
+ "almendra": {
+  "job": "9a376f75-fad3-4c48-a76d-d2de6e67760e",
+  "voice": "o0SveC0zgHFuCsEO3vHR",
+  "units_then": 27,
+  "units_now": 27,
+  "same_synthesis_texts": true,
+  "changed": [],
+  "cache_hits": 27,
+  "cache_misses": []
+ }
+}

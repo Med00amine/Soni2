@@ -163,6 +163,10 @@ class _Flattener:
         self._frame_count = 0
         # Note references in the block being read: {"label", "at", "before"}.
         self._refs: list[dict] = []
+        # Languages the book marks (xml:lang / lang) around the text being
+        # read, and words inside a span marked as another language.
+        self._langs: list[str] = []
+        self._foreign: list[str] = []
 
     def text(self, value: str | None) -> None:
         if value:
@@ -190,6 +194,17 @@ class _Flattener:
         if self._frames:
             self._frames.pop()
 
+    def enter_language(self, lang: str) -> None:
+        self._langs.append(lang)
+
+    def leave_language(self) -> None:
+        if self._langs:
+            self._langs.pop()
+
+    def foreign_words(self, text: str) -> None:
+        """Words inside a span the book marks as another language."""
+        self._foreign.extend(re.findall(r"[^\W\d_]+(?:['’\-][^\W\d_]+)*", text))
+
     def note_ref(self, label: str) -> None:
         """A note reference stood here: it is not read, but its place is kept.
 
@@ -212,6 +227,10 @@ class _Flattener:
         text = _spoken("".join(self._current))
         self._current = []
         refs, self._refs = self._refs, []
+        foreign, self._foreign = self._foreign, []
+        if self._langs and not self._langs[-1].casefold().startswith("es"):
+            # The whole block is in another language.
+            foreign = foreign + re.findall(r"[^\W\d_]+(?:['’\-][^\W\d_]+)*", text)
         if text:
             kind = self._open[-1] if self._open else "p"
             provenance: dict = {"element": kind}
@@ -226,6 +245,8 @@ class _Flattener:
             refs = [ref for ref in refs if ref["at"] <= len(text)]
             if refs:
                 provenance["note_refs"] = refs
+            if foreign:
+                provenance["foreign_terms"] = sorted(set(foreign), key=foreign.index)
             if self._frames:
                 # Text set apart in a box or on a shaded background. A heading
                 # inside it is the box's own title, read with it, not a chapter.
@@ -343,6 +364,11 @@ def _walk_xml(element: ET.Element, flat: _Flattener) -> None:
         return
     block = name in _XML_BLOCKS
     depth = int(name[5]) if re.fullmatch(r"level[1-6]", name) else None
+    lang = element.get("{http://www.w3.org/XML/1998/namespace}lang") or element.get("lang")
+    if lang:
+        flat.enter_language(lang)
+        if not block and not lang.casefold().startswith("es"):
+            flat.foreign_words("".join(element.itertext()))
     # A DTBook sidebar is text set apart, "often boxed"; a class can say so too.
     frame = _frame_from_classes(element.get("class", "")) or ("boxed" if name == "sidebar" else None)
     if frame and depth is None:
@@ -362,6 +388,8 @@ def _walk_xml(element: ET.Element, flat: _Flattener) -> None:
         flat.close()
     if frame and depth is None:
         flat.close_frame()
+    if lang:
+        flat.leave_language()
     flat.text(element.tail)
 
 
@@ -585,6 +613,11 @@ def _walk_html(node: Tag, flat: _Flattener, title_heading: list) -> None:
                 flat.report.drop("image_alt", alt, "Texto alternativo de una imagen; no se narra.", flat.location)
             continue
         block = name in _HTML_BLOCKS
+        lang = child.get("lang") or child.get("xml:lang")
+        if lang:
+            flat.enter_language(lang)
+            if not block and not lang.casefold().startswith("es"):
+                flat.foreign_words(child.get_text(""))
         frame = None
         if name not in _HTML_HEADINGS and name not in {"html", "body", "main"}:
             frame = (("boxed" if name == "aside" or "sidebar" in semantics else None)
@@ -605,6 +638,8 @@ def _walk_html(node: Tag, flat: _Flattener, title_heading: list) -> None:
             flat.close()
         if frame:
             flat.close_frame()
+        if lang:
+            flat.leave_language()
 
 
 def _flatten_inline(node: Tag) -> str:

@@ -39,6 +39,7 @@ from app.book_structure import extract_book_structure
 from app.daisy_validation import validate_daisy_package
 from app.sentences import apply_pronunciation_lexicon, build_spoken_text, build_synthesis_text, segment_paragraphs
 from app import book_edits
+from app import foreign_spelling
 from app import toc as toc_module
 from app import jobs as job_store
 from app import (audio_integrity, audio_master, completeness, daisy_dtd, daisy_timing, ocr, once_structure,
@@ -128,6 +129,17 @@ class Settings(BaseSettings):
     # only when set, so the declaration is exactly ONCE's by default.
     daisy_dtbook_stylesheet: str = "dtbookbasic.css"
     daisy_stylesheet_media: str = ""
+    # ONCE: foreign words in headings, and foreign surnames in bibliographies
+    # and notes, are spelled out in the narration (never in the text).
+    # "once": in books produced with the ONCE structure; "always"; "off".
+    # The same setting turns on the other heading/bibliography/note reading
+    # rules (a Roman numeral opening a heading, citation abbreviations).
+    speech_contexts: str = "once"
+    # {word}: the word as written; {letters}: the names of its letters.
+    spelling_format: str = "{word} ({letters})"
+    # Comma-separated words always spelled, and never spelled, in those places.
+    spell_always: str = ""
+    spell_never: str = ""
     # Books being edited before production (step 2) are kept on the server so
     # an edit survives a reload; untouched ones are removed after this many days.
     draft_retention_days: int = 30
@@ -266,6 +278,43 @@ def package_options() -> dict:
         raise ValueError(f"DAISY_DTBOOK_STYLESHEET solo admite «{DTBOOK_STYLESHEET}» (o vacío).")
     return {"package_layout_name": package_layout(settings.daisy_package_layout),
             "stylesheet": stylesheet or None, "stylesheet_media": (settings.daisy_stylesheet_media or "").strip()}
+
+
+def spelling_rules() -> foreign_spelling.SpellingRules:
+    """How foreign words are spelled where ONCE asks for it (see app.foreign_spelling)."""
+    template = settings.spelling_format or "{word} ({letters})"
+    if "{letters}" not in template:
+        raise ValueError("SPELLING_FORMAT debe incluir {letters}.")
+
+    def words(value: str) -> frozenset[str]:
+        return frozenset(item.strip().casefold() for item in (value or "").split(",") if item.strip())
+
+    return foreign_spelling.SpellingRules(enabled=settings.speech_contexts != "off", template=template,
+                                          always=words(settings.spell_always), never=words(settings.spell_never))
+
+
+_BIBLIOGRAPHY_TITLE = re.compile(r"^(?:bibliograf[ií]a(?:\s+\w+)?|referencias(?:\s+bibliogr[aá]ficas)?|obras\s+citadas"
+                                 r"|fuentes(?:\s+citadas)?|bibliography|references|works\s+cited)\s*[.:]?$", re.I)
+
+
+def speech_context(role: str | None, heading: bool, chapter_title: str, once: bool) -> str:
+    """Where a unit's text is, for the reading rules that depend on it.
+
+    Only books produced with the ONCE structure use them unless
+    SPEECH_CONTEXTS=always; with "off", or without the structure, every unit
+    is ordinary text and is narrated exactly as before.
+    """
+    mode = settings.speech_contexts
+    if mode == "off" or (mode == "once" and not once):
+        return "text"
+    # The index lists the headings: they are read the way the headings are.
+    if heading or role in {"heading", "index_entry"}:
+        return "heading"
+    if role == "note":
+        return "note"
+    if role in {None, "text"} and _BIBLIOGRAPHY_TITLE.match((chapter_title or "").strip()):
+        return "bibliography"
+    return "text"
 
 
 def timing_targets() -> dict:
@@ -2176,6 +2225,9 @@ def _source_provenance(structure) -> dict[str, list[dict]]:
             index.setdefault(paragraph, []).append({
                 "source_chapter": chapter_number, "source_paragraph": paragraph_number,
                 **chapter.source_of(paragraph_number)})
+        if chapter.title and chapter.title not in index and chapter.title_source:
+            # A chapter title: where it was found, and the words it marks as another language.
+            index[chapter.title] = [{"source_chapter": chapter_number, **chapter.title_source}]
     return index
 
 
@@ -2215,14 +2267,25 @@ def build_units(chapters, source_hash: str, lexicon: dict[str, str], structure=N
     provenance_index = _source_provenance(structure)
     doubtful = _doubtful_words(structure)
     sentences: list[dict] = []
+    spelling = spelling_rules()
+    once = bool(records)
+    # The index lists the headings and reads them the same way, including the
+    # words a heading marks as another language.
+    heading_terms = sorted({term for chapter in chapters
+                            for term in ((provenance_index.get(chapter[0]) or [{}])[0] or {}).get("foreign_terms") or []})
 
     def finish(sentence: dict, chapter_title: str, heading: bool, provenance: dict) -> None:
-        spoken = build_spoken_text(sentence["text"])
+        context = speech_context(provenance.get("role"), heading, chapter_title, once)
+        foreign_terms = provenance.get("foreign_terms") or (heading_terms if provenance.get("role") == "index_entry"
+                                                            else [])
+        spoken = build_spoken_text(sentence["text"], context, foreign_terms=foreign_terms, spelling=spelling)
         sentence["chapter_title"] = chapter_title
         sentence["is_heading"] = heading
         sentence["spoken_text"] = spoken.spoken
         sentence["normalization"] = spoken.as_dict()
         sentence["synthesis_text"] = apply_pronunciation_lexicon(spoken.spoken, lexicon)
+        if context != "text":
+            provenance = {**provenance, "speech_context": context}
         flags = [{"start": match.start(), "end": match.end(), "code": "extraction_doubt", "text": word}
                  for word in doubtful
                  for match in re.finditer(rf"(?<!\w){re.escape(word)}(?!\w)", sentence["text"])]
@@ -2242,10 +2305,13 @@ def build_units(chapters, source_hash: str, lexicon: dict[str, str], structure=N
         # does not say it, so it is not narrated.
         if not is_generated(chapter):
             heading_sentences = segment_paragraphs([chapter_title], f"{source_hash}:heading", chapter_index)
+        title_found = provenance_index.get(chapter_title) or [{}]
+        title_terms = (title_found[0] or {}).get("foreign_terms")
         for sentence in heading_sentences:
             extra = {"role": "heading", "page_breaks": list(record.get("title_pages") or []), **section} \
                 if record else {}
-            finish(sentence, chapter_title, True, {"chapter": chapter_index, "element": "heading", **extra})
+            finish(sentence, chapter_title, True, {"chapter": chapter_index, "element": "heading", **extra,
+                                                   **({"foreign_terms": title_terms} if title_terms else {})})
         # One unit per paragraph, split exactly as the direct download and the
         # preview split it, so all three share the same cached audio.
         parts: list[tuple[str, dict]] = []
@@ -3832,7 +3898,10 @@ async def _build_direct_package(
     job_store.initialize_store(database_path)
     lexicon = job_store.get_lexicon(database_path)
     progress.total = len(paragraphs)
-    texts = [build_synthesis_text(paragraph, lexicon) for paragraph in paragraphs]
+    contexts, terms = direct_reading(structure, once, chapter_paragraphs, layout, paragraphs)
+    spelling = spelling_rules()
+    texts = [build_synthesis_text(paragraph, lexicon, context, foreign_terms=foreign, spelling=spelling)
+             for paragraph, context, foreign in zip(paragraphs, contexts, terms)]
 
     async def narrate(index: int) -> bytes:
         context = narration_context(texts[index - 1] if index else "",
@@ -3909,6 +3978,56 @@ async def _build_direct_package(
     archive_path = work_dir / "soni2-daisy.zip"
     await asyncio.to_thread(_zip_package, package_dir, archive_path)
     return archive_path, book_download_name(metadata["title"], filename)
+
+
+def direct_reading(structure, once, chapter_paragraphs: list[tuple[str, list[str]]], layout: list[dict] | None,
+                   paragraphs: list[str]) -> tuple[list[str], list[list[str]]]:
+    """For each paragraph of a direct download: its reading context and the words marked as foreign.
+
+    The same decisions build_units makes for a reviewed run, so the two paths
+    narrate the same texts and share every cached recording.
+    """
+    index_entries = [paragraph.text for section in (once.sections if once is not None else [])
+                     for paragraph in section.paragraphs if paragraph.role == "index_entry"]
+    return (direct_contexts(chapter_paragraphs, layout, once is not None),
+            _paragraph_foreign_terms(structure, paragraphs, index_entries))
+
+
+def direct_contexts(chapter_paragraphs: list[tuple[str, list[str]]], layout: list[dict] | None,
+                    once: bool) -> list[str]:
+    """The reading context of each paragraph of a direct download, as build_units decides it."""
+    contexts: list[str] = []
+    for index, (title, body) in enumerate(chapter_paragraphs):
+        units = (layout[index].get("units") or []) if layout is not None else []
+        for position, text in enumerate(body):
+            role = units[position].get("role") if position < len(units) else None
+            heading = (role == "heading") if layout is not None else (position == 0 and text.strip() == title.strip())
+            contexts.append(speech_context(role, heading, title, once))
+    return contexts
+
+
+def _paragraph_foreign_terms(structure, paragraphs: list[str], index_entry_texts: list[str] | None = None
+                             ) -> list[list[str]]:
+    """The words the book marks as another language, for each paragraph (by its text).
+
+    An index entry reads its heading's marked words, as in build_units.
+    """
+    index = _source_provenance(structure)
+    heading_terms = sorted({term for chapter in structure.chapters
+                            for term in (chapter.title_source or {}).get("foreign_terms") or []})
+    index_entries = set(index_entry_texts or [])
+    result = []
+    for paragraph in paragraphs:
+        found = [source for source in index.get(paragraph) or [] if source.get("foreign_terms")]
+        if not found and paragraph in index_entries:
+            result.append(heading_terms)
+            continue
+        if not found:
+            # A part of a long paragraph: the terms of the paragraph it is in.
+            found = [source for text, sources in index.items() if paragraph in text for source in sources
+                     if source.get("foreign_terms")][:1]
+        result.append(list(found[0]["foreign_terms"]) if found else [])
+    return result
 
 
 def _zip_package(package_dir: Path, archive_path: Path) -> None:

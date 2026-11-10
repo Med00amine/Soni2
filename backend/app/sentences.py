@@ -106,16 +106,19 @@ def _period_ends_sentence(text: str, position: int) -> bool:
     return True
 
 
-def build_spoken_text(text: str) -> SpokenText:
+def build_spoken_text(text: str, context: str = "text", *, foreign_terms=(), spelling=None) -> SpokenText:
     """What a Peninsular narrator says for ``text``, with every change recorded.
 
     This is also what speech review compares the recognizer against: the
-    expected spoken form, not the written one.
+    expected spoken form, not the written one. ``context`` ("heading",
+    "bibliography", "note") enables the rules that only apply there, such as
+    spelling foreign words (see app.spanish_text_normalizer).
     """
-    return normalize_for_speech(text)
+    return normalize_for_speech(text, context, foreign_terms=foreign_terms, spelling=spelling)
 
 
-def build_synthesis_text(text: str, lexicon: Mapping[str, str]) -> str:
+def build_synthesis_text(text: str, lexicon: Mapping[str, str], context: str = "text", *, foreign_terms=(),
+                         spelling=None) -> str:
     """Prepare the narration copy of a sentence; the source text is unchanged.
 
     The text is first normalized into its spoken Spanish form (dates, times,
@@ -124,7 +127,8 @@ def build_synthesis_text(text: str, lexicon: Mapping[str, str]) -> str:
     Lexicon respellings are phonetic hints for the voice, which is why speech
     review compares against the spoken form *before* them.
     """
-    return apply_pronunciation_lexicon(normalize_for_speech(text).spoken, lexicon)
+    return apply_pronunciation_lexicon(
+        normalize_for_speech(text, context, foreign_terms=foreign_terms, spelling=spelling).spoken, lexicon)
 
 
 def apply_pronunciation_lexicon(text: str, lexicon: Mapping[str, str]) -> str:
