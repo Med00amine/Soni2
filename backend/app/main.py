@@ -32,7 +32,8 @@ from pydantic import BaseModel, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.background import BackgroundTask
 
-from app.daisy_export import (add_to_archive, build_daisy_package, join_mp3 as daisy_join_mp3,
+from app.daisy_export import (DTBOOK_STYLESHEET, PackagePaths, add_to_archive, build_daisy_package,
+                              join_mp3 as daisy_join_mp3, package_layout,
                               make_paragraphs, package_basename)
 from app.book_structure import extract_book_structure
 from app.daisy_validation import validate_daisy_package
@@ -115,6 +116,17 @@ class Settings(BaseSettings):
     # players only have to support constant bitrate, and a variable-bitrate
     # file without a length header has no duration a validator can trust.
     audio_mp3_bitrate_kbps: int = 128
+    # DAISY package layout: "nested" (audio/ and smil/ folders, as delivered
+    # until now) or "flat" (every file beside the OPF, which older DAISY
+    # players handle best). Both pass the same checks; switch to flat once ONCE
+    # has confirmed it on its players.
+    daisy_package_layout: str = "nested"
+    # The style sheet the DTBook declares and the package carries, as ONCE's
+    # books do: <?xml-stylesheet href="dtbookbasic.css" type="text/css"?>.
+    # Empty: no style sheet. The media attribute (Z39.86-2005 §12.2) is added
+    # only when set, so the declaration is exactly ONCE's by default.
+    daisy_dtbook_stylesheet: str = "dtbookbasic.css"
+    daisy_stylesheet_media: str = ""
     # Books being edited before production (step 2) are kept on the server so
     # an edit survives a reload; untouched ones are removed after this many days.
     draft_retention_days: int = 30
@@ -244,6 +256,15 @@ def mastering_options() -> audio_master.MasteringOptions:
         trailing_silence_ms=settings.audio_trailing_silence_ms,
         bitrate_kbps=settings.audio_mp3_bitrate_kbps,
     )
+
+
+def package_options() -> dict:
+    """How the DAISY package is laid out (see daisy_export.build_daisy_package)."""
+    stylesheet = (settings.daisy_dtbook_stylesheet or "").strip()
+    if stylesheet and stylesheet != DTBOOK_STYLESHEET:
+        raise ValueError(f"DAISY_DTBOOK_STYLESHEET solo admite «{DTBOOK_STYLESHEET}» (o vacío).")
+    return {"package_layout_name": package_layout(settings.daisy_package_layout),
+            "stylesheet": stylesheet or None, "stylesheet_media": (settings.daisy_stylesheet_media or "").strip()}
 
 
 def timing_targets() -> dict:
@@ -1689,6 +1710,7 @@ async def _assemble_job_delivery(job_id: str) -> None:
         chapter_audio=chapter_audio, chapter_clips=chapter_clips, use_ffmpeg=use_ffmpeg,
         clips_out=clips, chapter_starts_out=chapter_starts, mastering=mastering,
         layout=layout, identifiers=[("ABSYS", absys)] if absys else None,
+        **package_options(),
     ))
     try:
         validate_daisy_package(package)
@@ -1753,11 +1775,13 @@ async def _assemble_job_delivery(job_id: str) -> None:
     # offline straight from the archive.
     # Each sentence plays its own stretch of the chapter MP3 (a media fragment).
     audio_hrefs = {}
+    package_paths = PackagePaths(package_options()["package_layout_name"])
     for sentence_id, index in sentence_segment_index.items():
         chapter_path, begin, end = clips[index - 1]
-        audio_hrefs[sentence_id] = f"DAISY 3/audio/{chapter_path}#t={begin:.3f},{end:.3f}"
+        audio_hrefs[sentence_id] = f"DAISY 3/{package_paths.audio_href(chapter_path)}#t={begin:.3f},{end:.3f}"
     locations = _fault_locations(job, clips, chapter_starts, sentence_segment_index, unit_pauses,
-                                 package_basename(metadata["title"] or Path(job["source_name"]).stem) + ".mp3")
+                                 package_basename(metadata["title"] or Path(job["source_name"]).stem) + ".mp3",
+                                 package_paths=package_paths)
     write_atomic_text(job_dir / "fault-locations.json", json.dumps(locations, ensure_ascii=False, indent=2))
     log.info("assemble.locations", "differences located in the finished audio", located=len(locations))
     _write_job_reports(job_id, final_state="completed", validation=validation, audio_hrefs=audio_hrefs)
@@ -1809,7 +1833,7 @@ def clock_label(seconds: float) -> str:
 
 def _fault_locations(job: dict, clips: list[tuple[str, float, float]], chapter_starts: list[float],
                      segment_index: dict[str, int], unit_pauses: dict[str, list[tuple[float, float]]],
-                     book_file: str) -> list[dict]:
+                     book_file: str, package_paths: PackagePaths | None = None) -> list[dict]:
     """Every located difference, as a time in its chapter file and in the whole book.
 
     The recognizer timed each difference inside the paragraph's own audio.
@@ -1851,7 +1875,8 @@ def _fault_locations(job: dict, clips: list[tuple[str, float, float]], chapter_s
                 "reason": issue.get("reason", ""), "category": issue.get("category", ""),
                 "paragraph_state": unit["state"], "decision": (unit.get("diagnosis") or {}).get("action", ""),
                 "paragraph_time": round(float(issue["audio_start"]), 2),
-                "chapter_file": f"audio/{chapter_path}", "chapter_time": round(in_chapter, 2),
+                "chapter_file": (package_paths or PackagePaths()).audio_href(chapter_path),
+                "chapter_time": round(in_chapter, 2),
                 "chapter_clock": clock_label(in_chapter),
                 "book_file": book_file, "book_time": round(in_book, 2) if in_book is not None else None,
                 "book_clock": clock_label(in_book) if in_book is not None else None,
@@ -3844,6 +3869,7 @@ async def _build_direct_package(
         # The pauses inside each passage follow what the voice read.
         segment_texts=texts, segment_continues=continues if len(continues) == len(texts) else None,
         on_chapter=chapter_started,
+        **package_options(),
     ))
     progress.stage = "packaging"
     progress.chapters_done = progress.chapters_total

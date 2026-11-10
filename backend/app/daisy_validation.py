@@ -26,22 +26,27 @@ def validate_daisy_package(package: Path) -> None:
     for path in package.rglob("*.mp3"):
         if path.stat().st_size == 0:
             raise ValueError(f"El archivo de audio está vacío: {path.relative_to(package)}")
-    # Every chapter's final audio sits directly in audio/, one file per chapter:
-    # no folder per chapter, and nothing the manifest does not list.
-    audio_dir = package / "audio"
-    folders = sorted(path.relative_to(package).as_posix() for path in audio_dir.rglob("*") if path.is_dir())
+    # One final audio file per chapter, never in a folder of its own: directly
+    # in audio/ (nested layout) or beside the OPF (flat layout). Older DAISY
+    # players handle shallow paths best, so nothing is nested deeper.
+    folders = sorted(path.relative_to(package).as_posix() for path in package.rglob("*")
+                     if path.is_dir() and len(path.relative_to(package).parts) > 1)
     if folders:
-        raise ValueError(f"El audio de los capítulos debe estar directamente en audio/: {', '.join(folders[:3])}")
+        raise ValueError(f"El paquete no debe tener carpetas dentro de carpetas: {', '.join(folders[:3])}")
     chapter_hrefs = [item.get("href", "") for item in opf.findall(f"{OPF}manifest/{OPF}item")
                      if item.get("id", "").startswith("chapter-audio-")]
     for href in chapter_hrefs:
-        if PurePosixPath(href).parent != PurePosixPath("audio") or not (package / href).is_file():
+        if PurePosixPath(href).parent not in {PurePosixPath("audio"), PurePosixPath(".")} \
+                or not (package / href).is_file():
             raise ValueError(f"Falta el audio final del capítulo: {href}")
 
     dtbook_name = names["dtbook"]
     dtbook = ET.parse(package / dtbook_name).getroot()
     smil_ids: dict[str, set[str]] = {}
-    for path in (package / "smil").glob("*.smil"):
+    # The SMIL files are the ones the manifest lists, wherever the layout puts them.
+    smil_paths = [package / item.get("href", "") for item in opf.findall(f"{OPF}manifest/{OPF}item")
+                  if item.get("media-type") == "application/smil"]
+    for path in smil_paths:
         root = ET.parse(path).getroot()
         smil_ids[path.relative_to(package).as_posix()] = {
             element.get("id", "") for element in root.iter() if element.get("id")

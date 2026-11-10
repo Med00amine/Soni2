@@ -406,9 +406,12 @@ def test_the_checks_catch_a_package_that_is_not_what_the_planilla_says(tmp_path)
     _rewrite(tampered_book, "Capítulo 2. La tormenta. Página 5.", "Capítulo 2. La tormenta. Página 9.")
     _rewrite(tampered_book, 'class="once-closing"', 'class="once-text"')
     smil = tampered / "smil" / "chapter-0004.smil"
-    _rewrite(smil, 'customTest="pagenum"><text src="../El_faro_de_la_isla_Almendra.xml#page-0004" />',
-             'customTest="pagenum"><text src="../El_faro_de_la_isla_Almendra.xml#page-0004" />'
-             '<audio src="../audio/chapter-004.mp3" clipBegin="0:00:00.000" clipEnd="0:00:00.500" />')
+    # A page marker given audio: it would be read aloud instead of being silent.
+    marker = re.compile(r'(customTest="pagenum">\s*<text src="\.\./El_faro_de_la_isla_Almendra\.xml#page-0004" />)')
+    source = smil.read_text(encoding="utf-8")
+    assert marker.search(source)
+    smil.write_text(marker.sub(r'\1<audio src="../audio/chapter-004.mp3" clipBegin="0:00:00.000" '
+                               r'clipEnd="0:00:00.500" />', source, count=1), encoding="utf-8")
     statuses = {check["id"]: check for check in once_validation.verify(tampered, _records(built),
                                                                          built.resolved.as_dict())}
     assert statuses["once_initial_files"]["status"] == "failed"

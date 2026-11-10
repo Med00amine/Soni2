@@ -10,6 +10,7 @@ import uuid
 import zipfile
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from app import audio_master
@@ -47,7 +48,68 @@ def add_to_archive(archive: zipfile.ZipFile, source: Path, name: str) -> None:
     archive.write(source, name, compress_type=archive_compression(name))
 
 
-def _write_xml(path: Path, root: ET.Element, doctype: str | None = None, default_namespace: str | None = None) -> None:
+# The DTBook's style sheet: what ONCE's own books declare (ONCE requirement H).
+# Z39.86-2005 §12.2 says the declaration names a medium; the media attribute is
+# a setting, off by default so the line is exactly the one ONCE asked for.
+DTBOOK_STYLESHEET = "dtbookbasic.css"
+STYLESHEET_SOURCE = Path(__file__).with_name("package_files") / DTBOOK_STYLESHEET
+LAYOUTS = ("nested", "flat")
+
+
+@dataclass(frozen=True)
+class PackagePaths:
+    """Where each kind of file sits in the package, and how files refer to each other.
+
+    ``nested`` (the layout delivered until now) keeps the SMIL files in
+    ``smil/`` and the audio in ``audio/``; ``flat`` puts every file beside the
+    OPF, no folder at all, which is what older DAISY players handle best.
+    References are always relative to the file that makes them.
+    """
+
+    layout: str = "nested"
+
+    @property
+    def flat(self) -> bool:
+        return self.layout == "flat"
+
+    def audio_href(self, name: str) -> str:
+        """From the package root (OPF, NCX, DTBook)."""
+        return name if self.flat else f"audio/{name}"
+
+    def smil_href(self, name: str) -> str:
+        return name if self.flat else f"smil/{name}"
+
+    def audio_from_smil(self, name: str) -> str:
+        return name if self.flat else f"../audio/{name}"
+
+    def root_from_smil(self, name: str) -> str:
+        return name if self.flat else f"../{name}"
+
+    def audio_file(self, root: Path, name: str) -> Path:
+        return root / self.audio_href(name)
+
+    def smil_file(self, root: Path, name: str) -> Path:
+        return root / self.smil_href(name)
+
+
+def package_layout(value: str | None) -> str:
+    layout = (value or "nested").strip().lower()
+    if layout not in LAYOUTS:
+        raise ValueError(f"Unknown DAISY package layout «{value}»: use nested or flat.")
+    return layout
+
+
+def _write_xml(path: Path, root: ET.Element, doctype: str | None = None, default_namespace: str | None = None,
+               *, stylesheet: str | None = None, stylesheet_media: str = "") -> None:
+    """Write one package document: declaration, DOCTYPE, indented body.
+
+    Every XML file of the package goes through here, so all of them are
+    indented the same way (two spaces per level). Indentation only adds
+    whitespace between elements, never inside the text of a heading or a
+    paragraph; the DTD validation and the completeness checks run on the
+    indented files. ``stylesheet`` adds one ``xml-stylesheet`` processing
+    instruction after the DOCTYPE.
+    """
     # The default namespace is given per document. ElementTree's global
     # register_namespace("") is overwritten by every SMIL file written in the
     # loop, which made the DTBook come out as <ns0:dtbook><ns0:p>…: legal XML,
@@ -61,6 +123,7 @@ def _write_xml(path: Path, root: ET.Element, doctype: str | None = None, default
             if isinstance(element.tag, str) and element.tag.startswith(prefix):
                 element.tag = element.tag[len(prefix):]
         root.set("xmlns", default_namespace)
+    ET.indent(root, space="  ")
     body = ET.tostring(root, encoding="unicode", short_empty_elements=True)
     if default_namespace == OPF_NS:
         # <dc-metadata> declares the dc namespace itself, as the OEB 1.2 DTD
@@ -70,6 +133,9 @@ def _write_xml(path: Path, root: ET.Element, doctype: str | None = None, default
     prefix = '<?xml version="1.0" encoding="UTF-8"?>\n'
     if doctype:
         prefix += f"{doctype}\n"
+    if stylesheet:
+        media = f' media="{stylesheet_media}"' if stylesheet_media else ""
+        prefix += f'<?xml-stylesheet href="{stylesheet}" type="text/css"{media}?>\n'
     path.write_text(prefix + body + "\n", encoding="utf-8")
 
 
@@ -412,6 +478,9 @@ def build_daisy_package(
     segment_texts: list[str] | None = None,
     segment_continues: list[bool] | None = None,
     on_chapter: Callable[[int, int], None] | None = None,
+    package_layout_name: str = "nested",
+    stylesheet: str | None = DTBOOK_STYLESHEET,
+    stylesheet_media: str = "",
 ) -> Path:
     """Write a DAISY 3 package whose files carry the book's own name.
 
@@ -434,6 +503,11 @@ def build_daisy_package(
     notes skippable ``note`` structures. Without it the package is written
     exactly as before. ``identifiers`` adds ``(scheme, value)`` identifiers
     such as the ABSYS number to the package metadata.
+
+    ``package_layout_name`` is ``nested`` (``audio/`` and ``smil/``) or
+    ``flat`` (every file beside the OPF). ``stylesheet`` is the CSS the DTBook
+    declares and the package carries (``None``: none); ``stylesheet_media``
+    adds the media attribute to its declaration.
     """
     chapters = chapters or [(title, paragraphs)]
     paragraphs = [paragraph for _, body in chapters for paragraph in body]
@@ -449,12 +523,17 @@ def build_daisy_package(
 
     if output_dir.exists() and any(output_dir.iterdir()):
         raise ValueError("DAISY output directory must be empty before package generation.")
-    (output_dir / "audio").mkdir(parents=True, exist_ok=True)
-    (output_dir / "smil").mkdir(parents=True, exist_ok=True)
+    paths = PackagePaths(package_layout(package_layout_name))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if not paths.flat:
+        (output_dir / "audio").mkdir(exist_ok=True)
+        (output_dir / "smil").mkdir(exist_ok=True)
     book_id = f"soni2-{uuid.uuid4()}"
     base = package_basename(title)
     dtbook_name, ncx_name, opf_name, res_name = (f"{base}.{ext}" for ext in ("xml", "ncx", "opf", "res"))
     full_audio_name = f"{base}.mp3"
+    if re.fullmatch(r"chapter-\d{3}", base):
+        full_audio_name = f"{base}-completo.mp3"
     front_matter = front_matter or []
     front_names: list[str] = []
     for _label, _text, _audio, filename in front_matter:
@@ -525,7 +604,7 @@ def build_daisy_package(
                 # Never silently: the timing check also reports the missing edges.
                 logger.warning("daisy.finish: %s was not finished: %s", relative_path, finished.detail)
         chapter_audio_contents.append(audio_content)
-        (output_dir / "audio" / relative_path).write_bytes(audio_content)
+        paths.audio_file(output_dir, relative_path).write_bytes(audio_content)
         segment_clips.extend((relative_path, begin, end) for begin, end in clips)
         boundaries = smil_boundaries(clips, mp3_duration(audio_content))
         smil_clips.extend((relative_path, begin, end) for begin, end in boundaries)
@@ -537,7 +616,7 @@ def build_daisy_package(
             finished = audio_master.finish_file(audio, delivery)
             audio = finished.audio if finished.finished else audio
         front_audio.append(audio)
-        (output_dir / "audio" / filename).write_bytes(audio)
+        paths.audio_file(output_dir, filename).write_bytes(audio)
     ordered_audio = front_audio + chapter_audio_contents
     book_clips: list[tuple[float, float]] = []
     if finishing:
@@ -605,7 +684,7 @@ def build_daisy_package(
         elapsed = _write_structured_text(
             frontmatter, bodymatter, chapters, layout, smil_clips, chapter_ms, output_dir,
             dtbook_name, book_id, smil_names, chapter_targets, page_targets, note_targets, mark,
-            custom_tests_used,
+            custom_tests_used, paths,
         )
     for index, ((label, text, _raw, filename), _audio) in enumerate(zip(front_matter, front_audio), start=1):
         front_id = f"frontmatter-{index}"
@@ -616,7 +695,7 @@ def build_daisy_package(
         paragraph_id = f"{front_id}-text"
         par_id = f"{front_id}-par"
         ET.SubElement(level, _q(DTBOOK_NS, "p"),
-                      {"id": paragraph_id, "smilref": f"smil/{smil_name}#{par_id}"}).text = text
+                      {"id": paragraph_id, "smilref": f"{paths.smil_href(smil_name)}#{par_id}"}).text = text
         smil = ET.Element(_q(SMIL_NS, "smil"), {_q(XML_NS, "lang"): "es-ES"})
         front_ms = int(mp3_duration(_audio) * 1000)
         _smil_head(smil, book_id, label, elapsed)
@@ -624,13 +703,13 @@ def build_daisy_package(
         sequence = ET.SubElement(ET.SubElement(smil, _q(SMIL_NS, "body")), _q(SMIL_NS, "seq"),
                                  {"id": f"seq-{front_id}", "dur": _clock_ms(front_ms)})
         par = ET.SubElement(sequence, _q(SMIL_NS, "par"), {"id": par_id})
-        ET.SubElement(par, _q(SMIL_NS, "text"), {"src": f"../{dtbook_name}#{paragraph_id}"})
+        ET.SubElement(par, _q(SMIL_NS, "text"), {"src": f"{paths.root_from_smil(dtbook_name)}#{paragraph_id}"})
         ET.SubElement(par, _q(SMIL_NS, "audio"), {
-            "src": f"../audio/{filename}", "clipBegin": _clock_ms(0), "clipEnd": _clock_ms(front_ms),
+            "src": paths.audio_from_smil(filename), "clipBegin": _clock_ms(0), "clipEnd": _clock_ms(front_ms),
         })
-        _write_xml(output_dir / "smil" / smil_name, smil,
+        _write_xml(paths.smil_file(output_dir, smil_name), smil,
                    SMIL_DOCTYPE, SMIL_NS)
-        chapter_targets.append((label, mark(f"smil/{smil_name}#{par_id}"), "frontmatter", 1))
+        chapter_targets.append((label, mark(f"{paths.smil_href(smil_name)}#{par_id}"), "frontmatter", 1))
     audio_index = 0
     for chapter_index, (chapter_title, chapter_paragraphs) in enumerate(chapters, start=1):
         if not chapter_paragraphs or layout is not None:
@@ -657,12 +736,12 @@ def build_daisy_package(
             audio_path, clip_begin, clip_end = smil_clips[audio_index]
             audio_index += 1
             par_id = f"par-heading-{chapter_index:04d}"
-            heading.set("smilref", f"smil/{smil_name}#{par_id}")
+            heading.set("smilref", f"{paths.smil_href(smil_name)}#{par_id}")
             first_par_id = par_id
             par = ET.SubElement(sequence, _q(SMIL_NS, "par"), {"id": par_id})
-            ET.SubElement(par, _q(SMIL_NS, "text"), {"src": f"../{dtbook_name}#{heading_id}"})
+            ET.SubElement(par, _q(SMIL_NS, "text"), {"src": f"{paths.root_from_smil(dtbook_name)}#{heading_id}"})
             ET.SubElement(par, _q(SMIL_NS, "audio"), {
-                "src": f"../audio/{audio_path}", "clipBegin": _clock_ms(clip_begin), "clipEnd": _clock_ms(clip_end),
+                "src": paths.audio_from_smil(audio_path), "clipBegin": _clock_ms(clip_begin), "clipEnd": _clock_ms(clip_end),
             })
             chapter_paragraphs = chapter_paragraphs[1:]
         for paragraph in chapter_paragraphs:
@@ -673,25 +752,28 @@ def build_daisy_package(
             if not first_par_id:
                 first_par_id = par_id
             ET.SubElement(level, _q(DTBOOK_NS, "p"),
-                          {"id": paragraph_id, "smilref": f"smil/{smil_name}#{par_id}"}).text = paragraph
+                          {"id": paragraph_id, "smilref": f"{paths.smil_href(smil_name)}#{par_id}"}).text = paragraph
             par = ET.SubElement(sequence, _q(SMIL_NS, "par"), {"id": par_id})
-            ET.SubElement(par, _q(SMIL_NS, "text"), {"src": f"../{dtbook_name}#{paragraph_id}"})
+            ET.SubElement(par, _q(SMIL_NS, "text"), {"src": f"{paths.root_from_smil(dtbook_name)}#{paragraph_id}"})
             ET.SubElement(par, _q(SMIL_NS, "audio"), {
-                "src": f"../audio/{audio_path}", "clipBegin": _clock_ms(clip_begin), "clipEnd": _clock_ms(clip_end),
+                "src": paths.audio_from_smil(audio_path), "clipBegin": _clock_ms(clip_begin), "clipEnd": _clock_ms(clip_end),
             })
-        chapter_targets.append((chapter_title, mark(f"smil/{smil_name}#{first_par_id}"), "chapter", 1))
+        chapter_targets.append((chapter_title, mark(f"{paths.smil_href(smil_name)}#{first_par_id}"), "chapter", 1))
         page_match = re.fullmatch(r"P[aá]gina\s+(\d+)", chapter_title.strip(), flags=re.IGNORECASE)
         if page_match:
-            page_targets.append((page_match.group(1), f"smil/{smil_name}#{first_par_id}"))
-        _write_xml(output_dir / "smil" / smil_name, smil,
+            page_targets.append((page_match.group(1), f"{paths.smil_href(smil_name)}#{first_par_id}"))
+        _write_xml(paths.smil_file(output_dir, smil_name), smil,
                    SMIL_DOCTYPE, SMIL_NS)
 
     _write_xml(
         output_dir / dtbook_name,
         dtbook,
         '<!DOCTYPE dtbook PUBLIC "-//NISO//DTD dtbook 2005-3//EN" "http://www.daisy.org/z3986/2005/dtbook-2005-3.dtd">',
-        DTBOOK_NS,
+        DTBOOK_NS, stylesheet=stylesheet, stylesheet_media=stylesheet_media,
     )
+    if stylesheet:
+        # The style sheet travels with the book, beside the DTBook that names it.
+        shutil.copyfile(STYLESHEET_SOURCE, output_dir / stylesheet)
     _write_ncx(output_dir / ncx_name, book_id, title, chapter_targets, page_targets, note_targets, reading_order,
                custom_tests_used, unique_page_ids=layout is not None)
 
@@ -758,12 +840,14 @@ def build_daisy_package(
         ("resource", res_name, "application/x-dtbresource+xml"),
         ("full-audiobook", full_audio_name, "audio/mpeg"),
     ]
-    items.extend((f"smil-{index:04d}", f"smil/{name}", "application/smil") for index, name in enumerate(smil_names, start=1))
+    if stylesheet:
+        items.append(("dtbook-css", stylesheet, "text/css"))
+    items.extend((f"smil-{index:04d}", paths.smil_href(name), "application/smil") for index, name in enumerate(smil_names, start=1))
     items.extend(
-        (f"chapter-audio-{index:04d}", f"audio/{path}", "audio/mpeg")
+        (f"chapter-audio-{index:04d}", paths.audio_href(path), "audio/mpeg")
         for index, path in enumerate(chapter_audio_paths, start=1)
     )
-    items.extend((f"front-audio-{index:04d}", f"audio/{name}", "audio/mpeg") for index, name in enumerate(front_names, start=1))
+    items.extend((f"front-audio-{index:04d}", paths.audio_href(name), "audio/mpeg") for index, name in enumerate(front_names, start=1))
     for item_id, href, media_type in items:
         ET.SubElement(manifest, _q(OPF_NS, "item"), {"id": item_id, "href": href, "media-type": media_type})
     # No toc="ncx": that attribute is OPF 2.0 (EPUB). OEB 1.2, which DAISY 3
@@ -789,6 +873,7 @@ def _write_structured_text(
     smil_clips: list[tuple[str, int, int]], chapter_ms: list[int], output_dir: Path,
     dtbook_name: str, book_id: str, smil_names: list[str], chapter_targets: list[tuple[str, str, str, int]],
     page_targets: list[tuple[str, str]], note_targets: list[tuple[str, str]], mark, custom_tests_used: set[str],
+    paths: PackagePaths,
 ) -> int:
     """The DTBook levels and SMIL files of a book with the ONCE structure.
 
@@ -843,12 +928,12 @@ def _write_structured_text(
                 page_count += 1
                 page_id, par_id = f"page-{page_count:04d}", f"par-page-{page_count:04d}"
                 ET.SubElement(level, _q(DTBOOK_NS, "pagenum"), {
-                    "id": page_id, "page": page_kind(page)[0], "smilref": f"smil/{smil_name}#{par_id}",
+                    "id": page_id, "page": page_kind(page)[0], "smilref": f"{paths.smil_href(smil_name)}#{par_id}",
                 }).text = page
                 par = ET.SubElement(sequence, _q(SMIL_NS, "par"),
                                     {"id": par_id, "class": "pagenum", "customTest": "pagenum"})
-                ET.SubElement(par, _q(SMIL_NS, "text"), {"src": f"../{dtbook_name}#{page_id}"})
-                page_targets.append((page, mark(f"smil/{smil_name}#{par_id}")))
+                ET.SubElement(par, _q(SMIL_NS, "text"), {"src": f"{paths.root_from_smil(dtbook_name)}#{page_id}"})
+                page_targets.append((page, mark(f"{paths.smil_href(smil_name)}#{par_id}")))
                 tests.add("pagenum")
             audio_path, clip_begin, clip_end = smil_clips[audio_index]
             audio_index += 1
@@ -865,7 +950,7 @@ def _write_structured_text(
                     note_sequence = ET.SubElement(sequence, _q(SMIL_NS, "seq"), {
                         "id": f"seq-note-{note_count}", "class": "note", "customTest": "note"})
                     note_targets.append((f"Nota {note_number or note_count}",
-                                         mark(f"smil/{smil_name}#seq-note-{note_count}")))
+                                         mark(f"{paths.smil_href(smil_name)}#seq-note-{note_count}")))
                     tests.add("note")
                 element = ET.SubElement(note_element, _q(DTBOOK_NS, "p"), {"id": f"p-{audio_index:04d}"})
                 par_id = f"par-{audio_index:04d}"
@@ -878,18 +963,18 @@ def _write_structured_text(
                 par_id = f"par-{audio_index:04d}"
                 container = sequence
             element.text = text
-            element.set("smilref", f"smil/{smil_name}#{par_id}")
+            element.set("smilref", f"{paths.smil_href(smil_name)}#{par_id}")
             par = ET.SubElement(container, _q(SMIL_NS, "par"), {"id": par_id})
-            ET.SubElement(par, _q(SMIL_NS, "text"), {"src": f"../{dtbook_name}#{element.get('id')}"})
+            ET.SubElement(par, _q(SMIL_NS, "text"), {"src": f"{paths.root_from_smil(dtbook_name)}#{element.get('id')}"})
             ET.SubElement(par, _q(SMIL_NS, "audio"), {
-                "src": f"../audio/{audio_path}", "clipBegin": _clock_ms(clip_begin), "clipEnd": _clock_ms(clip_end),
+                "src": paths.audio_from_smil(audio_path), "clipBegin": _clock_ms(clip_begin), "clipEnd": _clock_ms(clip_end),
             })
-            reference = mark(f"smil/{smil_name}#{par_id}")
+            reference = mark(f"{paths.smil_href(smil_name)}#{par_id}")
             target = target or reference
         _declare_custom_tests(head, tests)
         custom_tests_used.update(tests)
         chapter_targets.append((chapter_title, target, SECTION_CLASSES.get(kind, "chapter"), 2 if nested else 1))
-        _write_xml(output_dir / "smil" / smil_name, smil, SMIL_DOCTYPE, SMIL_NS)
+        _write_xml(paths.smil_file(output_dir, smil_name), smil, SMIL_DOCTYPE, SMIL_NS)
     # The DTBook DTD wants something after a level's heading. A section that is
     # only a heading (a part title followed at once by its first chapter) gets
     # an empty paragraph: it is not synchronized and nothing is read for it.

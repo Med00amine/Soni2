@@ -45,7 +45,7 @@ def test_multichapter_package_has_matching_text_audio_navigation_and_metadata(tm
     # The package files carry the book's own name instead of "book".
     assert sorted(path.name for path in package.iterdir() if path.is_file()) == [
         "Libro_de_prueba.mp3", "Libro_de_prueba.ncx", "Libro_de_prueba.opf", "Libro_de_prueba.res",
-        "Libro_de_prueba.xml",
+        "Libro_de_prueba.xml", "dtbookbasic.css",
     ]
     dtbook = ET.parse(package / "Libro_de_prueba.xml").getroot()
     searchable_text = " ".join(node.text or "" for node in dtbook.iter())

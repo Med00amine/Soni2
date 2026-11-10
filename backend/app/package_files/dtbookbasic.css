@@ -1,0 +1,49 @@
+/* Basic presentation of the DTBook text of a Soni2 DAISY 3 book.
+ *
+ * Declared by the DTBook as <?xml-stylesheet href="dtbookbasic.css" type="text/css"?>
+ * (the declaration ONCE's books carry). It only lays the text out for a person
+ * reading it on screen; it changes nothing in how the book is played, and a
+ * reader's own styles take precedence (Z39.86-2005 §12).
+ */
+
+dtbook { display: block; font-family: Verdana, Arial, sans-serif; line-height: 1.5; margin: 1em 2em; color: #111; background: #fff; }
+head, meta { display: none; }
+book, frontmatter, bodymatter, rearmatter { display: block; }
+doctitle { display: block; font-size: 2em; font-weight: bold; margin: 0.5em 0; }
+docauthor { display: block; font-size: 1.3em; font-style: italic; margin: 0 0 1em; }
+
+level1, level2, level3, level4, level5, level6, div { display: block; }
+level1 { margin-top: 2em; }
+level2 { margin-top: 1.5em; margin-left: 1em; }
+h1, h2, h3, h4, h5, h6, hd, bridgehead { display: block; font-weight: bold; margin: 1em 0 0.5em; }
+h1 { font-size: 1.8em; }
+h2 { font-size: 1.4em; }
+h3, h4, h5, h6, hd { font-size: 1.15em; }
+p { display: block; margin: 0.5em 0; }
+
+/* Page numbers of the original: silent markers, shown at the side. */
+pagenum { display: block; text-align: right; font-size: 0.8em; color: #555; border-top: 1px dotted #999; margin: 0.8em 0 0.3em; }
+pagenum::before { content: "Página "; }
+
+/* Notes, read "Nota N." … "Fin de nota N.". */
+note { display: block; font-size: 0.9em; margin: 0.8em 0 0.8em 2em; padding-left: 0.8em; border-left: 3px solid #888; }
+noteref { vertical-align: super; font-size: 0.75em; }
+
+/* Boxed and shaded text, announced when it begins and ends. */
+sidebar { display: block; margin: 1em 0; padding: 0.6em 1em; }
+sidebar.boxed { border: 2px solid #333; }
+sidebar.shaded { background: #e8e8e8; }
+prodnote { display: block; font-size: 0.9em; font-style: italic; color: #444; }
+
+/* Photographs and other images. */
+imggroup { display: block; margin: 1em 0; text-align: center; }
+img { max-width: 100%; }
+caption { display: block; font-size: 0.9em; font-style: italic; }
+
+list { display: block; margin: 0.5em 0 0.5em 1.5em; }
+li { display: list-item; }
+blockquote { display: block; margin: 0.8em 2em; }
+em { font-style: italic; }
+strong { font-weight: bold; }
+sub { vertical-align: sub; font-size: 0.8em; }
+sup { vertical-align: super; font-size: 0.8em; }
