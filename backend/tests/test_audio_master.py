@@ -11,7 +11,7 @@ import subprocess
 
 import pytest
 
-from app import audio_master
+from app import audio_integrity, audio_master
 
 pytestmark = pytest.mark.skipif(not audio_master.available(), reason="mastering needs ffmpeg")
 
@@ -132,18 +132,33 @@ def test_a_chapter_is_trimmed_paced_and_levelled_in_one_step(ragged) -> None:
     # Wider on tones than on speech, for the gating reason above.
     assert measured is not None and abs(measured - (-20.0)) < 3.0
     length = audio_master.duration_seconds(result.audio) or 0
-    assert abs(length - (3 * SPEECH_SECONDS + 2 * 0.4)) < 0.5
+    # Three passages, two paragraph pauses, and the silence at both edges.
+    lead, tail = options.edges
+    assert abs(length - (3 * SPEECH_SECONDS + 2 * 0.4 + lead + tail)) < 0.5
+    # Constant bitrate, so its length is the same however it is measured.
+    stream = audio_integrity.inspect_stream(result.audio)
+    assert stream["bitrates_kbps"] == [options.bitrate_kbps] and stream["sample_rates"] == [44100]
 
 
 def test_a_book_puts_a_longer_pause_between_chapters(ragged) -> None:
     options = audio_master.MasteringOptions(paragraph_gap_ms=300, chapter_gap_ms=1200)
-    chapters = [audio_master.master_chapter(ragged, options).audio for _ in range(2)]
-    book = audio_master.master_book(chapters, options)
+    chapters = [audio_master.master_chapter(ragged, options) for _ in range(2)]
+    book = audio_master.master_book([chapter.audio for chapter in chapters], options)
     assert book.mastered, book.detail
-    chapter_length = audio_master.duration_seconds(chapters[0]) or 0
+    chapter_length = audio_master.duration_seconds(chapters[0].audio) or 0
     book_length = audio_master.duration_seconds(book.audio) or 0
-    # Two chapters plus one pause between them.
-    assert abs(book_length - (2 * chapter_length + 1.2)) < 0.4
+    # The chapters are copied one after the other: each already ends with its
+    # closing silence and starts with its opening one, so between them the
+    # listener hears both (2.2 s), longer than the 1.2 s asked for.
+    assert book_length == pytest.approx(2 * chapter_length, abs=0.001)
+    pause = (chapter_length - chapters[0].clips[-1][1]) + chapters[1].clips[0][0]
+    assert pause >= 1.2
+
+    longer = audio_master.MasteringOptions(paragraph_gap_ms=300, chapter_gap_ms=3000)
+    spaced = audio_master.master_book([chapter.audio for chapter in chapters], longer)
+    # A pause longer than both edges together is made up with digital silence.
+    second_start = spaced.clips[1][0]
+    assert second_start - chapter_length == pytest.approx(3.0 - sum(longer.edges), abs=0.06)
 
 
 def test_mastering_can_be_turned_off_without_losing_the_audio(ragged) -> None:

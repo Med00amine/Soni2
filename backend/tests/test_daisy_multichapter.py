@@ -169,7 +169,13 @@ def test_each_paragraph_plays_its_own_stretch_of_the_chapter_audio(tmp_path):
     assert clips[2][1:] == pytest.approx((30 * frame, 60 * frame))
     opf = ET.parse(package / "El_faro.opf").getroot()
     total = opf.find(f".//{OPF}meta[@name='dtb:totalTime']").attrib["content"]
-    assert total == "0:00:02.612"
+    # The playing time of the SMIL files: 1.567 s + 1.044 s, each file's time
+    # rounded down to the millisecond so no clip ends after its audio.
+    assert total == "0:00:02.611"
+    second_smil = ET.parse(package / "smil/chapter-0002.smil").getroot()
+    elapsed = second_smil.find(f".//{SMIL}meta[@name='dtb:totalElapsedTime']").attrib["content"]
+    assert elapsed == "0:00:01.567"
+    assert smil.find(f".//{SMIL}body/{SMIL}seq").get("dur") == "0:00:01.567"
     validate_daisy_package(package)
 
 

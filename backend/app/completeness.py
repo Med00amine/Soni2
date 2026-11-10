@@ -244,14 +244,22 @@ def _seconds(clock: str) -> float | None:
 
 
 def verify(chapters: list[dict], units: list[dict], job_dir: Path, package: Path | None,
-           corrected_ids: set[str], once_plan: dict | None = None) -> dict:
-    """The whole chain; with ``once_plan`` (the resolved planilla) the ONCE structure too."""
+           corrected_ids: set[str], once_plan: dict | None = None, timing: dict | None = None) -> dict:
+    """The whole chain; with ``once_plan`` (the resolved planilla) the ONCE structure too.
+
+    ``timing`` (the arguments of ``daisy_timing.verify``: the silence wanted at
+    the edges, the bitrate, the chapter gap) adds the timing checks of the
+    package against its real audio; without it they run with no edge targets.
+    """
     checks = [source_to_units(chapters, units, corrected_ids), units_to_audio(units, job_dir)]
     if package is not None:
         try:
             checks.extend(units_to_package(units, package))
         except (ET.ParseError, StopIteration, KeyError, OSError) as exc:
             checks.append(_check("package_readable", "Paquete legible", "failed", f"No se pudo leer el paquete: {exc}"))
+        from app import daisy_timing
+
+        checks.extend(daisy_timing.verify(package, **(timing or {})))
         if once_plan is not None:
             from app import once_validation
 

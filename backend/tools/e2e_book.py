@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import daisy_dtd, main, once_validation, planilla, qa_metrics  # noqa: E402
+from app import daisy_dtd, daisy_timing, main, once_validation, planilla, qa_metrics  # noqa: E402
 from app import jobs as job_store  # noqa: E402
 from app.audio_cache import AudioCache  # noqa: E402
 from app.daisy_export import mp3_duration  # noqa: E402
@@ -144,8 +144,12 @@ def main_cli() -> None:
             plan = (job["metadata"].get("once") or {}).get("planilla") or {}
             revalidation["once"] = [{key: check[key] for key in ("id", "status", "detail")}
                                     for check in once_validation.verify(package, job["chapters"], plan)]
-        chapters = sorted((package / "audio").glob("chapter-*/chapter-*.mp3"))
+        # Chapter files sit directly in audio/ (or beside the OPF in a flat package).
+        chapters = sorted(package.rglob("chapter-*.mp3"))
         audio_seconds = round(sum(mp3_duration(path.read_bytes()) for path in chapters), 1)
+        timing = daisy_timing.verify(package, **main.timing_targets())
+        revalidation["timing"] = daisy_timing.summary(timing)
+        revalidation["timing_checks"] = timing
     billed = sum(int((attempt.get("provider") or {}).get("characters_billed") or 0) for attempt in attempts)
     generated = sum(1 for attempt in attempts if (attempt.get("provider") or {}).get("cache") == "miss")
     metrics = [unit.get("metrics") for unit in units if unit.get("metrics")]
@@ -183,6 +187,7 @@ def main_cli() -> None:
     summary["wer"] = report["asr_primary_aggregate"].get("wer")
     summary["dtd_from_zip"] = revalidation.get("dtd", {}).get("status")
     summary["structural_from_zip"] = revalidation.get("structural")
+    summary["timing_from_zip"] = (revalidation.get("timing") or {}).get("checks")
     if sheet is not None:
         structure = client.get(f"/api/jobs/{job_id}/structure").json()
         report["once_structure"] = [{"file": section["file_number"], "kind": section["kind"], "level": section["level"],

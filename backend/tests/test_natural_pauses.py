@@ -151,12 +151,22 @@ def _speech(tmp_path: Path, words: list[float], gaps: list[float], name: str = "
 
 
 def _silences(audio: bytes, tmp_path: Path) -> list[tuple[float, float]]:
+    """The pauses inside a mastered chapter: not the silence at its edges.
+
+    A finished file starts and ends with the silence ONCE asks for
+    (test_boundary_silence.py checks it); here only the pauses between words count.
+    """
     source = tmp_path / "measure.mp3"
     source.write_bytes(audio)
     result = subprocess.run([audio_master.ffmpeg_path(), "-hide_banner", "-nostats", "-i", str(source),
                              "-af", "silencedetect=noise=-40dB:d=0.1", "-f", "null", "-"],
                             capture_output=True, check=False)
-    return audio_master._silences_from_log(result.stderr.decode("utf-8", "replace"))
+    duration = audio_master.duration_seconds(audio) or 0.0
+    found = audio_master._silences_from_log(result.stderr.decode("utf-8", "replace"))
+    log = result.stderr.decode("utf-8", "replace")
+    if log.count("silence_start") > log.count("silence_end"):
+        found.append((float(log.rsplit("silence_start: ", 1)[1].split()[0]), duration))
+    return [(start, end) for start, end in found if start > 0.01 and end < duration - 0.05]
 
 
 @needs_ffmpeg
@@ -194,13 +204,16 @@ def test_clips_stay_measured_with_pauses_inside_and_between_passages(tmp_path) -
     chapter = audio_master.master_chapter([first, second], options, texts=["Hola mundo. Adiós ya.", "Sí, claro."])
     assert chapter.mastered, chapter.detail
     (begin_1, end_1), (begin_2, end_2) = chapter.clips
-    # Passage one: 1.6 s of speech, its 0.2 s pause made 0.7 s.
-    assert begin_1 == 0
-    assert end_1 == pytest.approx(1.6 + 0.7, abs=0.08)
+    lead, tail = options.edges
+    # Passage one starts after the file's opening silence: 1.6 s of speech,
+    # its 0.2 s pause made 0.7 s.
+    assert begin_1 == pytest.approx(lead, abs=0.05)
+    assert end_1 - begin_1 == pytest.approx(1.6 + 0.7, abs=0.08)
     # The paragraph gap is a second, then passage two: 1.2 s of speech, comma 0.3 s.
     assert begin_2 - end_1 == pytest.approx(1.0, abs=0.05)
     assert end_2 - begin_2 == pytest.approx(1.2 + 0.3, abs=0.08)
-    assert end_2 == pytest.approx(audio_master.duration_seconds(chapter.audio), abs=0.05)
+    # Then the file's closing silence.
+    assert audio_master.duration_seconds(chapter.audio) - end_2 == pytest.approx(tail, abs=0.08)
 
 
 @needs_ffmpeg

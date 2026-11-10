@@ -39,7 +39,8 @@ from app.daisy_validation import validate_daisy_package
 from app.sentences import apply_pronunciation_lexicon, build_spoken_text, build_synthesis_text, segment_paragraphs
 from app import book_edits
 from app import jobs as job_store
-from app import (audio_integrity, audio_master, completeness, daisy_dtd, ocr, once_structure, once_validation,
+from app import (audio_integrity, audio_master, completeness, daisy_dtd, daisy_timing, ocr, once_structure,
+                 once_validation,
                  planilla, pronunciation, providers, qa_metrics, qa_review, quality_report, release_gate, repair)
 from app.audio_cache import AudioCache, write_atomic, write_atomic_text
 from app.job_logging import JobLogger
@@ -105,6 +106,15 @@ class Settings(BaseSettings):
     audio_comma_pause_ms: int = 300
     audio_pause_detect_db: float = -40.0
     audio_pause_min_silence_ms: int = 100
+    # ONCE: digital silence at the start and at the end of every delivered
+    # audio file (chapters, initial files and the complete audiobook). Only
+    # what a file is missing is added, so producing again never doubles it.
+    audio_leading_silence_ms: int = 1000
+    audio_trailing_silence_ms: int = 1200
+    # Every delivered MP3 is encoded at this constant bitrate: Z39.86-2005
+    # players only have to support constant bitrate, and a variable-bitrate
+    # file without a length header has no duration a validator can trust.
+    audio_mp3_bitrate_kbps: int = 128
     # Books being edited before production (step 2) are kept on the server so
     # an edit survives a reload; untouched ones are removed after this many days.
     draft_retention_days: int = 30
@@ -230,7 +240,25 @@ def mastering_options() -> audio_master.MasteringOptions:
             detect_db=settings.audio_pause_detect_db,
             min_silence_ms=settings.audio_pause_min_silence_ms,
         ),
+        leading_silence_ms=settings.audio_leading_silence_ms,
+        trailing_silence_ms=settings.audio_trailing_silence_ms,
+        bitrate_kbps=settings.audio_mp3_bitrate_kbps,
     )
+
+
+def timing_targets() -> dict:
+    """What the timing checks expect of every delivered package (see app.daisy_timing).
+
+    The silence at the edges is only expected where it can be added: without
+    ffmpeg the build is degraded, says so in its log, and the edges are not
+    measured.
+    """
+    options = mastering_options()
+    lead, tail = options.edges
+    targets: dict = {"bitrate_kbps": options.bitrate_kbps}
+    if audio_master.available():
+        targets.update(leading=lead, trailing=tail, chapter_gap=options.chapter_gap_ms / 1000)
+    return targets
 
 
 def narration_concurrency() -> int:
@@ -1589,6 +1617,13 @@ async def _assemble_job_delivery(job_id: str) -> None:
                 mastered = audio_master.JoinedAudio(b"", False, "Pulido desactivado.", [])
                 joined = await asyncio.to_thread(daisy_join_mp3, chapter_segments)
                 clips = _measure_fallback_clips(chapter_segments, joined)
+                # Without the polish the file is still delivered with the
+                # silence at its edges and at a constant bitrate.
+                finished = await asyncio.to_thread(audio_master.finish_file, joined, mastering)
+                if finished.finished:
+                    joined = finished.audio
+                    clips = [(begin + finished.lead_added, end + finished.lead_added) for begin, end in clips]
+                mastered.detail = f"Pulido desactivado. {finished.detail}"
             pauses = mastered.pauses if len(mastered.pauses) == len(chapter_items) else [[] for _ in chapter_items]
             write_atomic(joined_path, joined)
             write_atomic_text(clips_path, json.dumps([list(clip) for clip in clips]))
@@ -1670,7 +1705,8 @@ async def _assemble_job_delivery(job_id: str) -> None:
                      if event.get("message") == "human review decision"
                      and event["details"].get("decision") == "correct"}
     chain = await asyncio.to_thread(completeness.verify, job["chapters"], job["sentences"], job_dir, package,
-                                    corrected_ids, (once_info or {}).get("planilla") if once_info else None)
+                                    corrected_ids, (once_info or {}).get("planilla") if once_info else None,
+                                    timing_targets())
     write_atomic_text(job_dir / "completeness.json", json.dumps(chain, ensure_ascii=False, indent=2))
     validation = _record_validation(job_dir, {
         "status": "passed" if dtd["status"] == "passed" else "failed",
@@ -1680,6 +1716,7 @@ async def _assemble_job_delivery(job_id: str) -> None:
         "structural": "passed",
         "dtd": dtd,
         "completeness": chain["status"],
+        "timing": {check["id"]: check["status"] for check in chain["checks"] if check["id"].startswith("timing_")},
         "audio_joined_with_ffmpeg": use_ffmpeg,
         "official_daisy_pipeline": "not_run",
         "detail": "; ".join(dtd["errors"][:3]),
@@ -3817,6 +3854,11 @@ async def _build_direct_package(
     for check in structure_checks:
         if check["status"] == "failed":
             logger.error("Direct package ONCE check failed: %s: %s", check["label"], check["detail"][:300])
+    timing_checks = await asyncio.to_thread(functools.partial(daisy_timing.verify, package_dir, **timing_targets()))
+    for check in timing_checks:
+        if check["status"] != "passed":
+            logger.log(logging.ERROR if check["status"] == "failed" else logging.WARNING,
+                       "Direct package timing check %s: %s: %s", check["status"], check["label"], check["detail"][:300])
     # Nothing in this path listened to the narration, so the package says so
     # in plain words instead of looking like a verified audiobook.
     write_atomic_text(package_dir / "quality-status.json", json.dumps({
@@ -3825,6 +3867,8 @@ async def _build_direct_package(
         "detail": "Descarga directa: no se transcribió ni se comparó la narración con el texto, no hubo "
                   "retomas ni revisión humana. Para un audiolibro verificado usa «Producir con revisión de calidad».",
         "package": {"structural": "passed", "dtd": dtd["status"], "dtd_errors": dtd["errors"][:10],
+                    "timing": [{key: check[key] for key in ("id", "label", "status", "detail")}
+                               for check in timing_checks],
                     **({"once_structure": [{key: check[key] for key in ("id", "label", "status", "detail")}
                                            for check in structure_checks]} if once is not None else {})},
     }, ensure_ascii=False, indent=2))

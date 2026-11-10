@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import shutil
 import subprocess
@@ -13,6 +14,8 @@ from pathlib import Path, PurePosixPath
 
 from app import audio_master
 
+
+logger = logging.getLogger(__name__)
 
 DTBOOK_NS = "http://www.daisy.org/z3986/2005/dtbook/"
 SMIL_NS = "http://www.w3.org/2001/SMIL20/"
@@ -226,10 +229,40 @@ def mp3_duration(data: bytes) -> float:
 
 def _clock(seconds: float) -> str:
     """A SMIL full clock value, e.g. 0:01:02.345."""
-    millis = max(0, round(seconds * 1000))
-    hours, rest = divmod(millis, 3_600_000)
+    return _clock_ms(max(0, round(seconds * 1000)))
+
+
+def _clock_ms(millis: int) -> str:
+    """A SMIL full clock value from whole milliseconds."""
+    hours, rest = divmod(max(0, int(millis)), 3_600_000)
     minutes, rest = divmod(rest, 60_000)
     return f"{hours}:{minutes:02d}:{rest // 1000:02d}.{rest % 1000:03d}"
+
+
+def smil_boundaries(clips: list[tuple[float, float]], duration: float) -> list[tuple[int, int]]:
+    """The SMIL clip of each passage of one audio file, in whole milliseconds.
+
+    ``clips`` are where each passage's speech sits in the file. A SMIL file is
+    played clip by clip, so a stretch no clip covers is never heard: the
+    pauses between paragraphs and the silence at the edges of the file would
+    be skipped, and the SMIL file would be shorter than its audio, which is
+    what made ``dtb:totalElapsedTime`` and ``dtb:totalTime`` disagree with the
+    clips. So the clips tile the whole file: the first begins at 0 (with the
+    file's opening silence), each one ends where the next passage's speech
+    begins (it keeps the pause after it), and the last ends at the end of the
+    file, rounded down so no clipEnd can exceed the audio (Z39.86-2005 §7.3).
+    """
+    total = int(duration * 1000)  # floor: never past the real end
+    count = len(clips)
+    if not count:
+        return []
+    if total < count:
+        raise ValueError("The audio file is too short to hold one clip per passage.")
+    starts = [0] + [int(round(begin * 1000)) for begin, _end in clips[1:]]
+    for index in range(1, count):
+        # Strictly increasing, and leaving at least a millisecond for every clip after it.
+        starts[index] = min(max(starts[index], starts[index - 1] + 1), total - (count - index))
+    return [(start, end) for start, end in zip(starts, starts[1:] + [total])]
 
 
 def measure_segment_clips(segments: list[bytes], chapter_audio: bytes) -> list[tuple[float, float]]:
@@ -299,11 +332,16 @@ SMIL_DOCTYPE = ('<!DOCTYPE smil PUBLIC "-//NISO//DTD dtbsmil 2005-2//EN" '
                 '"http://www.daisy.org/z3986/2005/dtbsmil-2005-2.dtd">')
 
 
-def _smil_head(smil: ET.Element, book_id: str, title: str, elapsed: float) -> ET.Element:
-    """The metadata Z39.86-2005 requires in every SMIL file."""
+def _smil_head(smil: ET.Element, book_id: str, title: str, elapsed_ms: int) -> ET.Element:
+    """The metadata Z39.86-2005 requires in every SMIL file.
+
+    ``elapsed_ms`` is the playing time of every SMIL file before this one,
+    summed from their clips in whole milliseconds, so it agrees exactly with
+    what a validator adds up from the clips themselves.
+    """
     head = ET.SubElement(smil, _q(SMIL_NS, "head"))
     for name, content in (("dtb:uid", book_id), ("dtb:generator", "Soni2"),
-                          ("dtb:totalElapsedTime", _clock(elapsed)), ("dc:Title", title)):
+                          ("dtb:totalElapsedTime", _clock_ms(elapsed_ms)), ("dc:Title", title)):
         ET.SubElement(head, _q(SMIL_NS, "meta"), {"name": name, "content": content})
     return head
 
@@ -438,8 +476,20 @@ def build_daisy_package(
     if segment_texts is not None and len(segment_texts) != len(audio_segments):
         raise ValueError("Every segment needs its text to place its pauses.")
     chapter_audio_contents: list[bytes] = []
-    # (chapter audio path, clip start, clip end) for every segment, in order.
+    # (chapter audio path, clip start, clip end) for every segment, in order:
+    # where each passage's speech sits, for reports and fault locations.
     segment_clips: list[tuple[str, float, float]] = []
+    # The same segments as their SMIL clips: whole milliseconds that tile each
+    # chapter file from its first sample to its last (see smil_boundaries).
+    smil_clips: list[tuple[str, int, int]] = []
+    # Each chapter file's SMIL playing time, in milliseconds.
+    chapter_ms: list[int] = []
+    # Every delivered file gets the silence at its edges and the constant
+    # bitrate (audio_master.finish_file), whenever ffmpeg may be used. Only
+    # what is missing is added, so chapters a production job already finished
+    # pass through unchanged.
+    delivery = mastering or audio_master.MasteringOptions()
+    finishing = (use_ffmpeg or bool(mastering and mastering.active)) and audio_master.available()
     segment_offset = 0
     for chapter_index, (relative_path, (_chapter_title, chapter_body)) in enumerate(
         zip(chapter_audio_paths, chapters, strict=True)
@@ -454,8 +504,8 @@ def build_daisy_package(
             clips = (chapter_clips[chapter_index] if chapter_clips is not None
                      else measure_segment_clips(chapter_segments, audio_content))
         elif mastering is not None and mastering.active:
-            # Trimmed, paced and levelled, with the real position of every
-            # paragraph measured rather than estimated.
+            # Trimmed, paced, levelled and finished, with the real position of
+            # every paragraph measured rather than estimated.
             texts = (segment_texts[segment_offset:segment_offset + count]
                      if segment_texts is not None else None)
             continues = (segment_continues[segment_offset:segment_offset + count]
@@ -466,18 +516,37 @@ def build_daisy_package(
         else:
             audio_content = _join_mp3(chapter_segments, use_ffmpeg=use_ffmpeg)
             clips = measure_segment_clips(chapter_segments, audio_content)
+        if finishing:
+            finished = audio_master.finish_file(audio_content, delivery)
+            if finished.finished:
+                audio_content = finished.audio
+                clips = [(begin + finished.lead_added, end + finished.lead_added) for begin, end in clips]
+            else:
+                # Never silently: the timing check also reports the missing edges.
+                logger.warning("daisy.finish: %s was not finished: %s", relative_path, finished.detail)
         chapter_audio_contents.append(audio_content)
         (output_dir / "audio" / relative_path).write_bytes(audio_content)
         segment_clips.extend((relative_path, begin, end) for begin, end in clips)
+        boundaries = smil_boundaries(clips, mp3_duration(audio_content))
+        smil_clips.extend((relative_path, begin, end) for begin, end in boundaries)
+        chapter_ms.append(boundaries[-1][1])
         segment_offset += count
+    front_audio: list[bytes] = []
     for filename, (_label, _text, audio, _configured_name) in zip(front_names, front_matter, strict=True):
+        if finishing:
+            finished = audio_master.finish_file(audio, delivery)
+            audio = finished.audio if finished.finished else audio
+        front_audio.append(audio)
         (output_dir / "audio" / filename).write_bytes(audio)
-    front_audio = [item[2] for item in front_matter]
     ordered_audio = front_audio + chapter_audio_contents
     book_clips: list[tuple[float, float]] = []
-    if mastering is not None and mastering.active:
-        # The chapters are already levelled; the book only needs the longer
-        # pause between them so a listener hears where one ends.
+    if finishing:
+        # The files already start and end with their silence: the book is
+        # those files one after the other, frames copied, nothing re-encoded.
+        joined_book = audio_master.join_book(ordered_audio, delivery)
+        full_audio = joined_book.audio
+        book_clips = list(joined_book.clips)
+    elif mastering is not None and mastering.active:
         mastered_book = audio_master.master_book(ordered_audio, mastering)
         full_audio = mastered_book.audio
         book_clips = list(getattr(mastered_book, "clips", []) or [])
@@ -515,8 +584,9 @@ def build_daisy_package(
     if author:
         ET.SubElement(frontmatter, _q(DTBOOK_NS, "docauthor")).text = author
     bodymatter = ET.SubElement(book, _q(DTBOOK_NS, "bodymatter"))
-    # Where each SMIL file starts on the book's timeline (dtb:totalElapsedTime).
-    elapsed = 0.0
+    # Where each SMIL file starts on the book's timeline (dtb:totalElapsedTime),
+    # in whole milliseconds summed from the clips actually written.
+    elapsed = 0
     smil_names: list[str] = []
     # (label, SMIL reference, class, level) of every navigation point.
     chapter_targets: list[tuple[str, str, str, int]] = []
@@ -533,11 +603,11 @@ def build_daisy_package(
 
     if layout is not None:
         elapsed = _write_structured_text(
-            frontmatter, bodymatter, chapters, layout, segment_clips, chapter_audio_contents, output_dir,
+            frontmatter, bodymatter, chapters, layout, smil_clips, chapter_ms, output_dir,
             dtbook_name, book_id, smil_names, chapter_targets, page_targets, note_targets, mark,
             custom_tests_used,
         )
-    for index, (label, text, _audio, filename) in enumerate(front_matter, start=1):
+    for index, ((label, text, _raw, filename), _audio) in enumerate(zip(front_matter, front_audio), start=1):
         front_id = f"frontmatter-{index}"
         smil_name = f"frontmatter-{index:04d}.smil"
         smil_names.append(smil_name)
@@ -548,13 +618,15 @@ def build_daisy_package(
         ET.SubElement(level, _q(DTBOOK_NS, "p"),
                       {"id": paragraph_id, "smilref": f"smil/{smil_name}#{par_id}"}).text = text
         smil = ET.Element(_q(SMIL_NS, "smil"), {_q(XML_NS, "lang"): "es-ES"})
+        front_ms = int(mp3_duration(_audio) * 1000)
         _smil_head(smil, book_id, label, elapsed)
-        elapsed += mp3_duration(_audio)
-        sequence = ET.SubElement(ET.SubElement(smil, _q(SMIL_NS, "body")), _q(SMIL_NS, "seq"), {"id": f"seq-{front_id}"})
+        elapsed += front_ms
+        sequence = ET.SubElement(ET.SubElement(smil, _q(SMIL_NS, "body")), _q(SMIL_NS, "seq"),
+                                 {"id": f"seq-{front_id}", "dur": _clock_ms(front_ms)})
         par = ET.SubElement(sequence, _q(SMIL_NS, "par"), {"id": par_id})
         ET.SubElement(par, _q(SMIL_NS, "text"), {"src": f"../{dtbook_name}#{paragraph_id}"})
         ET.SubElement(par, _q(SMIL_NS, "audio"), {
-            "src": f"../audio/{filename}", "clipBegin": _clock(0), "clipEnd": _clock(mp3_duration(_audio)),
+            "src": f"../audio/{filename}", "clipBegin": _clock_ms(0), "clipEnd": _clock_ms(front_ms),
         })
         _write_xml(output_dir / "smil" / smil_name, smil,
                    SMIL_DOCTYPE, SMIL_NS)
@@ -573,15 +645,16 @@ def build_daisy_package(
 
         smil = ET.Element(_q(SMIL_NS, "smil"), {_q(XML_NS, "lang"): "es-ES"})
         _smil_head(smil, book_id, chapter_title, elapsed)
-        elapsed += mp3_duration(chapter_audio_contents[chapter_index - 1])
-        sequence = ET.SubElement(ET.SubElement(smil, _q(SMIL_NS, "body")), _q(SMIL_NS, "seq"), {"id": f"seq-{chapter_id}"})
+        elapsed += chapter_ms[chapter_index - 1]
+        sequence = ET.SubElement(ET.SubElement(smil, _q(SMIL_NS, "body")), _q(SMIL_NS, "seq"),
+                                 {"id": f"seq-{chapter_id}", "dur": _clock_ms(chapter_ms[chapter_index - 1])})
         first_par_id = ""
         # Production jobs synthesize a chapter title as the first segment. Map
         # that audio to the DTBook heading so the spoken and displayed structure
         # stay aligned without duplicating the title as a body paragraph.
         spoken_heading = bool(chapter_paragraphs and chapter_paragraphs[0].strip() == chapter_title.strip())
         if spoken_heading:
-            audio_path, clip_begin, clip_end = segment_clips[audio_index]
+            audio_path, clip_begin, clip_end = smil_clips[audio_index]
             audio_index += 1
             par_id = f"par-heading-{chapter_index:04d}"
             heading.set("smilref", f"smil/{smil_name}#{par_id}")
@@ -589,11 +662,11 @@ def build_daisy_package(
             par = ET.SubElement(sequence, _q(SMIL_NS, "par"), {"id": par_id})
             ET.SubElement(par, _q(SMIL_NS, "text"), {"src": f"../{dtbook_name}#{heading_id}"})
             ET.SubElement(par, _q(SMIL_NS, "audio"), {
-                "src": f"../audio/{audio_path}", "clipBegin": _clock(clip_begin), "clipEnd": _clock(clip_end),
+                "src": f"../audio/{audio_path}", "clipBegin": _clock_ms(clip_begin), "clipEnd": _clock_ms(clip_end),
             })
             chapter_paragraphs = chapter_paragraphs[1:]
         for paragraph in chapter_paragraphs:
-            audio_path, clip_begin, clip_end = segment_clips[audio_index]
+            audio_path, clip_begin, clip_end = smil_clips[audio_index]
             audio_index += 1
             paragraph_id = f"p-{audio_index:04d}"
             par_id = f"par-{audio_index:04d}"
@@ -604,7 +677,7 @@ def build_daisy_package(
             par = ET.SubElement(sequence, _q(SMIL_NS, "par"), {"id": par_id})
             ET.SubElement(par, _q(SMIL_NS, "text"), {"src": f"../{dtbook_name}#{paragraph_id}"})
             ET.SubElement(par, _q(SMIL_NS, "audio"), {
-                "src": f"../audio/{audio_path}", "clipBegin": _clock(clip_begin), "clipEnd": _clock(clip_end),
+                "src": f"../audio/{audio_path}", "clipBegin": _clock_ms(clip_begin), "clipEnd": _clock_ms(clip_end),
             })
         chapter_targets.append((chapter_title, mark(f"smil/{smil_name}#{first_par_id}"), "chapter", 1))
         page_match = re.fullmatch(r"P[aá]gina\s+(\d+)", chapter_title.strip(), flags=re.IGNORECASE)
@@ -670,7 +743,9 @@ def build_daisy_package(
         ("dtb:multimediaContent", "audio,text"),
         ("dtb:multimediaType", "audioFullText"),
         ("dtb:audioFormat", "MP3"),
-        ("dtb:totalTime", _clock(mp3_duration(full_audio))),
+        # The playing time of all SMIL files (§3.2.3): the same millisecond
+        # sum as the last file's totalElapsedTime plus that file's own time.
+        ("dtb:totalTime", _clock_ms(elapsed)),
     ):
         ET.SubElement(x_metadata, _q(OPF_NS, "meta"), {"name": name, "content": content})
     manifest = ET.SubElement(package, _q(OPF_NS, "manifest"))
@@ -711,19 +786,20 @@ def _local(tag: str) -> str:
 
 def _write_structured_text(
     frontmatter: ET.Element, bodymatter: ET.Element, chapters: list[tuple[str, list[str]]], layout: list[dict],
-    segment_clips: list[tuple[str, float, float]], chapter_audio_contents: list[bytes], output_dir: Path,
+    smil_clips: list[tuple[str, int, int]], chapter_ms: list[int], output_dir: Path,
     dtbook_name: str, book_id: str, smil_names: list[str], chapter_targets: list[tuple[str, str, str, int]],
     page_targets: list[tuple[str, str]], note_targets: list[tuple[str, str]], mark, custom_tests_used: set[str],
-) -> float:
+) -> int:
     """The DTBook levels and SMIL files of a book with the ONCE structure.
 
     Each section keeps its own SMIL file and audio file. Initial files sit in
     the front matter; a subchapter is a ``level2`` inside its chapter; a page of
     the original is a ``pagenum`` with a silent, skippable SMIL ``par`` (no
     audio: the number is a navigation point, not read aloud); a note is a
-    ``note`` whose ``seq`` is skippable. Returns the book's total time.
+    ``note`` whose ``seq`` is skippable. Returns the book's total time in
+    milliseconds, the sum of the SMIL files' own times.
     """
-    elapsed = 0.0
+    elapsed = 0
     audio_index = 0
     note_count = 0
     page_count = 0
@@ -745,9 +821,9 @@ def _write_structured_text(
         smil_names.append(smil_name)
         smil = ET.Element(_q(SMIL_NS, "smil"), {_q(XML_NS, "lang"): "es-ES"})
         head = _smil_head(smil, book_id, chapter_title, elapsed)
-        elapsed += mp3_duration(chapter_audio_contents[number - 1])
+        elapsed += chapter_ms[number - 1]
         sequence = ET.SubElement(ET.SubElement(smil, _q(SMIL_NS, "body")), _q(SMIL_NS, "seq"),
-                                 {"id": f"seq-{section_id}"})
+                                 {"id": f"seq-{section_id}", "dur": _clock_ms(chapter_ms[number - 1])})
         units = entry["units"]
         heading_id = f"{section_id}-title"
         if not units or units[0].get("role") != "heading":
@@ -774,7 +850,7 @@ def _write_structured_text(
                 ET.SubElement(par, _q(SMIL_NS, "text"), {"src": f"../{dtbook_name}#{page_id}"})
                 page_targets.append((page, mark(f"smil/{smil_name}#{par_id}")))
                 tests.add("pagenum")
-            audio_path, clip_begin, clip_end = segment_clips[audio_index]
+            audio_path, clip_begin, clip_end = smil_clips[audio_index]
             audio_index += 1
             if role == "heading":
                 element = ET.SubElement(level, _q(DTBOOK_NS, heading_name), {"id": heading_id})
@@ -806,7 +882,7 @@ def _write_structured_text(
             par = ET.SubElement(container, _q(SMIL_NS, "par"), {"id": par_id})
             ET.SubElement(par, _q(SMIL_NS, "text"), {"src": f"../{dtbook_name}#{element.get('id')}"})
             ET.SubElement(par, _q(SMIL_NS, "audio"), {
-                "src": f"../audio/{audio_path}", "clipBegin": _clock(clip_begin), "clipEnd": _clock(clip_end),
+                "src": f"../audio/{audio_path}", "clipBegin": _clock_ms(clip_begin), "clipEnd": _clock_ms(clip_end),
             })
             reference = mark(f"smil/{smil_name}#{par_id}")
             target = target or reference
