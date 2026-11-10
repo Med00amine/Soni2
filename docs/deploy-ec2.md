@@ -77,14 +77,13 @@ already is.
 ```bash
 ssh -i "D:\Downloads\Soni2.pem" ec2-user@16.171.35.105
 cd ~/Soni2
-git fetch origin
-git checkout codex/once-pipeline-upgrade-20261015
-git pull origin codex/once-pipeline-upgrade-20261015
+git fetch origin main && git checkout -B main FETCH_HEAD
 docker compose up -d --build
 ```
 
-Once the branch is merged into `main`, the last three lines become
-`git checkout main && git pull origin main && docker compose up -d --build`.
+`main` is the only branch. `checkout -B` makes the server's copy match GitHub's
+exactly, even after GitHub's history has been rewritten (it was on 2026-11-10,
+to remove co-author lines); untracked files such as `.env` are left alone.
 
 Then open `http://16.171.35.105/`.
 
@@ -104,7 +103,7 @@ selected voice is not Spain Spanish and production will refuse it.
 ## Updating
 
 ```bash
-cd ~/Soni2 && git pull && docker compose up -d --build
+cd ~/Soni2 && git fetch origin main && git checkout -B main FETCH_HEAD && docker compose up -d --build
 ```
 
 The `soni2-data` volume survives, so finished jobs **and the narration cache**
@@ -124,7 +123,7 @@ ssh -i "D:\Downloads\Soni2.pem" ec2-user@16.171.35.105 \
 
 # On the server: the code comes from GitHub, never the other way round.
 cd ~/Soni2
-git fetch origin <branch> && git checkout -B <branch> FETCH_HEAD
+git fetch origin main && git checkout -B main FETCH_HEAD
 cp frontend/nginx.conf ~/soni2-frontend-prebuilt/nginx.conf
 ~/soni2-deploy.sh
 ```

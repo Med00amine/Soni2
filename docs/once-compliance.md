@@ -1,7 +1,7 @@
 # ONCE compliance upgrade (2026-11-10)
 
-Branch `feature/once-compliance-upgrade`, from `9c97cbc`. Six commits, one per
-phase. Nothing is pushed, merged or deployed.
+Six commits, one per phase, merged into `main` on 2026-11-10 (merge
+`585cfd2`, on top of `13741e5`). Not deployed yet.
 
 Statuses: **PASS** implemented and verified · **PARTIAL** implemented, not
 fully verified · **BLOCKED** needs information or infrastructure we do not
@@ -186,8 +186,8 @@ unchanged. The editor shows labels for the new roles.
 
 ## 7. Rollback
 
-* `git switch feature/pauses-step2-edits-tts-cache`: the code before this
-  work, `9c97cbc`, still what EC2 runs.
+* `git switch -c before-once 13741e5`: the code before this work, the same
+  code EC2 runs until it is deployed.
 * Or set `AUDIO_LEADING_SILENCE_MS=0` and `AUDIO_TRAILING_SILENCE_MS=0` and
   `SPEECH_CONTEXTS=off`, which removes the edge silence and the context
   rules. Constant bitrate, contiguous clips and SMIL times stay: they are
