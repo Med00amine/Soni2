@@ -1658,7 +1658,7 @@ export default function App() {
   // other steps are documents, and the page itself scrolls.
   return <main className={workspaceTab === 'review' ? 'shell editor-shell' : 'shell editor-shell is-document'}>
     <a className="skip" href="#main">Saltar al contenido principal</a>
-    <header className="top editor-top"><a className="brand" href="/" aria-label="Inicio de Soni2"><img className="brand-logo" src="/soni2-logo.svg" alt="Soni2" width="200" height="42"/></a><span className="top-note">Una forma más tranquila de disfrutar los libros</span></header>
+    <header className="top editor-top"><a className="brand" href="/" aria-label="Inicio de Soni2"><img className="brand-logo" src="/soni2-logo.svg" alt="Soni2" width="353" height="83"/></a><span className="top-note">Una forma más tranquila de disfrutar los libros</span></header>
     <section id="main" className="hero workspace editor-workspace" aria-label="Espacio de trabajo de Soni2">
       <nav className="workspace-tabs" role="tablist" aria-label="Flujo de trabajo del audiolibro">
         <button type="button" role="tab" id="tab-upload" aria-controls="panel-upload" aria-selected={workspaceTab === 'upload'} onClick={() => switchWorkspaceTab('upload')}><span>1</span>Subir libro</button>

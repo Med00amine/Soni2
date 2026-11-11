@@ -1,9 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none" role="img" aria-labelledby="title">
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="title">
   <title id="title">Soni2</title>
   <rect width="64" height="64" rx="14" fill="#fff"/>
-  <g stroke="#F44868" stroke-linecap="round" stroke-linejoin="round" stroke-width="7">
-    <path d="M14 22v20c0 5 8 5 8 0V15c0-7 11-7 11 0v34c0 7 11 7 11 0V34"/>
-  </g>
-  <circle cx="14" cy="14" r="3.5" fill="#F44868"/>
-  <circle cx="44" cy="51" r="3.5" fill="#F44868"/>
+  <g transform="translate(32 32) scale(.7) translate(-40.4 -46.3)"><path d="M14.9 40.55V25.27A12.75 13.5 0 0 1 40.4 25.27V67.32A12.75 13.5 0 0 0 65.9 67.32V52.05" fill="none" stroke="#D21744" stroke-width="11.75" stroke-linecap="round"/><g fill="#D21744"><circle cx="65.9" cy="30.02" r="5.875"/><circle cx="14.9" cy="62.57" r="5.875"/></g></g>
 </svg>
