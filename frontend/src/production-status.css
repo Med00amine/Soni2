@@ -496,6 +496,11 @@
 .upload-voice-status { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 10px 0 0; color: #4d765a; }
 .upload-experience .voice-controls { margin-top: 18px; padding-top: 16px; }
 .upload-experience .generate-preview { min-height: 50px; margin-top: 16px; border-radius: 11px; }
+/* The two step-1 actions share one column with a gap between them; stacked
+   without one, the outlined button's border ran into the green button. */
+.upload-experience .upload-actions { display: grid; gap: 10px; width: min(100%, 480px); margin-top: 18px; }
+.upload-experience .upload-actions .generate-preview { width: 100%; max-width: none; margin: 0; }
+.upload-experience .upload-actions .view-structure { justify-self: stretch; min-height: 46px; padding: 10px 16px; border-radius: 11px; line-height: 1.35; text-align: center; }
 @media(max-width:700px) {
   .upload-panel { padding: 5px 2px; }
   .upload-panel .upload-card.upload-experience { padding: 19px 15px; border-radius: 16px; }
