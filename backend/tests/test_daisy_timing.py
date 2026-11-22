@@ -207,6 +207,35 @@ def test_variable_bitrate_and_missing_edges_are_reported(tmp_path) -> None:
     assert checks["timing_edges"]["status"] == "failed"
 
 
+def test_a_complete_audiobook_of_its_parts_frame_for_frame_passes_however_the_durations_round(tmp_path) -> None:
+    """Found reproducing «Cuentos de la Selva» in the application (2026-11-19).
+
+    Its complete audiobook was its twelve chapters joined frame for frame, yet
+    the chapters' durations, each rounded to the millisecond, summed to 2 ms
+    less than the book's, and the check allowed 1.5 ms.
+    """
+    chapters = [(f"Capítulo {number}", [f"Capítulo {number}", "Texto."]) for number in range(1, 13)]
+    package = build_daisy_package("Doce", [text for _title, body in chapters for text in body], [FRAME * 20] * 24,
+                                  tmp_path / "pkg", chapters=chapters, use_ffmpeg=False)
+    parts = sorted(package.rglob("chapter-*.mp3"))
+    assert len(parts) == 12
+    # 27 frames are 705.306 ms, rounded down to 705 ms; the book's 324 frames
+    # are 8463.673 ms, rounded up to 8464 ms: 4 ms apart, and nothing wrong.
+    for path in parts:
+        path.write_bytes(FRAME * 27)
+    book = tmp_path / "Doce.mp3"
+    book.write_bytes(FRAME * 27 * 12)
+    targets = {"leading": 0.0, "trailing": 0.0, "chapter_gap": 0.0, "book_audio": book}
+
+    def transitions() -> dict:
+        return next(check for check in daisy_timing.verify(package, **targets) if check["id"] == "timing_transitions")
+
+    assert transitions()["status"] == "passed", transitions()
+    # One frame more than its parts (26 ms) is still a book that is not its parts.
+    book.write_bytes(FRAME * (27 * 12 + 1))
+    assert transitions()["status"] == "failed"
+
+
 def test_the_old_geometry_with_pauses_outside_the_clips_is_reported(tmp_path) -> None:
     """The delivered layout before this change: a second of pause between clips."""
     package = build_daisy_package("Viejo", ["Uno.", "Dos."], [FRAME * 40, FRAME * 40], tmp_path / "pkg",

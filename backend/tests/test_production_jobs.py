@@ -205,7 +205,7 @@ def test_mocked_multichapter_job_builds_ordered_delivery_and_logs(tmp_path: Path
         return expected, "mock-scribe"
 
     monkeypatch.setattr(main, "_transcribe_sentence", mock_transcribe)
-    monkeypatch.setattr(main, "_analyze_audio", lambda *_args: asyncio.sleep(0, result={"status": "passed", "engine": "test"}))
+    monkeypatch.setattr(main, "_analyze_audio", lambda *_args, **_kwargs: asyncio.sleep(0, result={"status": "passed", "engine": "test"}))
     monkeypatch.setattr(main, "synthesize", lambda *_args, **_kwargs: asyncio.sleep(0, result=audio_bytes))
 
     asyncio.run(main.run_production_job(job_id))
@@ -221,11 +221,14 @@ def test_mocked_multichapter_job_builds_ordered_delivery_and_logs(tmp_path: Path
         opf = [name for name in names if name.count("/") == 1 and name.endswith(".opf")]
         assert len(opf) == 1 and opf[0] != "DAISY 3/book.opf"
         base = opf[0].removesuffix(".opf")
-        assert f"{base}.xml" in names and f"{base}.mp3" in names
-        assert "DAISY 3/audio/chapter-001.mp3" in names
-        assert "DAISY 3/audio/chapter-002.mp3" in names
-        assert "DAISY 3/smil/chapter-0001.smil" in names
-        assert "DAISY 3/smil/chapter-0002.smil" in names
+        assert f"{base}.xml" in names
+        # The complete audiobook travels beside the package, outside the DAISY file set.
+        assert f"{base.removeprefix('DAISY 3/')}.mp3" in names and f"{base}.mp3" not in names
+        # Flat by default, as in ONCE's own books.
+        assert "DAISY 3/chapter-001.mp3" in names
+        assert "DAISY 3/chapter-002.mp3" in names
+        assert "DAISY 3/chapter-0001.smil" in names
+        assert "DAISY 3/chapter-0002.smil" in names
         assert "job.log" in names and "tts.log" in names and "quality-report.json" in names
         assert "review-decisions.log" in names and "daisy-validation.json" in names
         assert "reviewed-source.json" in names and "job-events.jsonl" not in names

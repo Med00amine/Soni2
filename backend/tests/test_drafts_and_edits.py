@@ -274,9 +274,9 @@ def test_the_direct_download_narrates_the_saved_edits_too(offline) -> None:
     with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
         book = next(name for name in archive.namelist() if name.startswith("DAISY 3/") and name.endswith(".xml"))
         text = archive.read(book).decode("utf-8")
-        audio = sorted(name for name in archive.namelist() if name.startswith("DAISY 3/audio/"))
+        audio = sorted(name for name in archive.namelist() if name.startswith("DAISY 3/") and name.endswith(".mp3"))
     assert "Una frase nueva, añadida en el paso dos." in text and "Tercer capítulo" not in text
-    assert audio == ["DAISY 3/audio/chapter-001.mp3", "DAISY 3/audio/chapter-002.mp3"]
+    assert audio == ["DAISY 3/chapter-001.mp3", "DAISY 3/chapter-002.mp3"]
 
 
 def test_the_preview_reads_the_edited_text(offline) -> None:
@@ -387,7 +387,7 @@ def test_a_paragraph_that_cannot_be_narrated_does_not_crash_the_job(offline, mon
 
     async def fails_once(text, voice_speed=1.0, voice_id="", **kwargs):
         if "Segundo capítulo, primer" in text:
-            raise providers.ProviderError("credit", "Sin saldo.", permanent=True)
+            raise providers.ProviderError("bad_audio", "El servicio rechazó la petición.", permanent=True)
         return await real(text, voice_speed, voice_id, **kwargs)
 
     monkeypatch.setattr(main, "synthesize", fails_once)
@@ -482,7 +482,7 @@ def test_job_audio_files_share_the_cached_bytes_instead_of_copying_them(offline)
 # The ZIP: one folder of chapter MP3s
 # --------------------------------------------------------------------------- #
 
-def test_the_delivery_zip_has_every_chapter_directly_in_audio(offline, tmp_path) -> None:
+def test_the_delivery_zip_has_every_chapter_directly_in_its_folder(offline, tmp_path) -> None:
     client = TestClient(main.app)
     view = _upload(client)
     edits, _long = _edits(view)
@@ -492,11 +492,12 @@ def test_the_delivery_zip_has_every_chapter_directly_in_audio(offline, tmp_path)
         names = archive.namelist()
         assert archive.testzip() is None
         archive.extractall(tmp_path / "unzipped")
-    audio = [name for name in names if name.startswith("DAISY 3/audio/")]
+    audio = [name for name in names if name.startswith("DAISY 3/") and name.endswith(".mp3")]
     # Exactly the files left after the edit, in order, side by side: the three
-    # initial ONCE files, then chapters 1 and 2 (chapter 3 was deleted).
-    assert audio == [f"DAISY 3/audio/chapter-{number:03d}.mp3" for number in range(1, 6)]
-    assert not [name for name in names if re.match(r"DAISY 3/audio/[^/]+/", name)]
+    # initial ONCE files, then chapters 1 and 2 (chapter 3 was deleted). Flat
+    # by default, as in ONCE's own books: no folder inside the package.
+    assert audio == [f"DAISY 3/chapter-{number:03d}.mp3" for number in range(1, 6)]
+    assert not [name for name in names if re.match(r"DAISY 3/[^/]+/", name)]
     assert len(set(audio)) == len(audio)
     package = tmp_path / "unzipped" / "DAISY 3"
     for name in audio:
@@ -504,11 +505,11 @@ def test_the_delivery_zip_has_every_chapter_directly_in_audio(offline, tmp_path)
         assert stream["frames"] and not stream["errors"]
     # Extracted, it is still a valid DAISY book: links, SMIL clips, NCX, OPF.
     validate_daisy_package(package)
-    smil = "".join(path.read_text(encoding="utf-8") for path in sorted((package / "smil").glob("*.smil")))
-    assert set(re.findall(r'src="\.\./audio/([^"#]+)"', smil)) == {
+    smil = "".join(path.read_text(encoding="utf-8") for path in sorted(package.glob("*.smil")))
+    assert set(re.findall(r'<audio [^>]*src="([^"#]+)"', smil)) == {
         f"chapter-{number:03d}.mp3" for number in range(1, 6)}
     opf = next(package.glob("*.opf")).read_text(encoding="utf-8")
-    assert all(f'href="audio/chapter-{number:03d}.mp3"' in opf for number in range(1, 6))
+    assert all(f'href="chapter-{number:03d}.mp3"' in opf for number in range(1, 6))
 
 
 # --------------------------------------------------------------------------- #
@@ -639,18 +640,27 @@ def test_the_direct_download_is_refused_too_when_the_book_will_not_fit(offline, 
 def test_the_direct_download_says_it_is_assembling_and_which_chapter(offline, tmp_path, monkeypatch) -> None:
     progress = main.PackageProgress()
     seen: list[tuple[str, int, int]] = []
-    real_build = main.build_daisy_package
+    # Each chapter is built (or taken from the chapter cache) before the
+    # package: mastered when ffmpeg is there, joined when it is not.
+    real_master, real_join = main.audio_master.master_chapter, main.daisy_join_mp3
 
-    def spying_build(*args, on_chapter=None, **kwargs):
-        def report(index, total):
-            on_chapter(index, total)
-            seen.append((progress.stage, progress.chapters_done, progress.chapters_total))
-        return real_build(*args, on_chapter=report, **kwargs)
+    def spying_master(*args, **kwargs):
+        seen.append((progress.stage, progress.chapters_done, progress.chapters_total))
+        return real_master(*args, **kwargs)
 
-    monkeypatch.setattr(main, "build_daisy_package", spying_build)
+    def spying_join(*args, **kwargs):
+        seen.append((progress.stage, progress.chapters_done, progress.chapters_total))
+        return real_join(*args, **kwargs)
+
+    monkeypatch.setattr(main.audio_master, "master_chapter", spying_master)
+    monkeypatch.setattr(main, "daisy_join_mp3", spying_join)
     asyncio.run(main._build_direct_package(
         "libro.txt", BOOK.encode("utf-8"), tmp_path / "work", voice_speed=1.0, voice_id="", progress=progress,
         corrections_json="{}", metadata_json="{}", narration_plan_json="", create_navigation_sections_flag=False))
     assert seen and all(stage == "assembling" for stage, _done, _total in seen)
     assert [done for _stage, done, _total in seen] == list(range(len(seen)))
-    assert progress.stage == "packaging" and progress.chapters_done == progress.chapters_total == len(seen)
+    assert progress.chapters_rebuilt == len(seen) and progress.chapters_reused == 0
+    # Finished: every stage it went through has its time.
+    assert progress.stage == "done" and progress.chapters_done == progress.chapters_total == len(seen)
+    assert {"narrating", "assembling", "packaging", "validating", "zipping", "verifying"} <= set(progress.timings)
+    assert progress.audit["status"] == "passed"

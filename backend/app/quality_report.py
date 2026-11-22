@@ -661,7 +661,8 @@ def _locations_block(report: dict[str, Any]) -> str:
     for item in locations:
         chapter_link = (f'<a href="DAISY 3/{_e(item["chapter_file"])}#t={item["chapter_time"]:.1f}">'
                         f'{_e(item["chapter_clock"])}</a>')
-        book = (f'<a href="DAISY 3/{_e(item["book_file"])}#t={item["book_time"]:.1f}">{_e(item["book_clock"])}</a>'
+        # The complete audiobook is beside the report, outside the DAISY package.
+        book = (f'<a href="{_e(item["book_file"])}#t={item["book_time"]:.1f}">{_e(item["book_clock"])}</a>'
                 if item.get("book_time") is not None else "—")
         what = (f"«{_e(item['expected'])}» → «{_e(item['heard'])}»" if item["kind"] == "difference"
                 else f"«{_e(item['expected'])}» alargada")

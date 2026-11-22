@@ -143,7 +143,7 @@ class AudioCache:
     # expected speech is not transcribed again when a book is produced again.
     # ------------------------------------------------------------------ #
 
-    def get_verdict(self, key: str, audio: bytes, spoken: str) -> dict | None:
+    def get_verdict(self, key: str, audio: bytes, spoken: str, *, audio_sha256: str = "") -> dict | None:
         path = self.path_for(key).with_suffix(".qa.json")
         if not key or not path.is_file():
             return None
@@ -151,7 +151,7 @@ class AudioCache:
             record = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return None
-        if not isinstance(record, dict) or record.get("audio_sha256") != _sha256(audio) \
+        if not isinstance(record, dict) or record.get("audio_sha256") != (audio_sha256 or _sha256(audio)) \
                 or record.get("spoken_sha256") != _sha256(spoken.encode("utf-8")):
             return None
         return record
@@ -162,6 +162,36 @@ class AudioCache:
         path = self.path_for(key).with_suffix(".qa.json")
         payload = {**record, "audio_sha256": _sha256(audio), "spoken_sha256": _sha256(spoken.encode("utf-8"))}
         write_atomic(path, json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"))
+
+    # ------------------------------------------------------------------ #
+    # Integrity reports. Decoding a passage and measuring its silences,
+    # level and pace is pure work on its bytes: the same audio checked
+    # against the same expected speech by the same analysis gives the same
+    # report, so producing a book again does not decode it again. A change
+    # to the audio, the text or the analysis (``version``) misses.
+    # ------------------------------------------------------------------ #
+
+    def get_integrity(self, key: str, audio_sha256: str, spoken: str, version: str) -> dict | None:
+        path = self.path_for(key).with_suffix(".integrity.json") if key else None
+        if path is None or not path.is_file():
+            return None
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(record, dict) or record.get("audio_sha256") != audio_sha256 \
+                or record.get("spoken_sha256") != _sha256(spoken.encode("utf-8")) or record.get("version") != version \
+                or not isinstance(record.get("report"), dict):
+            return None
+        return record["report"]
+
+    def put_integrity(self, key: str, audio_sha256: str, spoken: str, version: str, report: dict) -> None:
+        if not key:
+            return
+        payload = {"audio_sha256": audio_sha256, "spoken_sha256": _sha256(spoken.encode("utf-8")),
+                   "version": version, "report": report}
+        write_atomic(self.path_for(key).with_suffix(".integrity.json"),
+                     json.dumps(payload, ensure_ascii=False).encode("utf-8"))
 
     # ------------------------------------------------------------------ #
     # Mastered chapters, by what went into them (see main._chapter_content_key).

@@ -280,6 +280,7 @@ def test_a_production_job_delivers_the_photographs(tmp_path, monkeypatch) -> Non
     assert statuses["once_photos"] == "passed" and statuses["units_to_dtbook"] == "passed", statuses
     with zipfile.ZipFile(job_dir / f"{job_id}-once-delivery.zip") as archive:
         names = archive.namelist()
-    assert {"DAISY 3/images/photo-001.png", "DAISY 3/images/photo-003.png"} <= set(names)
+    # Flat by default, as in ONCE's own books: the photographs beside the OPF too.
+    assert {"DAISY 3/photo-001.png", "DAISY 3/photo-003.png"} <= set(names)
     roles = [(unit.get("provenance") or {}).get("role") for unit in job["sentences"]]
     assert roles.count("photo") == 3 and roles.count("photo_reference") == 1

@@ -31,6 +31,14 @@ A section's title can be corrected (``titles``) or taken out of the
 narration (``deleted_titles``): the section then keeps a navigation label,
 but it is not read. A section whose title and paragraphs are all deleted is
 not in the audiobook at all.
+
+A reader can also **add a chapter** the book does not have
+(``added_sections``): ``{"id": "added-…", "after": <section id>, "title",
+"paragraphs"}``. Its id is its own and never changes, so its paragraphs have
+slots like any other (``added-1a2b3c4d:0``) and are corrected, extended and
+deleted the same way. ``after`` names the section (of the book, or another
+added one) it follows, ``""`` for the start; a chapter added after a section
+the reader left out keeps that place.
 """
 
 from __future__ import annotations
@@ -43,7 +51,10 @@ from app.narration_plan import SelectedChapter, is_generated
 
 MAX_SLOTS = 20000
 MAX_UNIT_CHARACTERS = 20000
+MAX_ADDED_SECTIONS = 200
+MAX_ADDED_PARAGRAPHS = 2000
 _SLOT = re.compile(r"(?P<section>[A-Za-z0-9_.-]+):(?P<paragraph>-1|\d+)(?P<insert>\+?)")
+_ADDED_ID = re.compile(r"added-[a-z0-9]{6,32}")
 
 
 class NothingLeft(ValueError):
@@ -55,12 +66,18 @@ class BookEdits:
     slots: dict[str, list[str] | str] = field(default_factory=dict)
     titles: dict[str, str] = field(default_factory=dict)
     deleted_titles: set[str] = field(default_factory=set)
+    # Chapters the reader added: {"id", "after", "title", "paragraphs"}, in the
+    # order they were added.
+    added: list[dict] = field(default_factory=list)
 
     def __bool__(self) -> bool:
-        return bool(self.slots or self.titles or self.deleted_titles)
+        return bool(self.slots or self.titles or self.deleted_titles or self.added)
 
     def as_dict(self) -> dict:
-        return {"slots": self.slots, "titles": self.titles, "deleted_titles": sorted(self.deleted_titles)}
+        result = {"slots": self.slots, "titles": self.titles, "deleted_titles": sorted(self.deleted_titles)}
+        if self.added:
+            result["added_sections"] = [dict(item) for item in self.added]
+        return result
 
     def fingerprint(self) -> str:
         return json.dumps(self.as_dict(), sort_keys=True, ensure_ascii=False)
@@ -116,9 +133,38 @@ def parse(edits_json: str = "", *, corrections_json: str = "", chapters: list | 
         if any(not isinstance(item, str) or not item for item in titles):
             raise ValueError("Los títulos eliminados no son válidos.")
         edits.deleted_titles = set(titles)
+        edits.added = _added_sections(payload.get("added_sections") or [])
     if corrections_json and corrections_json.strip() not in {"", "{}"}:
         _legacy_corrections(edits, corrections_json, chapters or [])
     return edits
+
+
+def _added_sections(value: object) -> list[dict]:
+    """The chapters a reader added, checked one by one."""
+    if not isinstance(value, list) or len(value) > MAX_ADDED_SECTIONS:
+        raise ValueError("Los capítulos añadidos no son válidos.")
+    added: list[dict] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError("Un capítulo añadido no es válido.")
+        identifier, after = item.get("id"), item.get("after", "")
+        title, paragraphs = item.get("title"), item.get("paragraphs")
+        if not isinstance(identifier, str) or not _ADDED_ID.fullmatch(identifier) or identifier in seen:
+            raise ValueError("Un capítulo añadido no tiene un identificador válido.")
+        if not isinstance(after, str) or len(after) > 100:
+            raise ValueError("Un capítulo añadido no indica dónde va.")
+        if not isinstance(title, str) or not title.strip() or len(title) > 500:
+            raise ValueError("El título de un capítulo añadido debe tener entre 1 y 500 caracteres.")
+        if (not isinstance(paragraphs, list) or len(paragraphs) > MAX_ADDED_PARAGRAPHS
+                or any(not isinstance(text, str) or len(text) > MAX_UNIT_CHARACTERS for text in paragraphs)):
+            raise ValueError("El texto de un capítulo añadido no es válido.")
+        texts = [text.strip() for text in paragraphs if text.strip()]
+        if not texts:
+            raise ValueError(f"El capítulo añadido «{title.strip()[:80]}» no tiene texto.")
+        seen.add(identifier)
+        added.append({"id": identifier, "after": after, "title": normalize_unit(title), "paragraphs": texts})
+    return added
 
 
 def _legacy_corrections(edits: BookEdits, corrections_json: str, chapters: list) -> None:
@@ -152,14 +198,31 @@ def validate_against(edits: BookEdits, sections: dict[str, int]) -> None:
     (another file, another page range), and silently dropping the change
     would narrate text the reader had corrected.
     """
+    known = dict(sections)
+    for item in edits.added:
+        if item["id"] in sections:
+            raise ValueError("Un capítulo añadido tiene el identificador de una sección del libro.")
+        known[item["id"]] = len(item["paragraphs"])
+    after = {item["id"]: item["after"] for item in edits.added}
+    for identifier in after:
+        # Every added chapter follows, through any others, a section of the book or the start.
+        seen: set[str] = set()
+        anchor = identifier
+        while anchor in after:
+            if anchor in seen:
+                raise ValueError("Los capítulos añadidos se colocan unos detrás de otros en círculo.")
+            seen.add(anchor)
+            anchor = after[anchor]
+        if anchor and anchor not in sections:
+            raise ValueError("Un capítulo añadido va detrás de una sección que esta versión del libro no tiene.")
     for key in edits.slots:
         match = _SLOT.fullmatch(key)
         section, paragraph = match["section"], int(match["paragraph"])
-        if section not in sections:
+        if section not in known:
             raise ValueError("Los cambios corresponden a otra versión del libro. Vuelve a abrir el libro.")
-        if paragraph >= sections[section]:
+        if paragraph >= known[section]:
             raise ValueError("Un cambio hace referencia a un párrafo que no existe en esta versión del libro.")
-    unknown = (edits.deleted_titles | set(edits.titles)) - set(sections)
+    unknown = (edits.deleted_titles | set(edits.titles)) - set(known)
     if unknown:
         raise ValueError("Los cambios corresponden a otra versión del libro. Vuelve a abrir el libro.")
 
@@ -171,31 +234,56 @@ def _text(value: list[str] | str) -> str:
     return "\n\n".join(value).strip() if isinstance(value, list) else value.strip()
 
 
-def apply(chapters: list, edits: BookEdits, provenance: list[tuple[dict, list[dict]]] | None = None):
+def apply(chapters: list, edits: BookEdits, provenance: list[tuple[dict, list[dict]]] | None = None,
+          order: list[str] | None = None):
     """The selected chapters with the reader's changes, and where each paragraph comes from.
 
     Returns ``(chapters, provenance)``. Every returned chapter carries
     ``section_id`` and ``slots`` (the slot of each of its paragraphs), and
     every provenance record of a paragraph its ``slot``, so whatever is built
     from them can say which place of the book a unit belongs to.
+
+    ``order`` is every section id of the narration plan, in reading order: a
+    chapter the reader added after a section left out of the narration goes
+    where that section would have been.
     """
     result: list[SelectedChapter] = []
     result_provenance: list[tuple[dict, list[dict]]] = []
-    for index, chapter in enumerate(chapters):
-        paragraphs = list(chapter[1])
-        section = getattr(chapter, "section_id", "") or f"chapter{index}"
-        title = edits.titles.get(section, chapter[0])
-        title_origin, origins = (provenance[index] if provenance is not None else ({}, []))
+    # Pages of the original that began at a paragraph the reader removed: they
+    # begin at the next paragraph kept, so the page list loses none of them.
+    carried: list[str] = []
+
+    def build(section: str, title: str, paragraphs: list[str], invented: bool,
+              title_origin: dict, origins: list[dict]) -> None:
+        nonlocal carried
+        title = edits.titles.get(section, title)
+        generated = invented or section in edits.deleted_titles
+        title_pages = list(title_origin.get("page_breaks") or [])
+        if not generated and title.strip():
+            # A heading that is read: pages carried from before begin at it.
+            if carried:
+                title_origin = {**title_origin, "page_breaks": carried + title_pages}
+                carried = []
+        elif title_pages:
+            # A title that is not read: its pages begin at the next text kept.
+            carried = carried + title_pages
+            title_origin = {**title_origin, "page_breaks": []}
         origins = list(origins) + [{}] * (len(paragraphs) - len(origins))
         texts: list[str] = []
         slots: list[str] = []
         records: list[dict] = []
 
         def place(slot: str, text: str, origin: dict) -> None:
+            nonlocal carried
             if text:
+                if carried:
+                    origin = {**origin, "page_breaks": carried + list(origin.get("page_breaks") or [])}
+                    carried = []
                 texts.append(text)
                 slots.append(slot)
                 records.append({**origin, "slot": slot})
+            elif origin.get("page_breaks"):
+                carried = carried + list(origin["page_breaks"])
 
         inserted = edits.slots.get(f"{section}:-1+")
         if inserted:
@@ -207,15 +295,45 @@ def apply(chapters: list, edits: BookEdits, provenance: list[tuple[dict, list[di
             if inserted:
                 # New text is plain text of the section it was added to.
                 place(f"{slot}+", _text(inserted), {})
-        generated = is_generated(chapter) or section in edits.deleted_titles
         if not texts and (generated or not title.strip()):
-            continue
+            return
         selected = SelectedChapter(title, texts, generated)
         selected.section_id = section
         selected.slots = slots
         result.append(selected)
         result_provenance.append(({**title_origin, "section_id": section, "title_deleted":
                                    section in edits.deleted_titles}, records))
-    if chapters and not result:
+
+    following: dict[str, list[dict]] = {}
+    for item in edits.added:
+        following.setdefault(item["after"], []).append(item)
+    placed: set[str] = set()
+
+    def add_after(anchor: str) -> None:
+        for item in following.get(anchor, []):
+            if item["id"] in placed:
+                continue
+            placed.add(item["id"])
+            build(item["id"], item["title"], list(item["paragraphs"]), False, {"added": True}, [])
+            add_after(item["id"])
+
+    sections = [getattr(chapter, "section_id", "") or f"chapter{index}" for index, chapter in enumerate(chapters)]
+    position = {section: index for index, section in enumerate(sections)}
+    walk = order if order is not None and set(sections) <= set(order) else sections
+    add_after("")
+    for section in walk:
+        index = position.get(section)
+        if index is not None:
+            chapter = chapters[index]
+            build(section, chapter[0], list(chapter[1]), is_generated(chapter),
+                  *(provenance[index] if provenance is not None else ({}, [])))
+        add_after(section)
+    for item in edits.added:
+        # One whose section is not in this reading of the book at all: at the end.
+        if item["id"] not in placed:
+            placed.add(item["id"])
+            build(item["id"], item["title"], list(item["paragraphs"]), False, {"added": True}, [])
+            add_after(item["id"])
+    if (chapters or edits.added) and not result:
         raise NothingLeft("Has eliminado todo el contenido del libro: no queda nada que narrar.")
     return result, (result_provenance if provenance is not None else None)

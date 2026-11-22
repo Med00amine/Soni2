@@ -1,5 +1,6 @@
 import xml.etree.ElementTree as ET
 import io
+import re
 import zipfile
 import pytest
 
@@ -42,9 +43,10 @@ def test_multichapter_package_has_matching_text_audio_navigation_and_metadata(tm
         ],
     )
 
-    # The package files carry the book's own name instead of "book".
+    # The package files carry the book's own name instead of "book"; the
+    # complete audiobook is no file of the DAISY book and is not among them.
     assert sorted(path.name for path in package.iterdir() if path.is_file()) == [
-        "Libro_de_prueba.mp3", "Libro_de_prueba.ncx", "Libro_de_prueba.opf", "Libro_de_prueba.res",
+        "Libro_de_prueba.ncx", "Libro_de_prueba.opf", "Libro_de_prueba.res",
         "Libro_de_prueba.xml", "dtbookbasic.css",
     ]
     dtbook = ET.parse(package / "Libro_de_prueba.xml").getroot()
@@ -86,8 +88,15 @@ def test_multichapter_package_has_matching_text_audio_navigation_and_metadata(tm
     assert len(spine_refs) == 4
     assert all((package / items[ref]).is_file() for ref in spine_refs)
     dc_ns = "{http://purl.org/dc/elements/1.1/}"
-    metadata = " ".join(node.text or "" for node in opf.findall(f".//{dc_ns}*"))
-    assert "Autora de prueba" in metadata and "Editorial de prueba" in metadata and "2025" in metadata
+    dc = {node.tag[len(dc_ns):]: node.text for node in opf.findall(f".//{dc_ns}*")}
+    meta = {node.get("name"): node.get("content") for node in opf.iter(f"{OPF}meta")}
+    assert dc["Creator"] == "Autora de prueba"
+    # dc:Publisher and dc:Date are this DAISY book's (required by Z39.86-2005);
+    # the printed book's publisher, year and edition are its source's.
+    assert dc["Publisher"] == "Soni2" and re.fullmatch(r"\d{4}-\d{2}-\d{2}", dc["Date"])
+    assert meta["dtb:sourcePublisher"] == "Editorial de prueba"
+    assert meta["dtb:sourceDate"] == "2025" and meta["dtb:sourceEdition"] == "2"
+    assert dc["Language"] == "es-ES"
     validate_daisy_package(package)
 
 
@@ -99,15 +108,16 @@ def test_flat_chapter_audio_and_full_audiobook_preserve_order_without_front_matt
     segments = [b"audio-1", b"audio-2", b"audio-3"]
     package = build_daisy_package(
         "Libro de orden", [text for _, body in chapters for text in body], segments,
-        tmp_path / "ordered", chapters=chapters,
+        tmp_path / "ordered", chapters=chapters, book_audio_path=tmp_path / "Libro_de_orden.mp3",
     )
 
     assert (package / "audio/chapter-001.mp3").read_bytes() == b"audio-1audio-2"
     assert (package / "audio/chapter-002.mp3").read_bytes() == b"audio-3"
-    assert (package / "Libro_de_orden.mp3").read_bytes() == b"audio-1audio-2audio-3"
-    # Only the chapter files and the full book: no per-paragraph segments.
+    # The full book is written where it was asked for, beside the package.
+    assert (tmp_path / "Libro_de_orden.mp3").read_bytes() == b"audio-1audio-2audio-3"
+    # Only the chapter files in the package: no per-paragraph segments, no full book.
     assert not list(package.rglob("segment-*.mp3"))
-    assert sum(1 for path in package.rglob("*.mp3")) == 3
+    assert sum(1 for path in package.rglob("*.mp3")) == 2
     ncx = ET.parse(package / "Libro_de_orden.ncx").getroot()
     labels = [node.find(f"{NCX}navLabel/{NCX}text").text for node in ncx.findall(f".//{NCX}navPoint")]
     assert labels == ["Capitulo uno", "Capitulo dos"]
@@ -159,8 +169,12 @@ def test_each_paragraph_plays_its_own_stretch_of_the_chapter_audio(tmp_path):
     audio = [par.find(f"{SMIL}audio").attrib for par in smil.findall(f".//{SMIL}par")]
     assert {item["src"] for item in audio} == {"../audio/chapter-001.mp3"}
     # Consecutive, gapless clips: each begins where the previous one ended.
+    # The last ends at 1.563 s, not at the 1.567 s the 60 frames last: these
+    # test frames are never padded, so a reader that trusts the first frame
+    # (ZedVal: size over bitrate) finds the file 4 ms shorter, and no clipEnd
+    # may pass the end it reads.
     assert [(item["clipBegin"], item["clipEnd"]) for item in audio] == [
-        ("0:00:00.000", "0:00:00.261"), ("0:00:00.261", "0:00:00.784"), ("0:00:00.784", "0:00:01.567"),
+        ("0:00:00.000", "0:00:00.261"), ("0:00:00.261", "0:00:00.784"), ("0:00:00.784", "0:00:01.563"),
     ]
     # The next chapter starts again at zero in its own file.
     second = ET.parse(package / "smil/chapter-0002.smil").getroot().find(f".//{SMIL}audio").attrib
@@ -169,13 +183,14 @@ def test_each_paragraph_plays_its_own_stretch_of_the_chapter_audio(tmp_path):
     assert clips[2][1:] == pytest.approx((30 * frame, 60 * frame))
     opf = ET.parse(package / "El_faro.opf").getroot()
     total = opf.find(f".//{OPF}meta[@name='dtb:totalTime']").attrib["content"]
-    # The playing time of the SMIL files: 1.567 s + 1.044 s, each file's time
-    # rounded down to the millisecond so no clip ends after its audio.
-    assert total == "0:00:02.611"
+    # The playing time of the SMIL files: 1.563 s + 1.042 s, each file's time
+    # as a first-frame reader measures it, rounded down to the millisecond, so
+    # no clip ends after its audio for any reader.
+    assert total == "0:00:02.605"
     second_smil = ET.parse(package / "smil/chapter-0002.smil").getroot()
     elapsed = second_smil.find(f".//{SMIL}meta[@name='dtb:totalElapsedTime']").attrib["content"]
-    assert elapsed == "0:00:01.567"
-    assert smil.find(f".//{SMIL}body/{SMIL}seq").get("dur") == "0:00:01.567"
+    assert elapsed == "0:00:01.563"
+    assert smil.find(f".//{SMIL}body/{SMIL}seq").get("dur") == "0:00:01.563"
     validate_daisy_package(package)
 
 
@@ -349,22 +364,27 @@ def test_package_api_creates_full_multichapter_zip_without_external_tts(monkeypa
 
     assert response.status_code == 200, response.text
     with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
-        # Same layout as the reviewed delivery: everything inside "DAISY 3/".
-        names = {name.removeprefix("DAISY 3/") for name in archive.namelist()}
-        assert all(name.startswith("DAISY 3/") for name in archive.namelist())
+        # Same layout as the reviewed delivery: the package inside "DAISY 3/",
+        # and beside it the report of what was (not) verified and the
+        # complete audiobook, which is no file of the DAISY book.
         base = "Libro_integrado"
-        assert {f"{base}.xml", f"{base}.ncx", f"{base}.opf", f"{base}.res", f"{base}.mp3"} <= names
-        assert {"audio/chapter-001.mp3", "audio/chapter-002.mp3",
-                "audio/intro-confirmed.mp3", "audio/bibliography-confirmed.mp3"} <= names
+        names = {name.removeprefix("DAISY 3/") for name in archive.namelist()}
+        assert all(name.startswith("DAISY 3/") or name in {"quality-status.json", f"{base}.mp3"}
+                   for name in archive.namelist())
+        assert "quality-status.json" in archive.namelist() and f"{base}.mp3" in archive.namelist()
+        assert f"DAISY 3/{base}.mp3" not in archive.namelist()
+        assert {f"{base}.xml", f"{base}.ncx", f"{base}.opf", f"{base}.res"} <= names
+        # Flat by default, as in ONCE's own books.
+        assert {"chapter-001.mp3", "chapter-002.mp3", "intro-confirmed.mp3", "bibliography-confirmed.mp3"} <= names
         assert not any("segment-" in name for name in names)
-        assert {"smil/chapter-0001.smil", "smil/chapter-0002.smil"} <= names
+        assert {"chapter-0001.smil", "chapter-0002.smil"} <= names
         book_text = archive.read(f"DAISY 3/{base}.xml").decode("utf-8")
         assert all(text in book_text for text in ("Texto uno.", "Texto dos corregido.", "Texto tres.", "ONCE approved identification", "ONCE approved legal text"))
         assert "Texto dos." not in book_text
         # The corrected paragraph's audio is part of its chapter file.
         # The corrected paragraph is in the chapter audio: its text travels in
         # the mock provider's tag, which a plain byte join preserves.
-        assert b"Texto dos corregido." in archive.read("DAISY 3/audio/chapter-001.mp3")
+        assert b"Texto dos corregido." in archive.read("DAISY 3/chapter-001.mp3")
 
 
 def test_one_voices_clips_are_joined_by_copying_and_anything_else_is_re_encoded(monkeypatch):

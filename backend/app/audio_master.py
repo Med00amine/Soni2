@@ -654,25 +654,69 @@ class EdgeSilence:
                 "duration_seconds": self.duration}
 
 
-def _edge_silence_file(executable: str, source: Path, duration: float, rate: int = 0) -> EdgeSilence | None:
-    """Measure the silence at both edges of a file by decoding it once.
+# Edges are measured on this much audio at each end of a long file instead of
+# decoding all of it: a two-hour book was decoded in full twice (finishing and
+# validation) only to read its first and last second. Any edge silence longer
+# than the window falls back to decoding the whole file, so the result is
+# always the one a full decode gives.
+EDGE_WINDOW_SECONDS = 8.0
 
-    Times are on the decoded timeline. A file with a LAME header is decoded
-    without its encoder delay and padding, so it ends a few hundredths of a
-    second before its frames do: the end of the file is the number of samples
-    decoded, not the frame count, or its closing silence would go unseen.
-    """
-    result = _run([executable, "-hide_banner", "-nostats", "-i", str(source),
+
+def _silences(log: str) -> tuple[list[float], list[float]]:
+    return ([float(value) for value in re.findall(r"silence_start: (-?\d+(?:\.\d+)?)", log)],
+            [float(value) for value in re.findall(r"silence_end: (-?\d+(?:\.\d+)?)", log)])
+
+
+def _decode_for_edges(executable: str, source: Path, position: list[str]) -> tuple[str, int] | None:
+    """ffmpeg's silence and sample report for part of a file: ``(log, samples decoded)``."""
+    result = _run([executable, "-hide_banner", "-nostats", *position, "-i", str(source),
                    "-af", f"silencedetect=noise={EDGE_SILENCE_DB:g}dB:d=0.01,astats=metadata=0",
                    "-f", "null", "-"])
     if result.returncode != 0:
         return None
     log = result.stderr.decode("utf-8", "replace")
     samples = re.findall(r"Number of samples:\s*(\d+)", log)
+    return log, int(samples[-1]) if samples else 0
+
+
+def _edge_silence_file(executable: str, source: Path, duration: float, rate: int = 0) -> EdgeSilence | None:
+    """Measure the silence at both edges of a file.
+
+    Times are on the decoded timeline. A file with a LAME header is decoded
+    without its encoder delay and padding, so it ends a few hundredths of a
+    second before its frames do: the end of the file is the number of samples
+    decoded, not the frame count, or its closing silence would go unseen.
+
+    A long file is measured on a window at each end (``EDGE_WINDOW_SECONDS``):
+    its first seconds from the start, its last ones up to the end, so both
+    edges are measured on exactly the samples a full decode gives them. If a
+    window is silent from end to end, the silence may go on beyond it and the
+    whole file is decoded instead.
+    """
+    window = EDGE_WINDOW_SECONDS
+    if rate and duration > 2 * window + 1:
+        head = _decode_for_edges(executable, source, ["-t", f"{window:.3f}"])
+        tail = _decode_for_edges(executable, source, ["-sseof", f"-{window:.3f}"])
+        if head is not None and tail is not None and tail[1]:
+            starts, ends = _silences(head[0])
+            leading = 0.0
+            if starts and starts[0] <= 0.005:
+                leading = ends[0] if ends else window
+            tail_length = tail[1] / rate
+            starts_tail, ends_tail = _silences(tail[0])
+            trailing = 0.0
+            if starts_tail and (len(ends_tail) < len(starts_tail) or ends_tail[-1] >= tail_length - 0.03):
+                trailing = max(0.0, tail_length - starts_tail[-1])
+            # A silent window says only that the silence is at least this long.
+            if leading < window - 0.05 and trailing < tail_length - 0.05:
+                return EdgeSilence(round(leading, 3), round(trailing, 3), round(duration, 3))
+    decoded = _decode_for_edges(executable, source, [])
+    if decoded is None:
+        return None
+    log, samples = decoded
     if samples and rate:
-        duration = int(samples[-1]) / rate
-    starts = [float(value) for value in re.findall(r"silence_start: (-?\d+(?:\.\d+)?)", log)]
-    ends = [float(value) for value in re.findall(r"silence_end: (-?\d+(?:\.\d+)?)", log)]
+        duration = samples / rate
+    starts, ends = _silences(log)
     leading = 0.0
     if starts and starts[0] <= 0.005:
         leading = ends[0] if ends else duration
@@ -699,6 +743,37 @@ def edge_silence(audio: bytes) -> EdgeSilence | None:
         return _edge_silence_file(executable, source, stream["duration_seconds"], rate)
 
 
+def edge_silence_path(path: Path, stream: dict | None = None) -> EdgeSilence | None:
+    """``edge_silence`` of a file on disk, measured where it is.
+
+    ``stream`` is the file's ``inspect_stream`` report when the caller already
+    has it. The file is not copied: for the complete audiobook, copying it to
+    a temporary file cost as much as measuring it.
+    """
+    from app.audio_integrity import inspect_stream
+
+    executable = ffmpeg_path()
+    if executable is None or not path.is_file():
+        return None
+    stream = stream or inspect_stream(path.read_bytes())
+    if not stream["frames"]:
+        return None
+    rate = stream["sample_rates"][0] if len(stream["sample_rates"]) == 1 else 0
+    return _edge_silence_file(executable, path, stream["duration_seconds"], rate)
+
+
+def _window_level(executable: str, source: Path, start: float, length: float) -> float | None:
+    result = _run([executable, "-hide_banner", "-nostats", "-ss", f"{max(0.0, start):.3f}",
+                   "-t", f"{length:.3f}", "-i", str(source), "-af", "astats=metadata=0",
+                   "-f", "null", "-"])
+    values = re.findall(r"RMS level dB:\s*(-?inf|-?\d+(?:\.\d+)?)", result.stderr.decode("utf-8", "replace"))
+    if not values:
+        return None
+    # astats lists each channel, then the overall figure last.
+    value = values[-1]
+    return float("-inf") if "inf" in value else float(value)
+
+
 def window_level_db(audio: bytes, start: float, length: float) -> float | None:
     """RMS level of a stretch of audio in dBFS: ``-inf`` for digital silence.
 
@@ -711,15 +786,15 @@ def window_level_db(audio: bytes, start: float, length: float) -> float | None:
     with tempfile.TemporaryDirectory(prefix="soni2-level-") as folder:
         source = Path(folder) / "input.mp3"
         source.write_bytes(audio)
-        result = _run([executable, "-hide_banner", "-nostats", "-ss", f"{max(0.0, start):.3f}",
-                       "-t", f"{length:.3f}", "-i", str(source), "-af", "astats=metadata=0",
-                       "-f", "null", "-"])
-    values = re.findall(r"RMS level dB:\s*(-?inf|-?\d+(?:\.\d+)?)", result.stderr.decode("utf-8", "replace"))
-    if not values:
+        return _window_level(executable, source, start, length)
+
+
+def window_level_db_path(path: Path, start: float, length: float) -> float | None:
+    """``window_level_db`` of a file on disk, without copying it."""
+    executable = ffmpeg_path()
+    if executable is None or not path.is_file() or length <= 0:
         return None
-    # astats lists each channel, then the overall figure last.
-    value = values[-1]
-    return float("-inf") if "inf" in value else float(value)
+    return _window_level(executable, path, start, length)
 
 
 def peak_level_db(audio: bytes) -> float | None:
@@ -901,7 +976,7 @@ def _conform(executable: str, source: Path, destination: Path, rate: int, channe
     return result.returncode == 0 and destination.is_file() and destination.stat().st_size > 0
 
 
-def join_book(parts: list[bytes], options: MasteringOptions) -> JoinedAudio:
+def join_book(parts: list[bytes | Path], options: MasteringOptions, *, destination: Path | None = None) -> JoinedAudio:
     """The complete audiobook: the finished files one after the other, frames copied.
 
     Every file already starts and ends with its silence, so between two
@@ -910,30 +985,45 @@ def join_book(parts: list[bytes], options: MasteringOptions) -> JoinedAudio:
     re-encoded, so each chapter sits in the book exactly as in its own file
     and ``clips`` (where each part sits) is exact. A part in another format
     (an older front-matter file) is converted to the chapters' format first.
+
+    Parts may be files. With ``destination`` the book is written there and
+    the returned ``audio`` is empty: a book of hours is never held in memory,
+    and the parts are linked, not copied, to be joined.
     """
     if not parts:
         raise ValueError("Cannot assemble an empty book.")
-    from app.daisy_export import mp3_duration
+    from app.audio_cache import link_or_copy
+    from app.daisy_export import audio_bytes, mp3_duration
+
+    def deliver(audio: bytes, mastered: bool, detail: str, clips: list[tuple[float, float]]) -> JoinedAudio:
+        if destination is not None and audio:
+            destination.write_bytes(audio)
+            return JoinedAudio(b"", mastered, detail, clips)
+        return JoinedAudio(audio, mastered, detail, clips)
 
     executable = ffmpeg_path()
     if executable is None:
         position, clips = 0.0, []
         for part in parts:
-            length = mp3_duration(part)
+            length = mp3_duration(audio_bytes(part))
             clips.append((position, position + length))
             position += length
-        return JoinedAudio(b"".join(parts), False, "ffmpeg no está disponible: los archivos se unen sin más.", clips)
+        return deliver(b"".join(audio_bytes(part) for part in parts), False,
+                       "ffmpeg no está disponible: los archivos se unen sin más.", clips)
     if len(parts) == 1:
-        return JoinedAudio(parts[0], True, "Un solo archivo: el libro es ese archivo.", [(0.0, mp3_duration(parts[0]))])
+        audio = audio_bytes(parts[0])
+        return deliver(audio, True, "Un solo archivo: el libro es ese archivo.", [(0.0, mp3_duration(audio))])
     head, tail = options.edges
     extra = max(0.0, options.chapter_gap_ms / 1000 - head - tail)
-    formats = [_stream_format(part) for part in parts]
+    formats = [_stream_format(audio_bytes(part)) for part in parts]
     known = [item for item in formats if item is not None]
     # The chapters' own format: the most common one.
     target = max(set(known), key=known.count) if known else (SAMPLE_RATE, CHANNELS, (options.bitrate_kbps,))
     rate, channels, bitrates = target
     bitrate = bitrates[0] if len(bitrates) == 1 else options.bitrate_kbps
-    with tempfile.TemporaryDirectory(prefix="soni2-book-") as folder:
+    # Beside the destination when there is one, so its parts are hard links.
+    with tempfile.TemporaryDirectory(prefix="soni2-book-",
+                                     dir=destination.parent if destination is not None else None) as folder:
         root = Path(folder)
         files: list[Path] = []
         lengths: list[float] = []
@@ -945,11 +1035,15 @@ def join_book(parts: list[bytes], options: MasteringOptions) -> JoinedAudio:
                 filler = None
         for index, (part, fmt) in enumerate(zip(parts, formats)):
             path = root / f"part-{index:04d}.mp3"
-            path.write_bytes(part)
+            if isinstance(part, Path):
+                link_or_copy(part, path)
+            else:
+                path.write_bytes(part)
             if fmt != target:
                 conformed = root / f"part-{index:04d}-conformed.mp3"
                 if not _conform(executable, path, conformed, rate, channels, bitrate):
-                    return JoinedAudio(b"".join(parts), False, "ffmpeg no pudo igualar el formato de un archivo.", [])
+                    return deliver(b"".join(audio_bytes(item) for item in parts), False,
+                                   "ffmpeg no pudo igualar el formato de un archivo.", [])
                 path = conformed
                 converted += 1
             files.append(path)
@@ -964,8 +1058,12 @@ def join_book(parts: list[bytes], options: MasteringOptions) -> JoinedAudio:
         result = _run([executable, "-hide_banner", "-v", "error", "-y", "-f", "concat", "-safe", "0",
                        "-i", str(manifest), "-map", "0:a:0", "-c:a", "copy", "-write_xing", "0", str(joined)])
         if result.returncode != 0 or not joined.is_file() or not joined.stat().st_size:
-            return JoinedAudio(b"".join(parts), False, "ffmpeg no pudo unir los capítulos.", [])
-        audio = joined.read_bytes()
+            return deliver(b"".join(audio_bytes(item) for item in parts), False, "ffmpeg no pudo unir los capítulos.", [])
+        if destination is not None:
+            shutil.move(str(joined), str(destination))
+            audio = b""
+        else:
+            audio = joined.read_bytes()
     clips: list[tuple[float, float]] = []
     position = 0.0
     for path, length in zip(files, lengths):

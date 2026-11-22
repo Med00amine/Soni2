@@ -127,8 +127,10 @@ def evaluate(job: dict, *, extraction: dict | None, completeness: dict | None, v
     # --- Audio integrity --------------------------------------------------- #
     integrity_failed = [unit["sentence_id"] for unit in units
                         if (unit.get("acoustic") or {}).get("status") == "failed" and unit["state"] == "verified"]
-    unchecked = [unit["sentence_id"] for unit in units
-                 if (unit.get("acoustic") or {}).get("status") in {"unavailable", "skipped", "not_performed", None}]
+    # Only audio that exists can have gone unanalysed: a unit not narrated yet
+    # is reported above as pending, not as a missing ffmpeg.
+    unchecked = [unit["sentence_id"] for unit in units if unit.get("audio_path")
+                 and (unit.get("acoustic") or {}).get("status") in {"unavailable", "skipped", "not_performed", None}]
     audio = {
         "status": "simulated" if simulated_audio else ("failed" if integrity_failed else
                                                        ("partial" if unchecked else "passed")),

@@ -34,7 +34,6 @@ def _words(text: str) -> set[str]:
 
 async def check(unpacked: Path) -> dict:
     locations = json.loads((unpacked / "fault-locations.json").read_text(encoding="utf-8"))
-    package = unpacked / "DAISY 3"
     ffmpeg = shutil.which("ffmpeg")
     provider = main.active_asr_provider()
     results = []
@@ -44,8 +43,12 @@ async def check(unpacked: Path) -> dict:
                 continue
             start = max(0.0, item["book_time"] - BEFORE)
             clip = Path(folder) / f"window-{index}.mp3"
+            # The complete audiobook is delivered beside "DAISY 3/" (older ZIPs had it inside).
+            book = unpacked / item["book_file"]
+            if not book.is_file():
+                book = unpacked / "DAISY 3" / item["book_file"]
             subprocess.run([ffmpeg, "-hide_banner", "-v", "error", "-y", "-ss", f"{start:.2f}", "-t",
-                            f"{BEFORE + AFTER:.2f}", "-i", str(package / item["book_file"]), "-c:a", "libmp3lame",
+                            f"{BEFORE + AFTER:.2f}", "-i", str(book), "-c:a", "libmp3lame",
                             "-q:a", "4", str(clip)], check=True)
             heard = await providers.transcribe(clip.read_bytes(), provider=provider,
                                                api_key=main.provider_api_key(provider))

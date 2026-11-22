@@ -9,6 +9,10 @@
 // a phrase nobody touched keeps the exact text whose audio is already paid
 // for; an empty list deletes it. A note is edited as a whole text. A section
 // title can be corrected or taken out of the narration.
+//
+// A chapter the book does not have can be added (added_sections): it gets an
+// id of its own ("added-1a2b3c4d") that never changes, so its paragraphs have
+// slots ("added-1a2b3c4d:0") and are edited like any other.
 
 export type UnitSource = {
   chapter?: number
@@ -22,13 +26,19 @@ export type UnitSource = {
   text?: string
 }
 
+// A chapter the reader added after the section `after` ("" for the start).
+export type AddedSection = { id: string; after: string; title: string; paragraphs: string[] }
+
 export type BookEdits = {
   slots: Record<string, string[] | string>
   titles: Record<string, string>
   deleted_titles: string[]
+  added_sections?: AddedSection[]
 }
 
 export const NO_EDITS: BookEdits = { slots: {}, titles: {}, deleted_titles: [] }
+
+export const isAddedSection = (id?: string) => Boolean(id && id.startsWith('added-'))
 
 export type EditableUnit = { role: string; text: string; source?: UnitSource | null }
 export type EditableSection = {
@@ -44,11 +54,13 @@ const INITIAL_KINDS = new Set(['once_title', 'once_bibliographic', 'once_index']
 
 export function normalizeEdits(value: unknown): BookEdits {
   const raw = (value && typeof value === 'object' ? value : {}) as Partial<BookEdits>
-  return {
+  const edits: BookEdits = {
     slots: { ...(raw.slots ?? {}) },
     titles: { ...(raw.titles ?? {}) },
     deleted_titles: [...(raw.deleted_titles ?? [])],
   }
+  if (raw.added_sections?.length) edits.added_sections = raw.added_sections.map(item => ({ ...item, paragraphs: [...item.paragraphs] }))
+  return edits
 }
 
 export function canEdit(unit: EditableUnit) {
@@ -135,11 +147,26 @@ export function sectionFamily(sections: EditableSection[], index: number): numbe
   return family
 }
 
+// The plan section (or added chapter) a section of the audiobook belongs to.
+export function sectionAnchor(section?: EditableSection): string {
+  const source = section?.titleSource
+  if (source?.mode === 'title' && source.section) return source.section
+  const slot = source?.slot ?? section?.units.find(unit => unit.source?.slot)?.source?.slot
+  return slot ? slot.slice(0, slot.indexOf(':')) : ''
+}
+
 export function deleteSection(edits: BookEdits, sections: EditableSection[], index: number): BookEdits {
-  let next = { ...edits, slots: { ...edits.slots }, deleted_titles: [...edits.deleted_titles] }
+  let next: BookEdits = { ...edits, slots: { ...edits.slots }, deleted_titles: [...edits.deleted_titles] }
   for (const position of sectionFamily(sections, index)) {
     const section = sections[position]
     if (!section.deletable) continue
+    const anchor = sectionAnchor(section)
+    if (isAddedSection(anchor)) {
+      // A chapter the reader added is taken out of the book, with its changes;
+      // a chapter added after it keeps its place.
+      next = removeAdded(next, anchor)
+      continue
+    }
     for (const unit of section.units) {
       const slot = unit.source?.slot
       if (slot && (unit.source?.mode === 'units' || unit.source?.mode === 'text')) next.slots[slot] = []
@@ -153,6 +180,35 @@ export function deleteSection(edits: BookEdits, sections: EditableSection[], ind
   return next
 }
 
+function removeAdded(edits: BookEdits, id: string): BookEdits {
+  const removed = (edits.added_sections ?? []).find(item => item.id === id)
+  if (!removed) return edits
+  const added = (edits.added_sections ?? []).filter(item => item.id !== id)
+    .map(item => item.after === id ? { ...item, after: removed.after } : item)
+  const prefix = `${id}:`
+  const slots = Object.fromEntries(Object.entries(edits.slots).filter(([slot]) => !slot.startsWith(prefix)))
+  const titles = Object.fromEntries(Object.entries(edits.titles).filter(([section]) => section !== id))
+  const next: BookEdits = { ...edits, slots, titles, deleted_titles: edits.deleted_titles.filter(section => section !== id) }
+  if (added.length) next.added_sections = added
+  else delete next.added_sections
+  return next
+}
+
+// A new chapter after the section at `index` (and the subchapters nested in
+// it). Its text is split into paragraphs at blank lines, as the narration
+// splits it.
+export function addSection(edits: BookEdits, sections: EditableSection[], index: number, title: string,
+                           text: string, id = `added-${Math.random().toString(16).slice(2, 10).padEnd(8, '0')}`): BookEdits {
+  const heading = title.replace(/\s+/g, ' ').trim()
+  const paragraphs = text.split(/\n\s*\n/).map(part => part.replace(/[ \t]+/g, ' ').trim()).filter(Boolean)
+  if (!heading || !paragraphs.length) return edits
+  const family = sectionFamily(sections, index)
+  const section = sections[family[family.length - 1] ?? index]
+  const anchor = section && !INITIAL_KINDS.has(section.kind) ? sectionAnchor(section) : ''
+  return { ...edits, added_sections: [...(edits.added_sections ?? []), { id, after: anchor, title: heading, paragraphs }] }
+}
+
 export function changeCount(edits: BookEdits) {
   return Object.keys(edits.slots).length + Object.keys(edits.titles).length + edits.deleted_titles.length
+    + (edits.added_sections?.length ?? 0)
 }

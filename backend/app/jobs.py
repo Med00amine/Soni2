@@ -13,8 +13,21 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Stores whose schema this process has already brought up to date. The page
+# polls endpoints that call initialize_store every second.
+_initialized: set[str] = set()
+
+
 def initialize_store(database: Path) -> None:
+    key = str(Path(database).resolve())
+    if key in _initialized and Path(database).is_file():
+        return
     database.parent.mkdir(parents=True, exist_ok=True)
+    _initialize(database)
+    _initialized.add(key)
+
+
+def _initialize(database: Path) -> None:
     with sqlite3.connect(database) as connection:
         connection.execute("PRAGMA foreign_keys=ON")
         connection.execute("PRAGMA journal_mode=WAL")
@@ -142,6 +155,9 @@ def initialize_store(database: Path) -> None:
             # The draft (and its revision) the job was produced from.
             ("draft_id", "TEXT NOT NULL DEFAULT ''"),
             ("draft_revision", "INTEGER NOT NULL DEFAULT 0"),
+            # How the package is built (mastering, layout, timing targets): a
+            # finished package is only reused for the same text built the same way.
+            ("build_signature", "TEXT NOT NULL DEFAULT ''"),
         ):
             if name not in job_columns:
                 connection.execute(f"ALTER TABLE production_jobs ADD COLUMN {name} {definition}")
@@ -153,12 +169,13 @@ def create_job(database: Path, job: dict[str, Any], sentences: list[dict[str, An
         connection.execute(
             """INSERT INTO production_jobs
             (job_id,state,source_name,source_path,source_hash,chapters_json,metadata_json,
-             voice_id,voice_speed,total_sentences,created_at,updated_at,content_hash,draft_id,draft_revision)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+             voice_id,voice_speed,total_sentences,created_at,updated_at,content_hash,draft_id,draft_revision,
+             build_signature)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (job["job_id"], "queued", job["source_name"], job["source_path"], job["source_hash"],
              json.dumps(job["chapters"], ensure_ascii=False), json.dumps(job["metadata"], ensure_ascii=False),
              job["voice_id"], job["voice_speed"], len(sentences), now, now, job.get("content_hash", ""),
-             job.get("draft_id", ""), int(job.get("draft_revision") or 0)),
+             job.get("draft_id", ""), int(job.get("draft_revision") or 0), job.get("build_signature", "")),
         )
         connection.executemany(
             """INSERT INTO production_sentences
@@ -185,18 +202,147 @@ def get_job(database: Path, job_id: str) -> dict[str, Any] | None:
         result["cancel_requested"] = bool(result["cancel_requested"])
         result["release"] = json.loads(result.pop("release_json", "{}") or "{}")
         result["acknowledgements"] = json.loads(result.pop("acknowledgements_json", "[]") or "[]")
-        result["sentences"] = [dict(item) for item in connection.execute(
+        result["sentences"] = [_sentence(item) for item in connection.execute(
             "SELECT * FROM production_sentences WHERE job_id=? ORDER BY chapter_index,sequence", (job_id,)
         )]
-        for item in result["sentences"]:
-            item["issues"] = json.loads(item.pop("issues_json"))
-            item["acoustic"] = json.loads(item.pop("acoustic_json"))
-            for column, key in (("normalization_json", "normalization"), ("provenance_json", "provenance"),
-                                ("metrics_json", "metrics"), ("diagnosis_json", "diagnosis")):
-                item[key] = json.loads(item.pop(column, "{}") or "{}")
-            # Rows from before the spoken form existed compare against the text.
-            item["spoken_text"] = item.get("spoken_text") or item["text"]
         return result
+
+
+def _sentence(row: sqlite3.Row) -> dict[str, Any]:
+    item = dict(row)
+    item["issues"] = json.loads(item.pop("issues_json"))
+    item["acoustic"] = json.loads(item.pop("acoustic_json"))
+    for column, key in (("normalization_json", "normalization"), ("provenance_json", "provenance"),
+                        ("metrics_json", "metrics"), ("diagnosis_json", "diagnosis")):
+        item[key] = json.loads(item.pop(column, "{}") or "{}")
+    # Rows from before the spoken form existed compare against the text.
+    item["spoken_text"] = item.get("spoken_text") or item["text"]
+    return item
+
+
+def get_sentence(database: Path, job_id: str, sentence_id: str) -> dict[str, Any] | None:
+    """One unit as it stands now, without reading the whole job.
+
+    The worker checks each unit before narrating it; reading the whole job
+    for that made a book's run quadratic in its length.
+    """
+    with sqlite3.connect(database) as connection:
+        connection.row_factory = sqlite3.Row
+        row = connection.execute("SELECT * FROM production_sentences WHERE job_id=? AND sentence_id=?",
+                                 (job_id, sentence_id)).fetchone()
+    return _sentence(row) if row is not None else None
+
+
+def unit_state_counts(database: Path, job_id: str) -> dict[str, int]:
+    with sqlite3.connect(database) as connection:
+        return dict(connection.execute(
+            "SELECT state, COUNT(*) FROM production_sentences WHERE job_id=? GROUP BY state", (job_id,)).fetchall())
+
+
+def count_events(database: Path, job_id: str, message: str) -> int:
+    with sqlite3.connect(database) as connection:
+        return connection.execute("SELECT COUNT(*) FROM production_events WHERE job_id=? AND message=?",
+                                  (job_id, message)).fetchone()[0]
+
+
+def job_flags(database: Path, job_id: str) -> dict[str, Any] | None:
+    """A job's state and whether it was asked to stop, and nothing else."""
+    with sqlite3.connect(database) as connection:
+        row = connection.execute("SELECT state,cancel_requested FROM production_jobs WHERE job_id=?",
+                                 (job_id,)).fetchone()
+    return {"state": row[0], "cancel_requested": bool(row[1])} if row else None
+
+
+def find_reusable_job(database: Path, source_hash: str, voice_id: str, voice_speed: float, content_hash: str,
+                      build_signature: str, states: tuple[str, ...], draft_id: str = "") -> dict[str, Any] | None:
+    """The newest job over the same book, text, voice, speed and build, in one of ``states``.
+
+    A finished package of exactly this text, built the same way, is the
+    package: producing it again would only pay CPU time for the same bytes.
+    A job still running is joined from any window; a finished one, or one
+    waiting for a person, only by the draft it was produced from.
+    """
+    marks = ",".join("?" for _ in states)
+    with sqlite3.connect(database) as connection:
+        connection.row_factory = sqlite3.Row
+        row = connection.execute(
+            f"""SELECT job_id,state,total_sentences,output_path,draft_id FROM production_jobs
+               WHERE source_hash=? AND voice_id=? AND ABS(voice_speed-?)<0.001 AND content_hash=?
+                 AND build_signature=? AND state IN ({marks}) AND cancel_requested=0
+                 AND (state IN ('queued','running') OR draft_id=?)
+               ORDER BY created_at DESC LIMIT 1""",
+            (source_hash, voice_id, voice_speed, content_hash, build_signature, *states, draft_id),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def attach_to_draft(database: Path, job_id: str, draft_id: str, revision: int) -> None:
+    """A job that produced exactly this draft's text is its production at this revision too."""
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE production_jobs SET draft_revision=? WHERE job_id=? AND draft_id=?",
+                           (revision, job_id, draft_id))
+        connection.execute("UPDATE book_drafts SET last_job_id=?, updated_at=? WHERE draft_id=?",
+                           (job_id, utc_now(), draft_id))
+
+
+def record_reused_units(database: Path, job_id: str, units: list[dict[str, Any]]) -> None:
+    """Store, in one transaction, units whose audio and verdicts an earlier production left.
+
+    Each entry carries the unit's new column values (``values``), its take
+    (``attempt``, as ``add_attempt`` takes it) and the event that says so.
+    One transaction for the whole book instead of about ten per unit.
+    """
+    if not units:
+        return
+    now = utc_now()
+    allowed = {"state", "audio_path", "recognized_text", "issues_json", "acoustic_json", "confidence",
+               "last_error", "reused_audio", "metrics_json", "diagnosis_json", "secondary_text", "verification"}
+    with sqlite3.connect(database) as connection:
+        for unit in units:
+            values = dict(unit["values"])
+            if set(values) - allowed:
+                raise ValueError("Invalid sentence update fields.")
+            values["updated_at"] = now
+            assignments = ",".join(f"{name}=?" for name in values)
+            connection.execute(f"UPDATE production_sentences SET {assignments} WHERE job_id=? AND sentence_id=?",
+                               (*values.values(), job_id, unit["sentence_id"]))
+        connection.executemany(
+            """INSERT INTO production_attempts
+            (job_id,sentence_id,attempt_number,created_at,trigger,audio_path,cache_key,reused_audio,
+             provider_json,integrity_json,primary_json,secondary_json,diagnosis_json,outcome)
+             VALUES (?,?,
+                     (SELECT COALESCE(MAX(attempt_number),0)+1 FROM production_attempts WHERE job_id=? AND sentence_id=?),
+                     ?,?,?,?,?,?,?,?,?,?,?)""",
+            [(job_id, unit["sentence_id"], job_id, unit["sentence_id"], now, unit["attempt"].get("trigger", ""),
+              unit["attempt"].get("audio_path"), unit["attempt"].get("cache_key", ""),
+              int(bool(unit["attempt"].get("reused_audio"))),
+              *(json.dumps(unit["attempt"].get(key) or {}, ensure_ascii=False)
+                for key in ("provider", "integrity", "primary", "secondary", "diagnosis")),
+              unit["attempt"].get("outcome", "")) for unit in units])
+        connection.executemany(
+            "INSERT INTO production_events(job_id,timestamp,level,message,details_json) VALUES (?,?,?,?,?)",
+            [(job_id, now, "INFO", "sentence finished", json.dumps(unit["event"], ensure_ascii=False))
+             for unit in units])
+
+
+def superseded_jobs(database: Path, draft_id: str, newer_than: str, keep: str) -> list[dict[str, Any]]:
+    """Earlier finished jobs of a draft whose package a newer production replaced."""
+    if not draft_id:
+        return []
+    with sqlite3.connect(database) as connection:
+        connection.row_factory = sqlite3.Row
+        rows = connection.execute(
+            """SELECT job_id,source_path,output_path,state FROM production_jobs
+               WHERE draft_id=? AND job_id<>? AND created_at<? AND output_path IS NOT NULL AND output_path<>''
+                 AND state IN ('completed','failed','cancelled','partially_completed')""",
+            (draft_id, keep, newer_than)).fetchall()
+    return [dict(row) for row in rows]
+
+
+def clear_output(database: Path, job_id: str) -> None:
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE production_jobs SET output_path='', updated_at=? WHERE job_id=?",
+                           (utc_now(), job_id))
 
 
 def update_job(database: Path, job_id: str, **values: Any) -> None:

@@ -130,7 +130,9 @@ def _audit_zip(archive: Path, out: Path, name: str, records: list[dict] | None, 
         bundle.extractall(unpacked)
     package = unpacked / "DAISY 3"
     lead, tail = audio_master.MasteringOptions().edges
-    report = audit(package, leading=lead, trailing=tail)
+    # The complete audiobook travels beside the package.
+    book_audio = next(iter(sorted(unpacked.glob("*.mp3"))), None)
+    report = audit(package, leading=lead, trailing=tail, book_audio=book_audio)
     report["alignment"] = alignment(package)
     if records is not None:
         report["once"] = {check["id"]: [check["status"], check["detail"]]
@@ -202,7 +204,8 @@ def main_cli() -> None:
         archive.write_bytes(direct.content)
         direct_report["zip"] = _audit_zip(archive, out, "direct-flat", job["chapters"], planilla)
         with zipfile.ZipFile(archive) as bundle:
-            direct_report["quality_status"] = json.loads(bundle.read("DAISY 3/quality-status.json"))["package"]
+            # Beside the package, as in a reviewed delivery.
+            direct_report["quality_status"] = json.loads(bundle.read("quality-status.json"))["package"]
     else:
         direct_report["detail"] = direct.text[:500]
 
@@ -213,12 +216,14 @@ def main_cli() -> None:
         "chain_not_passed": {key: value for key, value in job_report["chain"].items() if value != "passed"},
         "job_zip": {"structural": job_report["zip"]["structural"], "dtd": job_report["zip"]["dtd"]["status"],
                     "timing": job_report["zip"]["timing"]["status"],
+                    "zedval_rules": job_report["zip"]["zedval_rules"],
                     "alignment": f"{job_report['zip']['alignment']['in_a_pause_then_speech']}/"
                                  f"{job_report['zip']['alignment']['boundaries']}",
                     "once": {key: value[0] for key, value in job_report["zip"]["once"].items()}},
         "direct_flat_zip": ({"structural": direct_report["zip"]["structural"],
                              "dtd": direct_report["zip"]["dtd"]["status"],
                              "timing": direct_report["zip"]["timing"]["status"],
+                             "zedval_rules": direct_report["zip"]["zedval_rules"],
                              "folders": sorted({path.split("/")[0] for path in direct_report["zip"]["files"]
                                                 if "/" in path})}
                             if "zip" in direct_report else direct_report),

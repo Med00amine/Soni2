@@ -92,8 +92,9 @@ class Section:
     title_pages: list[str] = field(default_factory=list)
     paragraphs: list[Paragraph] = field(default_factory=list)
     title_source: dict | None = None
-    # The page the section starts on: its own marker, or the page already in
-    # effect when it begins. What the index says.
+    # The page the section starts on: the last marker at its heading (the
+    # others began on a blank page or in text left out before it), or the page
+    # already in effect when it begins. What the index says.
     page_start: str = ""
     page_end: str = ""
 
@@ -362,15 +363,26 @@ def _assign_pages(sections: list[Section], plan: planilla_module.Planilla, warni
     planned_only = False
     overrides = {_normal(heading): page for heading, page in plan.chapter_pages.items()}
     toc_pages = toc_pages or {}
+    # Pages already marked somewhere: a planned page never marks one twice.
+    marked = {page for section in sections for page in section.title_pages
+              + [page for paragraph in section.paragraphs for page in paragraph.page_breaks]}
     for index, section in enumerate(sections):
         if not section.initial and index and sections[index - 1].initial:
             # The pages of files 1-3 are the planilla's; the book's own pages
             # start with the book. A chapter is never given the index's page.
             in_effect, planned_only = "", False
         planned = (overrides.get(_normal(section.title)) or toc_pages.get(index)) if not section.initial else None
+        unmarked = not section.title_pages and not any(paragraph.page_breaks for paragraph in section.paragraphs[:1])
+        if planned and unmarked and planned in marked:
+            warnings.append({"code": "page_conflict", "section": index,
+                             "message": f"La planilla o el índice del libro sitúan «{section.title}» en la página "
+                                        f"{planned}, que ya está marcada en otro archivo; no se marca dos veces."})
+            planned = None
         if section.title_pages:
+            # The heading is on the last page marked at it: the ones before it
+            # began on a blank page or in text left out of the audiobook.
             in_effect, planned_only = section.title_pages[-1], False
-            section.page_start = section.title_pages[0]
+            section.page_start = in_effect
             if toc_pages.get(index) and toc_pages[index] != section.page_start:
                 warnings.append({"code": "toc_page_conflict", "section": index,
                                  "message": f"El índice del libro sitúa «{section.title}» en la página "
@@ -380,12 +392,13 @@ def _assign_pages(sections: list[Section], plan: planilla_module.Planilla, warni
                 warnings.append({"code": "page_conflict", "section": index,
                                  "message": f"La planilla sitúa «{section.title}» en la página {planned} y el libro "
                                             f"en la {section.page_start}; se usa la del libro."})
-        elif planned and not any(paragraph.page_breaks for paragraph in section.paragraphs[:1]):
+        elif planned and unmarked:
             # The book has no page number here; the planilla's index says
             # where it starts, and that is where its page marker goes.
             section.title_pages = [planned]
             section.page_start = in_effect = planned
             planned_only = True
+            marked.add(planned)
         else:
             section.page_start = in_effect
             if in_effect and planned_only and not section.initial:
@@ -534,6 +547,9 @@ def build(selected: list, provenance: list[tuple[dict, list[dict]]], metadata: d
             warnings.append({"code": "page_order",
                              "message": "Páginas del índice del libro que retroceden (revísalas; no se corrigen): "
                                         + ", ".join(toc.out_of_order[:5]) + "."})
+    # Before the pages are assigned, so that the index, the layout and the
+    # package all name the page a section really starts on.
+    _mark_pages_once(sections, warnings)
     _assign_pages(sections, plan, warnings, toc_pages)
     for section in sections:
         if section.kind == KIND_PHOTOS:
@@ -573,7 +589,6 @@ def build(selected: list, provenance: list[tuple[dict, list[dict]]], metadata: d
         section.key = section.key if section.initial else f"{index + 1:03d}-{section.key}"
 
     _compare_with_planilla(sections, plan, warnings)
-    _check_pages(sections, warnings)
     return OnceStructure(sections, warnings, resolved)
 
 
@@ -594,15 +609,33 @@ def _compare_with_planilla(sections: list[Section], plan: planilla_module.Planil
                          "message": f"El libro tiene {len(sections)} archivos y la planilla lista {max(expected)}."})
 
 
-def _check_pages(sections: list[Section], warnings: list[dict]) -> None:
+def _mark_pages_once(sections: list[Section], warnings: list[dict]) -> None:
+    """Each page is marked once, where it first occurs in reading order.
+
+    A page navigation target must be unique (Z39.86, and ZedVal's
+    ncx_pageTargUniqValTypeComb). A second marker comes from the planilla
+    giving files 1-3 a page the book also marks, such as page 1 of a book whose
+    cover and title page are left out and carried to the first chapter.
+    """
     seen: dict[str, int] = {}
-    for index, section in enumerate(sections):
-        for page in section.title_pages + [page for paragraph in section.paragraphs for page in paragraph.page_breaks]:
+
+    def keep(pages: list[str], index: int) -> list[str]:
+        kept = []
+        for page in pages:
             if page in seen:
                 warnings.append({"code": "duplicate_page", "section": index,
                                  "message": f"La página {page} se marca dos veces (archivos {seen[page] + 1} y "
-                                            f"{index + 1})."})
-            seen.setdefault(page, index)
+                                            f"{index + 1}); se marca solo en el archivo {seen[page] + 1}."})
+                continue
+            seen[page] = index
+            kept.append(page)
+        return kept
+
+    for index, section in enumerate(sections):
+        section.title_pages = keep(section.title_pages, index)
+        for paragraph in section.paragraphs:
+            if paragraph.page_breaks:
+                paragraph.page_breaks = keep(paragraph.page_breaks, index)
 
 
 # --------------------------------------------------------------------------- #
@@ -635,6 +668,8 @@ def unit_layout(record: dict, paragraphs: list[str], heading_spoken: bool, split
     paragraph begins at its first part.
     """
     entries: list[dict] = []
+    # The pages of a heading that is not read begin at the first text read.
+    pending = [] if heading_spoken else list(record.get("title_pages") or [])
     if heading_spoken:
         entries.append({"role": "heading", "page_breaks": list(record.get("title_pages") or []), "note": None})
     details = record.get("paragraphs") or []
@@ -644,8 +679,10 @@ def unit_layout(record: dict, paragraphs: list[str], heading_spoken: bool, split
         for part, _piece in enumerate(pieces):
             refs = part_note_refs(detail.get("note_refs"), text, pieces, part)
             photo = {"photo": detail["photo"]} if detail.get("photo") and part == 0 else {}
-            entries.append({"role": detail.get("role") or "text",
-                            "page_breaks": list(detail.get("page_breaks") or []) if part == 0 else [],
+            pages = list(detail.get("page_breaks") or []) if part == 0 else []
+            if pending:
+                pages, pending = pending + pages, []
+            entries.append({"role": detail.get("role") or "text", "page_breaks": pages,
                             "note": detail.get("note"), "paragraph": index, "part": part,
                             **({"frame": detail["frame"]} if detail.get("frame") else {}),
                             **({"note_refs": refs} if refs else {}), **photo})

@@ -112,20 +112,22 @@ def test_delivery_has_one_copy_of_each_audio_artifact(offline) -> None:
     base = _package_base(names)
     assert base != "book"
     assert f"DAISY 3/{base}.xml" in names
-    assert f"DAISY 3/{base}.mp3" in names
-    assert "DAISY 3/audio/chapter-001.mp3" in names
-    assert "DAISY 3/audio/chapter-002.mp3" in names
-    assert "DAISY 3/smil/chapter-0001.smil" in names
+    # The complete audiobook is beside the DAISY book, not one of its files.
+    assert f"{base}.mp3" in names and f"DAISY 3/{base}.mp3" not in names
+    # Flat by default, as in ONCE's own books: every file of the DAISY book in one folder.
+    assert "DAISY 3/chapter-001.mp3" in names
+    assert "DAISY 3/chapter-002.mp3" in names
+    assert "DAISY 3/chapter-0001.smil" in names
+    assert not any(name.count("/") > 1 for name in names if name.startswith("DAISY 3/"))
     # Logs end in .log; the JSON Lines twin of job.log is not delivered.
     assert {"job.log", "tts.log", "review-decisions.log", "quality-report.html", "quality-report.json",
             "reviewed-source.json", "daisy-validation.json"} <= names
     assert not {"job-events.jsonl", "tts-log.json", "review-corrections.json"} & names
     assert any(name.startswith("source/") for name in names)
 
-    # Audio is delivered once per chapter plus the full book, nothing else.
-    audio = sorted(name for name in names if name.startswith("DAISY 3/") and name.endswith(".mp3"))
-    assert audio == ["DAISY 3/audio/chapter-001.mp3",
-                     "DAISY 3/audio/chapter-002.mp3", f"DAISY 3/{base}.mp3"]
+    # Audio is delivered once per chapter, plus the full book beside the package, nothing else.
+    audio = sorted(name for name in names if name.endswith(".mp3"))
+    assert audio == ["DAISY 3/chapter-001.mp3", "DAISY 3/chapter-002.mp3", f"{base}.mp3"]
 
 
 def _package_base(names: set[str]) -> str:
@@ -562,7 +564,7 @@ def test_a_direct_download_narrates_several_paragraphs_at_once_in_order(slow_voi
     # Several requests overlapped, and never more than the provider's limit.
     assert 1 < slow_voice["peak"] <= main.narration_concurrency()
     with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
-        chapter = archive.read("DAISY 3/audio/chapter-001.mp3")
+        chapter = archive.read("DAISY 3/chapter-001.mp3")
     # Finishing out of order must not reorder the book.
     positions = [chapter.index(f"Marca {index:02d}".encode()) for index in range(20)]
     assert positions == sorted(positions)
@@ -603,6 +605,47 @@ def test_a_reviewed_run_also_narrates_several_units_at_once(slow_voice) -> None:
     job = job_store.get_job(main.database_path, created.json()["job_id"])
     assert job["state"] == "completed", job["error"]
     assert slow_voice["peak"] > 1
+
+
+def test_a_reviewed_run_out_of_credits_stops_and_marks_no_technical_failure(slow_voice) -> None:
+    # An empty balance is the account's state, not a fault of each paragraph:
+    # nothing is shown as «Fallo técnico», the run stops asking, and says why.
+    assert "unsupported_voice: x".startswith(main.ACCOUNT_REFUSALS)  # a voice the account lacks, likewise
+    slow_voice["fail_on"] = "Marca 03"
+    slow_voice["delay"] = 0.05
+    created = TestClient(main.app).post("/api/books/jobs", files=_long_book())
+    job_id = created.json()["job_id"]
+    asyncio.run(main.run_production_job(job_id))
+    job = job_store.get_job(main.database_path, job_id)
+    states = [item["state"] for item in job["sentences"]]
+    assert job["state"] == "partially_completed"
+    assert "failed" not in states and "pending" in states
+    assert "no tiene saldo" in job["error"]
+    assert len(slow_voice["calls"]) < 20
+    # With credit again, resuming narrates what was left, and only that.
+    slow_voice["fail_on"] = None
+    calls_before = len(slow_voice["calls"])
+    asyncio.run(main.run_production_job(job_id))
+    job = job_store.get_job(main.database_path, job_id)
+    assert job["state"] == "completed", job["error"]
+    assert len(slow_voice["calls"]) - calls_before == states.count("pending")
+
+
+def test_a_paragraph_the_voice_refuses_is_still_a_technical_failure(slow_voice, monkeypatch) -> None:
+    from app import providers
+
+    async def refuse(text, voice_speed=1.0, voice_id="", **_kwargs):
+        if "Marca 03" in text:
+            raise providers.ProviderError("bad_audio", "El servicio rechazó la petición (HTTP 422).", permanent=True)
+        return providers.mock_audio(text)
+
+    monkeypatch.setattr(main, "synthesize", refuse)
+    job_id = TestClient(main.app).post("/api/books/jobs", files=_long_book()).json()["job_id"]
+    asyncio.run(main.run_production_job(job_id))
+    job = job_store.get_job(main.database_path, job_id)
+    failed = [item["text"] for item in job["sentences"] if item["state"] == "failed"]
+    assert len(failed) == 1 and failed[0].startswith("Marca 03")
+    assert job["state"] == "partially_completed" and not job["error"]
 
 
 # --------------------------------------------------------------------------- #

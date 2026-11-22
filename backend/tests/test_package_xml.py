@@ -7,6 +7,7 @@ structure, official DTDs, timing, completeness and the ONCE structure.
 
 from __future__ import annotations
 
+import hashlib
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -23,6 +24,9 @@ DEMO = CORPUS / "el-faro-de-la-isla-almendra.xml"
 FRAME = b"\xff\xfb\x90\x64" + b"\x00" * 413
 MP3 = FRAME * 40
 ONCE_DECLARATION = '<?xml-stylesheet href="dtbookbasic.css" type="text/css"?>'
+# The Z39.86 committee's dtbook.2005.basic.css, byte for byte the file in ONCE's
+# own DAISY 3 books (texto_0369940, made with DAISY Pipeline 2).
+ONCE_STYLESHEET_SHA256 = "93bb41f784c5a3db1340aec519dbe3d4aabf2fe2453321e548fdbee4acdf7c1a"
 SHEET = {"file2_page": "2", "index_page": "3", "index_depth": 1, "production_date": "octubre de 2026"}
 DTBOOK_NS = "{http://www.daisy.org/z3986/2005/dtbook/}"
 OPF = "{http://openebook.org/namespaces/oeb-package/1.0/}"
@@ -72,7 +76,9 @@ def test_every_xml_file_is_indented_two_spaces_per_level(tmp_path, layout_name) 
         text = path.read_text(encoding="utf-8")
         lines = text.splitlines()
         assert lines[0] == '<?xml version="1.0" encoding="UTF-8"?>', path.name
-        assert lines[1].startswith("<!DOCTYPE "), path.name
+        # The DTBook names its style sheet between the declaration and the DOCTYPE.
+        doctype = 2 if path.suffix == ".xml" else 1
+        assert lines[doctype].startswith("<!DOCTYPE "), path.name
         assert len(lines) > 5, f"{path.name} is on one line"
         # One element per line, nested two spaces deeper than its parent.
         body = [line for line in lines if line.strip() and not line.startswith(("<?", "<!"))]
@@ -108,14 +114,20 @@ def test_the_dtbook_declares_the_style_sheet_once_and_the_package_carries_it(tmp
     package, _built = _once(tmp_path, layout_name)
     dtbook = next(package.glob("*.xml"))
     text = dtbook.read_text(encoding="utf-8")
-    # Exactly ONCE's declaration, once, in the prolog: after the DOCTYPE, before the root.
+    # Exactly ONCE's declaration, once, where ONCE asked for it: right after the
+    # XML declaration ("tras la codificación"), before the DOCTYPE and the root.
     assert text.count("<?xml-stylesheet") == 1
     lines = text.splitlines()
-    assert lines[2] == ONCE_DECLARATION
+    assert lines[0] == '<?xml version="1.0" encoding="UTF-8"?>'
+    assert lines[1] == ONCE_DECLARATION
+    assert lines[2].startswith("<!DOCTYPE dtbook ")
     assert lines[3].startswith("<dtbook ")
     # The file it names is beside the DTBook (the path is relative to it) and in the manifest.
     css = dtbook.parent / DTBOOK_STYLESHEET
-    assert css.is_file() and "pagenum" in css.read_text(encoding="utf-8")
+    assert css.is_file()
+    # It is the standard file ONCE sent, unchanged: not a look-alike of our own.
+    assert hashlib.sha256(css.read_bytes()).hexdigest() == ONCE_STYLESHEET_SHA256
+    assert "dtbook.2005.basic.css" in css.read_text(encoding="utf-8")
     items = {item.get("href"): item.get("media-type") for item in ET.parse(next(package.glob("*.opf"))).getroot()
              .iter(f"{OPF}item")}
     assert items[DTBOOK_STYLESHEET] == "text/css"
@@ -152,10 +164,13 @@ def test_the_flat_layout_has_no_folder_and_every_reference_resolves(tmp_path) ->
     assert not [path for path in package.iterdir() if path.is_dir()]
     names = {path.name for path in package.iterdir()}
     assert {"chapter-001.mp3", "chapter-0001.smil", DTBOOK_STYLESHEET} <= names
-    # Chapter audio and the complete audiobook are both still there.
-    full = next(item for item in ET.parse(next(package.glob("*.opf"))).getroot().iter(f"{OPF}item")
-                if item.get("id") == "full-audiobook")
-    assert (package / full.get("href")).is_file()
+    # Every MP3 of the package is a chapter some SMIL plays: the complete
+    # audiobook is no file of the DAISY book, so it is not in the folder or the manifest.
+    smil_files = sum(name.endswith(".smil") for name in names)
+    assert sorted(name for name in names if name.endswith(".mp3")) == [
+        f"chapter-{number:03d}.mp3" for number in range(1, smil_files + 1)]
+    assert not any(item.get("id") == "full-audiobook"
+                   for item in ET.parse(next(package.glob("*.opf"))).getroot().iter(f"{OPF}item"))
     smil = (package / "chapter-0004.smil").read_text(encoding="utf-8")
     assert 'src="chapter-004.mp3"' in smil and "../" not in smil
     validate_daisy_package(package)

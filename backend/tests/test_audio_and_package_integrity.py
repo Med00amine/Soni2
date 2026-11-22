@@ -152,7 +152,9 @@ def test_a_built_package_passes_the_dtds_and_the_whole_completeness_chain(tmp_pa
     assert [check["id"] for check in result["checks"]] == [
         "source_to_units", "units_to_audio", "units_to_dtbook", "smil_sync", "audio_format", "navigation",
         "timing_xml", "timing_clips", "timing_contiguity", "timing_totals", "timing_audio_format", "timing_edges",
-        "timing_transitions"]
+        "timing_transitions",
+        # ZedVal's Z39.86-2005 requirements, on real, mastered MP3 audio.
+        "zedval_timing", "zedval_metadata", "zedval_manifest", "zedval_navigation", "zedval_documents"]
 
 
 def test_a_missing_duplicated_or_reordered_paragraph_breaks_the_chain(tmp_path) -> None:

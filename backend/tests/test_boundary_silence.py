@@ -130,14 +130,16 @@ def test_no_silence_is_added_between_sentences(tmp_path) -> None:
 def test_the_chapters_and_the_complete_audiobook_are_handled_alike(tmp_path) -> None:
     passages = [_tone(tmp_path, f"p{index}") for index in range(4)]
     chapters = [("Uno", ["Uno.", "Dos."]), ("Dos", ["Tres.", "Cuatro."])]
+    # The complete audiobook is delivered beside the package (it is no file of the DAISY book).
     package = build_daisy_package("Libro", ["Uno.", "Dos.", "Tres.", "Cuatro."], passages, tmp_path / "pkg",
-                                  chapters=chapters, mastering=audio_master.MasteringOptions())
+                                  chapters=chapters, mastering=audio_master.MasteringOptions(),
+                                  book_audio_path=tmp_path / "Libro.mp3")
     chapter_files = sorted((package / "audio").glob("chapter-*.mp3"))
     assert len(chapter_files) == 2
-    for path in chapter_files + [package / "Libro.mp3"]:
+    for path in chapter_files + [tmp_path / "Libro.mp3"]:
         _assert_edges(path.read_bytes(), 1.0, 1.2)
     # The complete audiobook is exactly its chapters, copied.
-    book = mp3_duration((package / "Libro.mp3").read_bytes())
+    book = mp3_duration((tmp_path / "Libro.mp3").read_bytes())
     assert book == pytest.approx(sum(mp3_duration(path.read_bytes()) for path in chapter_files), abs=0.002)
 
 

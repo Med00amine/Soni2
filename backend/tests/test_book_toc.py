@@ -140,7 +140,11 @@ def test_roman_front_pages_and_pages_out_of_order() -> None:
     source = _dtbook("Índice", rows).replace(
         b"<bodymatter>", "<bodymatter><level1><h1>Prólogo</h1><p>Antes de todo.</p></level1>".encode("utf-8"))
     _plan, built = _build(source)
-    assert [section.page_start for section in built.sections[3:]] == ["ix", "4", "2", "9"]
+    # Page 2 is file 2's (the planilla's): a page is never marked twice, so
+    # chapter 2 stays on the page in effect, and the outline says why.
+    assert [section.page_start for section in built.sections[3:]] == ["ix", "4", "4", "9"]
+    conflict = [warning for warning in built.warnings if warning["code"] == "page_conflict"]
+    assert len(conflict) == 1 and "Capítulo 2. La tormenta" in conflict[0]["message"]
     order = [warning for warning in built.warnings if warning["code"] == "page_order"]
     assert order and "Capítulo 2. La tormenta (2)" in order[0]["message"]
 

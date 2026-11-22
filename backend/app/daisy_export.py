@@ -9,11 +9,13 @@ import unicodedata
 import uuid
 import zipfile
 import xml.etree.ElementTree as ET
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path, PurePosixPath
 
 from app import audio_master
+from app.audio_cache import link_or_copy
 
 
 logger = logging.getLogger(__name__)
@@ -48,12 +50,41 @@ def add_to_archive(archive: zipfile.ZipFile, source: Path, name: str) -> None:
     archive.write(source, name, compress_type=archive_compression(name))
 
 
-# The DTBook's style sheet: what ONCE's own books declare (ONCE requirement H).
+class AudioFiles(Sequence[bytes]):
+    """Audio segments on disk, read only when they are used.
+
+    A production job hands the package its units this way: when every
+    chapter is already built, the units are counted but never read, and a
+    two-hour book is not held in memory to be ignored.
+    """
+
+    def __init__(self, paths: list[Path]) -> None:
+        self.paths = list(paths)
+
+    def __len__(self) -> int:
+        return len(self.paths)
+
+    def __getitem__(self, index):  # type: ignore[override]
+        if isinstance(index, slice):
+            return [path.read_bytes() for path in self.paths[index]]
+        return self.paths[index].read_bytes()
+
+
+def audio_bytes(part: bytes | Path) -> bytes:
+    """The bytes of audio given either as bytes or as a file."""
+    return part.read_bytes() if isinstance(part, Path) else part
+
+
+# The DTBook's style sheet: the Z39.86 committee's dtbook.2005.basic.css, the
+# file ONCE sent and its own books carry, copied unchanged (ONCE requirement H).
 # Z39.86-2005 §12.2 says the declaration names a medium; the media attribute is
 # a setting, off by default so the line is exactly the one ONCE asked for.
 DTBOOK_STYLESHEET = "dtbookbasic.css"
 STYLESHEET_SOURCE = Path(__file__).with_name("package_files") / DTBOOK_STYLESHEET
 LAYOUTS = ("nested", "flat")
+# Who made the package: dtb:producer and dtb:generator, and the publisher of a
+# book whose publisher is not given (dc:Publisher is required, Z39.86-2005 §8.2).
+PRODUCER = "Soni2"
 
 
 @dataclass(frozen=True)
@@ -159,7 +190,8 @@ def _write_xml(path: Path, root: ET.Element, doctype: str | None = None, default
     whitespace between elements, never inside the text of a heading or a
     paragraph; the DTD validation and the completeness checks run on the
     indented files. ``stylesheet`` adds one ``xml-stylesheet`` processing
-    instruction after the DOCTYPE.
+    instruction right after the XML declaration, before the DOCTYPE: where
+    ONCE asked for it ("tras la codificación") and where DAISY Pipeline puts it.
     """
     # The default namespace is given per document. ElementTree's global
     # register_namespace("") is overwritten by every SMIL file written in the
@@ -182,11 +214,11 @@ def _write_xml(path: Path, root: ET.Element, doctype: str | None = None, default
         # does not allow it.
         body = body.replace(f' xmlns:dc="{DC_NS}"', "", 1) if body.count(f'xmlns:dc="{DC_NS}"') > 1 else body
     prefix = '<?xml version="1.0" encoding="UTF-8"?>\n'
-    if doctype:
-        prefix += f"{doctype}\n"
     if stylesheet:
         media = f' media="{stylesheet_media}"' if stylesheet_media else ""
         prefix += f'<?xml-stylesheet href="{stylesheet}" type="text/css"{media}?>\n'
+    if doctype:
+        prefix += f"{doctype}\n"
     path.write_text(prefix + body + "\n", encoding="utf-8")
 
 
@@ -344,6 +376,55 @@ def mp3_duration(data: bytes) -> float:
     return seconds if frames else max(0.1, len(data) * 8 / 128_000)
 
 
+def first_frame_estimate(head: bytes, size: int) -> tuple[float | None, bool]:
+    """How long a tool that trusts an MP3's first frame says it is: ``(seconds, vbr)``.
+
+    javazoom, the MP3 reader of ZedVal and DAISY Pipeline 1, reads the first
+    frame after any ID3v2 tag. A Xing header there gives the frame count
+    (``vbr`` True); without one the file is taken as constant bitrate and its
+    whole size, tags included, is divided by that frame's bitrate. ``head`` is
+    the start of the file (a few hundred kilobytes are plenty), ``size`` its
+    length. ``None`` when no MPEG audio frame is found.
+    """
+    offset = 0
+    if head[:3] == b"ID3" and len(head) >= 10:
+        offset = 10 + ((head[6] & 0x7F) << 21 | (head[7] & 0x7F) << 14 | (head[8] & 0x7F) << 7 | head[9] & 0x7F)
+    while offset < len(head) - 4:
+        frame = _mp3_frame(head, offset)
+        if frame and (offset + frame[0] >= len(head) or _mp3_frame(head, offset + frame[0])):
+            break
+        offset += 1
+    else:
+        return None, False
+    length, samples, rate = frame
+    version = 1 if (head[offset + 1] >> 3) & 0x3 == 3 else 2
+    layer = 4 - ((head[offset + 1] >> 1) & 0x3)
+    bitrate = _MP3_BITRATES[(version, layer)][head[offset + 2] >> 4] * 1000
+    payload = head[offset:offset + length]
+    xing = payload.find(b"Xing")
+    if xing >= 0 and len(payload) >= xing + 12:
+        if int.from_bytes(payload[xing + 4:xing + 8], "big") & 0x1:
+            return int.from_bytes(payload[xing + 8:xing + 12], "big") * samples / rate, True
+        return None, True
+    return size / (bitrate // 8), False
+
+
+def playable_length(data: bytes) -> float:
+    """How long an audio file is for its SMIL clips, in seconds.
+
+    The frames counted, unless a validator that trusts the first frame
+    (ZedVal: size over bitrate) reads a constant-bitrate file a little
+    shorter; then that, so no clipEnd can ever fall "after the end of the
+    file" for it. A file it misreads by more than a frame or two is not
+    constant bitrate, and the timing checks say so instead.
+    """
+    real = mp3_duration(data)
+    estimate, vbr = first_frame_estimate(data[:262144], len(data))
+    if estimate is not None and not vbr and real - 0.05 < estimate < real:
+        return estimate
+    return real
+
+
 def _clock(seconds: float) -> str:
     """A SMIL full clock value, e.g. 0:01:02.345."""
     return _clock_ms(max(0, round(seconds * 1000)))
@@ -412,6 +493,13 @@ def package_basename(title: str) -> str:
     ascii_title = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode("ascii")
     name = re.sub(r"[^A-Za-z0-9.-]+", "_", ascii_title).strip("._-")[:80].rstrip("._-")
     return name or "libro"
+
+
+def book_audio_name(title: str) -> str:
+    """The complete audiobook's file name, delivered beside the package: «El faro» -> El_faro.mp3."""
+    base = package_basename(title)
+    # A book titled like a chapter file would read as one of them.
+    return f"{base}-completo.mp3" if re.fullmatch(r"chapter-\d{3}", base) else f"{base}.mp3"
 
 
 def _group_long_paragraph(text: str, max_chars: int = 800) -> list[str]:
@@ -519,7 +607,7 @@ def build_daisy_package(
     publication_year: str = "",
     publisher: str = "",
     front_matter: list[tuple[str, str, bytes, str]] | None = None,
-    chapter_audio: list[bytes] | None = None,
+    chapter_audio: Sequence[bytes | Path] | None = None,
     chapter_clips: list[list[tuple[float, float]]] | None = None,
     use_ffmpeg: bool = False,
     clips_out: list[tuple[str, float, float]] | None = None,
@@ -534,6 +622,12 @@ def build_daisy_package(
     stylesheet: str | None = DTBOOK_STYLESHEET,
     stylesheet_media: str = "",
     images: dict[int, tuple[bytes, str, str]] | None = None,
+    identifier: str | None = None,
+    book_audio_path: Path | None = None,
+    dtb_publisher: str = "",
+    production_date: str | None = None,
+    narrator: str = "",
+    source_isbn: str = "",
 ) -> Path:
     """Write a DAISY 3 package whose files carry the book's own name.
 
@@ -557,12 +651,32 @@ def build_daisy_package(
     exactly as before. ``identifiers`` adds ``(scheme, value)`` identifiers
     such as the ABSYS number to the package metadata.
 
+    ``chapter_audio`` may give each chapter as a file: a chapter already in its
+    delivery form is then linked into the package rather than read and written
+    again, and ``audio_segments`` (an ``AudioFiles``) is only read for a chapter
+    built here. Only one chapter is ever held in memory.
+
     ``package_layout_name`` is ``nested`` (``audio/`` and ``smil/``) or
     ``flat`` (every file beside the OPF). ``stylesheet`` is the CSS the DTBook
     declares and the package carries (``None``: none); ``stylesheet_media``
     adds the media attribute to its declaration. ``images`` are the image
     files of the photographs the layout announces (number -> bytes,
     extension, media type), written as they are into ``images/``.
+
+    ``identifier`` is the book's ``dtb:uid``: give the same one to every build
+    of the same book, so a corrected version is the same book to a player
+    (a random one is made otherwise). ``book_audio_path`` is where the
+    complete audiobook, the chapter files one after the other, is written: it
+    is not part of the DAISY file set (nothing in the book plays it, and
+    Z39.86 allows no such file in the manifest), so it lives outside the
+    package; ``None`` builds none.
+
+    Metadata follows Z39.86-2005 §8.2: ``dc:Publisher`` and ``dc:Date`` are the
+    publisher and date of this DAISY book (``dtb_publisher``, and
+    ``production_date`` in ISO 8601, today by default), both required; the
+    printed book's ``publisher``, ``publication_year`` and ``edition`` go to
+    ``dtb:sourcePublisher``, ``dtb:sourceDate`` and ``dtb:sourceEdition``, and
+    its ``source_isbn`` to ``dc:Source``. ``narrator`` names the voice.
     """
     chapters = chapters or [(title, paragraphs)]
     paragraphs = [paragraph for _, body in chapters for paragraph in body]
@@ -583,12 +697,9 @@ def build_daisy_package(
     if not paths.flat:
         (output_dir / "audio").mkdir(exist_ok=True)
         (output_dir / "smil").mkdir(exist_ok=True)
-    book_id = f"soni2-{uuid.uuid4()}"
+    book_id = (identifier or "").strip() or f"soni2-{uuid.uuid4()}"
     base = package_basename(title)
     dtbook_name, ncx_name, opf_name, res_name = (f"{base}.{ext}" for ext in ("xml", "ncx", "opf", "res"))
-    full_audio_name = f"{base}.mp3"
-    if re.fullmatch(r"chapter-\d{3}", base):
-        full_audio_name = f"{base}-completo.mp3"
     front_matter = front_matter or []
     front_names: list[str] = []
     for _label, _text, _audio, filename in front_matter:
@@ -609,7 +720,8 @@ def build_daisy_package(
         raise ValueError("Two chapters cannot share one audio file name.")
     if segment_texts is not None and len(segment_texts) != len(audio_segments):
         raise ValueError("Every segment needs its text to place its pauses.")
-    chapter_audio_contents: list[bytes] = []
+    # Each chapter's file in the package, in order: the book is joined from them.
+    chapter_audio_files: list[Path] = []
     # (chapter audio path, clip start, clip end) for every segment, in order:
     # where each passage's speech sits, for reports and fault locations.
     segment_clips: list[tuple[str, float, float]] = []
@@ -631,12 +743,19 @@ def build_daisy_package(
         if on_chapter:
             on_chapter(chapter_index, len(chapters))
         count = len(chapter_body)
-        chapter_segments = audio_segments[segment_offset:segment_offset + count]
+        first = segment_offset
+
+        def chapter_segments() -> list[bytes]:
+            return list(audio_segments[first:first + count])
+
+        source: Path | None = None
         if chapter_audio is not None:
             # Already-built chapter audio: its clips come with it.
-            audio_content = chapter_audio[chapter_index]
+            given = chapter_audio[chapter_index]
+            source = given if isinstance(given, Path) else None
+            audio_content = audio_bytes(given)
             clips = (chapter_clips[chapter_index] if chapter_clips is not None
-                     else measure_segment_clips(chapter_segments, audio_content))
+                     else measure_segment_clips(chapter_segments(), audio_content))
         elif mastering is not None and mastering.active:
             # Trimmed, paced, levelled and finished, with the real position of
             # every paragraph measured rather than estimated.
@@ -644,27 +763,39 @@ def build_daisy_package(
                      if segment_texts is not None else None)
             continues = (segment_continues[segment_offset:segment_offset + count]
                          if segment_continues is not None else None)
-            mastered = audio_master.master_chapter(chapter_segments, mastering, texts=texts, continues=continues)
+            segments_here = chapter_segments()
+            mastered = audio_master.master_chapter(segments_here, mastering, texts=texts, continues=continues)
             audio_content = mastered.audio
-            clips = mastered.clips or measure_segment_clips(chapter_segments, audio_content)
+            clips = mastered.clips or measure_segment_clips(segments_here, audio_content)
+            del segments_here
         else:
-            audio_content = _join_mp3(chapter_segments, use_ffmpeg=use_ffmpeg)
-            clips = measure_segment_clips(chapter_segments, audio_content)
+            segments_here = chapter_segments()
+            audio_content = _join_mp3(segments_here, use_ffmpeg=use_ffmpeg)
+            clips = measure_segment_clips(segments_here, audio_content)
+            del segments_here
         if finishing:
             finished = audio_master.finish_file(audio_content, delivery)
             if finished.finished:
+                if finished.audio is not audio_content:
+                    source = None  # changed: written, not linked
                 audio_content = finished.audio
                 clips = [(begin + finished.lead_added, end + finished.lead_added) for begin, end in clips]
             else:
                 # Never silently: the timing check also reports the missing edges.
                 logger.warning("daisy.finish: %s was not finished: %s", relative_path, finished.detail)
-        chapter_audio_contents.append(audio_content)
-        paths.audio_file(output_dir, relative_path).write_bytes(audio_content)
+        target = paths.audio_file(output_dir, relative_path)
+        if source is not None:
+            # The chapter as built is the delivered file: linked, not copied.
+            link_or_copy(source, target)
+        else:
+            target.write_bytes(audio_content)
+        chapter_audio_files.append(target)
         segment_clips.extend((relative_path, begin, end) for begin, end in clips)
-        boundaries = smil_boundaries(clips, mp3_duration(audio_content))
+        boundaries = smil_boundaries(clips, playable_length(audio_content))
         smil_clips.extend((relative_path, begin, end) for begin, end in boundaries)
         chapter_ms.append(boundaries[-1][1])
         segment_offset += count
+        del audio_content
     front_audio: list[bytes] = []
     for filename, (_label, _text, audio, _configured_name) in zip(front_names, front_matter, strict=True):
         if finishing:
@@ -672,29 +803,33 @@ def build_daisy_package(
             audio = finished.audio if finished.finished else audio
         front_audio.append(audio)
         paths.audio_file(output_dir, filename).write_bytes(audio)
-    ordered_audio = front_audio + chapter_audio_contents
+    ordered_audio: list[bytes | Path] = [*front_audio, *chapter_audio_files]
     book_clips: list[tuple[float, float]] = []
-    if finishing:
-        # The files already start and end with their silence: the book is
-        # those files one after the other, frames copied, nothing re-encoded.
-        joined_book = audio_master.join_book(ordered_audio, delivery)
-        full_audio = joined_book.audio
-        book_clips = list(joined_book.clips)
-    elif mastering is not None and mastering.active:
-        mastered_book = audio_master.master_book(ordered_audio, mastering)
-        full_audio = mastered_book.audio
-        book_clips = list(getattr(mastered_book, "clips", []) or [])
-    else:
-        full_audio = _join_mp3(ordered_audio, use_ffmpeg=use_ffmpeg)
+    if book_audio_path is not None:
+        # The complete audiobook travels beside the package, never inside it.
+        book_path = book_audio_path
+        book_path.parent.mkdir(parents=True, exist_ok=True)
+        if finishing:
+            # The files already start and end with their silence: the book is
+            # those files one after the other, frames copied, nothing re-encoded.
+            joined_book = audio_master.join_book(ordered_audio, delivery, destination=book_path)
+            if not book_path.is_file():
+                book_path.write_bytes(joined_book.audio)
+            book_clips = list(joined_book.clips)
+        elif mastering is not None and mastering.active:
+            mastered_book = audio_master.master_book([audio_bytes(part) for part in ordered_audio], mastering)
+            book_path.write_bytes(mastered_book.audio)
+            book_clips = list(getattr(mastered_book, "clips", []) or [])
+        else:
+            book_path.write_bytes(_join_mp3([audio_bytes(part) for part in ordered_audio], use_ffmpeg=use_ffmpeg))
     if len(book_clips) != len(ordered_audio):
         # Joined end to end: each part starts where the previous one ended.
         position = 0.0
         book_clips = []
         for part in ordered_audio:
-            length = mp3_duration(part)
+            length = mp3_duration(audio_bytes(part))
             book_clips.append((position, position + length))
             position += length
-    (output_dir / full_audio_name).write_bytes(full_audio)
     if clips_out is not None:
         clips_out.extend(segment_clips)
     if chapter_starts_out is not None:
@@ -707,8 +842,12 @@ def build_daisy_package(
         {"version": "2005-3", _q(XML_NS, "lang"): "es-ES"},
     )
     head = ET.SubElement(dtbook, _q(DTBOOK_NS, "head"))
-    # Z39.86-2005 requires dtb:uid and dc:Title in the DTBook head.
+    produced = (production_date or "").strip() or date.today().isoformat()
+    publisher_name = dtb_publisher.strip() or PRODUCER
+    # Z39.86-2005 requires dtb:uid and dc:Title in the DTBook head; the rest
+    # repeats the package metadata, as DAISY Pipeline's books do.
     for name, content in (("dtb:uid", book_id), ("dc:Title", title), ("dc:Creator", author),
+                          ("dc:Publisher", publisher_name), ("dc:Date", produced),
                           ("dc:Language", "es-ES"), ("dc:Identifier", book_id), ("dc:Format", "ANSI/NISO Z39.86-2005")):
         if content:
             ET.SubElement(head, _q(DTBOOK_NS, "meta"), {"name": name, "content": content})
@@ -738,16 +877,30 @@ def build_daisy_package(
     # Every SMIL time container in reading order: playOrder follows it.
     reading_order: dict[str, int] = {}
     custom_tests_used: set[str] = set()
+    # The audio of each navigation label, by the label's SMIL reference: the
+    # heading as it is read, so a player can say where it is (as the NCX of a
+    # DAISY Pipeline book does) without anything being narrated again.
+    label_audio: dict[str, tuple[str, int, int]] = {}
 
     def mark(reference: str) -> str:
         reading_order.setdefault(reference, len(reading_order))
         return reference
 
+    def label_clip(index: int) -> tuple[str, int, int]:
+        """Where segment ``index`` is spoken: its speech, inside its SMIL clip (for the NCX)."""
+        audio_path, tiled_begin, tiled_end = smil_clips[index]
+        _path, speech_begin, speech_end = segment_clips[index]
+        begin = max(tiled_begin, int(round(speech_begin * 1000)))
+        end = min(tiled_end, int(round(speech_end * 1000)))
+        if end <= begin:
+            begin, end = tiled_begin, tiled_end
+        return paths.audio_href(audio_path), begin, end
+
     if layout is not None:
         elapsed = _write_structured_text(
             frontmatter, bodymatter, chapters, layout, smil_clips, chapter_ms, output_dir,
             dtbook_name, book_id, smil_names, chapter_targets, page_targets, note_targets, mark,
-            custom_tests_used, paths, image_names, photo_targets,
+            custom_tests_used, paths, image_names, photo_targets, label_audio=label_audio, label_clip=label_clip,
         )
     for index, ((label, text, _raw, filename), _audio) in enumerate(zip(front_matter, front_audio), start=1):
         front_id = f"frontmatter-{index}"
@@ -760,7 +913,7 @@ def build_daisy_package(
         ET.SubElement(level, _q(DTBOOK_NS, "p"),
                       {"id": paragraph_id, "smilref": f"{paths.smil_href(smil_name)}#{par_id}"}).text = text
         smil = ET.Element(_q(SMIL_NS, "smil"), {_q(XML_NS, "lang"): "es-ES"})
-        front_ms = int(mp3_duration(_audio) * 1000)
+        front_ms = int(playable_length(_audio) * 1000)
         _smil_head(smil, book_id, label, elapsed)
         elapsed += front_ms
         sequence = ET.SubElement(ET.SubElement(smil, _q(SMIL_NS, "body")), _q(SMIL_NS, "seq"),
@@ -797,6 +950,7 @@ def build_daisy_package(
         spoken_heading = bool(chapter_paragraphs and chapter_paragraphs[0].strip() == chapter_title.strip())
         if spoken_heading:
             audio_path, clip_begin, clip_end = smil_clips[audio_index]
+            label_audio[f"{paths.smil_href(smil_name)}#par-heading-{chapter_index:04d}"] = label_clip(audio_index)
             audio_index += 1
             par_id = f"par-heading-{chapter_index:04d}"
             heading.set("smilref", f"{paths.smil_href(smil_name)}#{par_id}")
@@ -837,26 +991,13 @@ def build_daisy_package(
     if stylesheet:
         # The style sheet travels with the book, beside the DTBook that names it.
         shutil.copyfile(STYLESHEET_SOURCE, output_dir / stylesheet)
+    # The NCX title is read with the ONCE title file's heading, when the book has one.
+    title_reference = next((reference for _label, reference, nav_class, _level in chapter_targets
+                            if nav_class == SECTION_CLASSES["once_title"]), "")
     _write_ncx(output_dir / ncx_name, book_id, title, chapter_targets, page_targets, note_targets, reading_order,
-               custom_tests_used, unique_page_ids=layout is not None, photo_targets=photo_targets)
-
-    # The resource DTD declares no xml:lang on <resources>; the language is
-    # stated on each <resource>.
-    resources = ET.Element(_q(RESOURCE_NS, "resources"), {"version": "2005-1"})
-    scope = ET.SubElement(resources, _q(RESOURCE_NS, "scope"), {"nsuri": NCX_NS})
-    node_set = ET.SubElement(
-        scope,
-        _q(RESOURCE_NS, "nodeSet"),
-        {"id": "chapter-labels", "select": "//navPoint[@class='chapter']"},
-    )
-    resource = ET.SubElement(node_set, _q(RESOURCE_NS, "resource"), {"id": "chapter-label-es", _q(XML_NS, "lang"): "es"})
-    ET.SubElement(resource, _q(RESOURCE_NS, "text")).text = "Capítulo"
-    _write_xml(
-        output_dir / res_name,
-        resources,
-        '<!DOCTYPE resources PUBLIC "-//NISO//DTD resource 2005-1//EN" "http://www.daisy.org/z3986/2005/resource-2005-1.dtd">',
-        RESOURCE_NS,
-    )
+               custom_tests_used, unique_page_ids=layout is not None, photo_targets=photo_targets,
+               label_audio=label_audio, title_audio=label_audio.get(title_reference), author=author)
+    _write_resources(output_dir / res_name)
 
     ET.register_namespace("dc", DC_NS)
     package = ET.Element(_q(OPF_NS, "package"), {"unique-identifier": "uid"})
@@ -869,39 +1010,48 @@ def build_daisy_package(
     ET.SubElement(dc_metadata, _q(DC_NS, "Title")).text = title
     if author:
         ET.SubElement(dc_metadata, _q(DC_NS, "Creator")).text = author
-    if edition:
-        ET.SubElement(dc_metadata, _q(DC_NS, "Description")).text = f"Edición: {edition}"
-    if publication_year:
-        ET.SubElement(dc_metadata, _q(DC_NS, "Date")).text = publication_year
-    if publisher:
-        ET.SubElement(dc_metadata, _q(DC_NS, "Publisher")).text = publisher
+    # Required (Z39.86-2005 §8.2): who publishes this DAISY book, and when it
+    # was made. The printed book's publisher and year are the source's.
+    ET.SubElement(dc_metadata, _q(DC_NS, "Publisher")).text = publisher_name
+    ET.SubElement(dc_metadata, _q(DC_NS, "Date")).text = produced
     ET.SubElement(dc_metadata, _q(DC_NS, "Identifier"), {"id": "uid", "scheme": "DTB"}).text = book_id
     for scheme, value in identifiers or []:
         if value.strip():
             ET.SubElement(dc_metadata, _q(DC_NS, "Identifier"),
                           {"scheme": re.sub(r"[^A-Za-z0-9._-]", "", scheme) or "local"}).text = value.strip()
-    ET.SubElement(dc_metadata, _q(DC_NS, "Language")).text = "es"
+    if source_isbn.strip():
+        # The printed book the DAISY book is made from, as ONCE's books name it.
+        ET.SubElement(dc_metadata, _q(DC_NS, "Source")).text = source_isbn.strip()
+    ET.SubElement(dc_metadata, _q(DC_NS, "Language")).text = "es-ES"
     ET.SubElement(dc_metadata, _q(DC_NS, "Format")).text = "ANSI/NISO Z39.86-2005"
     x_metadata = ET.SubElement(metadata, _q(OPF_NS, "x-metadata"))
+    source_year = publication_year.strip()
     for name, content in (
-        ("dtb:producer", "Soni2"),
-        ("dtb:multimediaContent", "audio,text"),
         ("dtb:multimediaType", "audioFullText"),
-        ("dtb:audioFormat", "MP3"),
+        ("dtb:multimediaContent", "audio,text"),
         # The playing time of all SMIL files (§3.2.3): the same millisecond
         # sum as the last file's totalElapsedTime plus that file's own time.
         ("dtb:totalTime", _clock_ms(elapsed)),
+        ("dtb:audioFormat", "MP3"),
+        ("dtb:producer", PRODUCER),
+        ("dtb:producedDate", produced),
+        ("dtb:narrator", narrator.strip()),
+        ("dtb:sourcePublisher", publisher.strip()),
+        # ISO 8601 or nothing: a year written any other way stays in the bibliographic file only.
+        ("dtb:sourceDate", source_year if re.fullmatch(r"\d{4}(-\d{2}(-\d{2})?)?", source_year) else ""),
+        ("dtb:sourceEdition", edition.strip()),
     ):
-        ET.SubElement(x_metadata, _q(OPF_NS, "meta"), {"name": name, "content": content})
+        if content:
+            ET.SubElement(x_metadata, _q(OPF_NS, "meta"), {"name": name, "content": content})
     manifest = ET.SubElement(package, _q(OPF_NS, "manifest"))
     items = [
         # Z39.86-2005: the manifest lists every file of the book, the package
-        # file included.
+        # file included, and nothing else (the complete audiobook is not a
+        # file of the DAISY book: no SMIL plays it).
         ("opf", opf_name, "text/xml"),
         ("dtbook", dtbook_name, "application/x-dtbook+xml"),
         ("ncx", ncx_name, "application/x-dtbncx+xml"),
         ("resource", res_name, "application/x-dtbresource+xml"),
-        ("full-audiobook", full_audio_name, "audio/mpeg"),
     ]
     if stylesheet:
         items.append(("dtbook-css", stylesheet, "text/css"))
@@ -939,7 +1089,9 @@ def _write_structured_text(
     dtbook_name: str, book_id: str, smil_names: list[str], chapter_targets: list[tuple[str, str, str, int]],
     page_targets: list[tuple[str, str]], note_targets: list[tuple[str, str]], mark, custom_tests_used: set[str],
     paths: PackagePaths, image_names: dict[int, str] | None = None,
-    photo_targets: list[tuple[str, str]] | None = None,
+    photo_targets: list[tuple[str, str]] | None = None, *,
+    label_audio: dict[str, tuple[str, int, int]] | None = None,
+    label_clip: Callable[[int], tuple[str, int, int]] | None = None,
 ) -> int:
     """The DTBook levels and SMIL files of a book with the ONCE structure.
 
@@ -955,6 +1107,13 @@ def _write_structured_text(
     note_count = 0
     page_count = 0
     frame_count = 0
+    # Each page of the original is marked once, where it first occurs: a page
+    # list may name a page only once (ZedVal ncx_pageTargUniqValTypeComb), and
+    # "go to page 2" must lead to one place. A planilla's initial files take
+    # the pages of the printed copy's first pages; the source's own front
+    # matter, when it is also read, repeats them and loses the marker.
+    pages_marked: set[tuple[str, object]] = set()
+    repeated_pages: list[str] = []
     image_names = image_names or {}
     photo_groups: dict[int, ET.Element] = {}
     # Every note of the book, (section, number, id), numbered as written below.
@@ -1032,6 +1191,12 @@ def _write_structured_text(
                 frame_sequence = ET.SubElement(sequence, _q(SMIL_NS, "seq"), {
                     "id": f"seq-sidebar-{frame_count}", "class": "sidebar"})
             for page in unit.get("page_breaks") or []:
+                page_type, page_value = page_kind(page)
+                key = (page_type, page_value if page_value is not None else page.strip())
+                if key in pages_marked:
+                    repeated_pages.append(page)
+                    continue
+                pages_marked.add(key)
                 page_count += 1
                 page_id, par_id = f"page-{page_count:04d}", f"par-page-{page_count:04d}"
                 ET.SubElement(frame_element if frame_element is not None else level, _q(DTBOOK_NS, "pagenum"), {
@@ -1113,6 +1278,9 @@ def _write_structured_text(
                 "src": paths.audio_from_smil(audio_path), "clipBegin": _clock_ms(clip_begin), "clipEnd": _clock_ms(clip_end),
             })
             reference = mark(f"{paths.smil_href(smil_name)}#{par_id}")
+            if role == "heading" and not target and label_audio is not None and label_clip is not None:
+                # The section's navigation label says its heading, as the heading is read.
+                label_audio[reference] = label_clip(audio_index - 1)
             target = target or reference
         _declare_custom_tests(head, tests)
         custom_tests_used.update(tests)
@@ -1126,13 +1294,67 @@ def _write_structured_text(
             ET.SubElement(level, _q(DTBOOK_NS, "p"))
     if not len(bodymatter):
         raise ValueError("A DAISY book needs at least one chapter after its initial files.")
+    if repeated_pages:
+        logger.warning("daisy.pages: pages marked twice, kept where they first occur: %s",
+                       ", ".join(repeated_pages[:20]))
     return elapsed
+
+
+# What each skippable structure is called, for a player to say what it skips
+# (Z39.86-2005 §10): every smilCustomTest of the NCX needs an entry in the
+# resource file's NCX scope (ZedVal's resource_skipStructResEntry). In Spanish,
+# and in English as in the resource file of DAISY Pipeline's books.
+SKIPPABLE_LABELS = (
+    ("page-set", "PAGE_NUMBER", "página", "page"),
+    ("note-set", "NOTE", "nota", "note"),
+    ("noteref-set", "NOTE_REFERENCE", "llamada de nota", "note reference"),
+    ("annotation-set", "ANNOTATION", "anotación", "annotation"),
+    ("line-set", "LINE_NUMBER", "número de línea", "line"),
+    ("sidebar-set", "OPTIONAL_SIDEBAR", "recuadro", "sidebar"),
+    ("prodnote-set", "OPTIONAL_PRODUCER_NOTE", "nota del productor", "producer note"),
+)
+
+
+def _write_resources(path: Path) -> None:
+    """The resource file: the name of every skippable structure, and of chapters."""
+    # The resource DTD declares no xml:lang on <resources>; the language is
+    # stated on each <resource>.
+    resources = ET.Element(_q(RESOURCE_NS, "resources"), {"version": "2005-1"})
+    scope = ET.SubElement(resources, _q(RESOURCE_NS, "scope"), {"nsuri": NCX_NS})
+    for set_id, book_struct, spanish, english in SKIPPABLE_LABELS:
+        node_set = ET.SubElement(scope, _q(RESOURCE_NS, "nodeSet"),
+                                 {"id": set_id, "select": f"//smilCustomTest[@bookStruct='{book_struct}']"})
+        for language, label in (("es", spanish), ("en", english)):
+            resource = ET.SubElement(node_set, _q(RESOURCE_NS, "resource"), {_q(XML_NS, "lang"): language})
+            ET.SubElement(resource, _q(RESOURCE_NS, "text")).text = label
+    node_set = ET.SubElement(scope, _q(RESOURCE_NS, "nodeSet"),
+                             {"id": "chapter-labels", "select": "//navPoint[@class='chapter']"})
+    resource = ET.SubElement(node_set, _q(RESOURCE_NS, "resource"), {"id": "chapter-label-es", _q(XML_NS, "lang"): "es"})
+    ET.SubElement(resource, _q(RESOURCE_NS, "text")).text = "Capítulo"
+    _write_xml(
+        path,
+        resources,
+        '<!DOCTYPE resources PUBLIC "-//NISO//DTD resource 2005-1//EN" "http://www.daisy.org/z3986/2005/resource-2005-1.dtd">',
+        RESOURCE_NS,
+    )
+
+
+def _label(parent: ET.Element, tag: str, text: str, audio: tuple[str, int, int] | None) -> ET.Element:
+    """A navLabel, docTitle or docAuthor: its text, and the audio that says it when there is one."""
+    label = ET.SubElement(parent, _q(NCX_NS, tag))
+    ET.SubElement(label, _q(NCX_NS, "text")).text = text
+    if audio is not None:
+        src, begin, end = audio
+        ET.SubElement(label, _q(NCX_NS, "audio"), {"src": src, "clipBegin": _clock_ms(begin), "clipEnd": _clock_ms(end)})
+    return label
 
 
 def _write_ncx(
     path: Path, book_id: str, title: str, chapter_targets: list[tuple[str, str, str, int]],
     page_targets: list[tuple[str, str]], note_targets: list[tuple[str, str]], reading_order: dict[str, int],
     custom_tests: set[str], *, unique_page_ids: bool, photo_targets: list[tuple[str, str]] | None = None,
+    label_audio: dict[str, tuple[str, int, int]] | None = None, title_audio: tuple[str, int, int] | None = None,
+    author: str = "",
 ) -> None:
     """The navigation file: nested sections, pages, notes.
 
@@ -1140,7 +1362,14 @@ def _write_ncx(
     distinct SMIL time container (Z39.86-2005 §8.4.3): a section and the page
     marker it begins with point at different containers and get different
     numbers, while two entries pointing at the same container share one.
+
+    A section whose heading is read has that audio in its ``navLabel``
+    (``label_audio``, by the section's SMIL reference), and the book's title
+    the audio of the title file (``title_audio``): a player browsing the
+    navigation says each heading with the book's own voice. Page labels stay
+    text only: a page number is never read aloud.
     """
+    label_audio = label_audio or {}
     referenced = {reference for _label, reference, _class, _level in chapter_targets}
     referenced |= {reference for _label, reference in page_targets}
     referenced |= {reference for _label, reference in note_targets}
@@ -1153,6 +1382,7 @@ def _write_ncx(
     values = [value for value in (page_kind(label)[1] for label, _reference in page_targets) if value]
     for name, content in (
         ("dtb:uid", book_id),
+        ("dtb:generator", PRODUCER),
         ("dtb:depth", str(max((level for _label, _reference, _class, level in chapter_targets), default=1))),
         ("dtb:totalPageCount", str(len(page_targets))),
         ("dtb:maxPageNumber", str(max(values, default=0))),
@@ -1160,8 +1390,9 @@ def _write_ncx(
         ET.SubElement(ncx_head, _q(NCX_NS, "meta"), {"name": name, "content": content})
     for test in sorted(custom_tests):
         ET.SubElement(ncx_head, _q(NCX_NS, "smilCustomTest"), {"id": test, **CUSTOM_TESTS[test]})
-    doc_title = ET.SubElement(ncx, _q(NCX_NS, "docTitle"))
-    ET.SubElement(doc_title, _q(NCX_NS, "text")).text = title
+    _label(ncx, "docTitle", title, title_audio)
+    if author:
+        _label(ncx, "docAuthor", author, None)
     nav_map = ET.SubElement(ncx, _q(NCX_NS, "navMap"))
     stack: list[tuple[int, ET.Element]] = []
     for order, (label, reference, nav_class, level) in enumerate(chapter_targets, start=1):
@@ -1170,8 +1401,7 @@ def _write_ncx(
         parent = stack[-1][1] if stack else nav_map
         nav_point = ET.SubElement(parent, _q(NCX_NS, "navPoint"),
                                   {"id": f"nav-{order}", "playOrder": play[reference], "class": nav_class})
-        nav_label = ET.SubElement(nav_point, _q(NCX_NS, "navLabel"))
-        ET.SubElement(nav_label, _q(NCX_NS, "text")).text = label
+        _label(nav_point, "navLabel", label, label_audio.get(reference))
         ET.SubElement(nav_point, _q(NCX_NS, "content"), {"src": reference})
         stack.append((level, nav_point))
     if page_targets:

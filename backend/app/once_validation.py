@@ -310,7 +310,9 @@ def _index(built: _Package, planned: list[dict], plan: dict) -> dict:
             first = next((child for child in element if _local(child.tag) not in {"pagenum"}), None)
             own = [child.text or "" for child in element if _local(child.tag) == "pagenum"
                    and first is not None and list(element).index(child) < list(element).index(first)]
-            starts[position[id(element)]] = own[0] if own else current
+            # Several markers before the heading: it is on the last of them
+            # (the others began on a blank page or in text left out before it).
+            starts[position[id(element)]] = own[-1] if own else current
     depth = int(plan.get("index_depth") or 2)
     template = plan.get("index_entry") or "{heading}. Página {page}."
     expected: list[str] = []

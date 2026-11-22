@@ -1,0 +1,332 @@
+[
+  {
+    "feature": "Import",
+    "test": "The server refuses an unsupported file with a reason",
+    "result": "PASS",
+    "evidence": "HTTP 415: Elige un archivo PDF, EPUB, DOCX, XML o TXT."
+  },
+  {
+    "feature": "Navigation",
+    "test": "Open the application",
+    "result": "PASS",
+    "evidence": "title «Soni2 — Escucha tus libros», tabs: ['1\\nSubir libro', '2\\nEscuchar y revisar', '3\\nExportar']"
+  },
+  {
+    "feature": "Import",
+    "test": "Import DTBook XML and list its sections",
+    "result": "PASS",
+    "evidence": "4 sections: ['Capítulo 1. La llegada', 'Capítulo 2. El cuaderno', 'Capítulo 3. La visita', 'Capítulo 4. El invierno']"
+  },
+  {
+    "feature": "Chapter extraction",
+    "test": "Chapters become audio files (3 ONCE files + 4 chapters)",
+    "result": "PASS",
+    "evidence": "7 files: ['El faro de prueba, De Equipo de pruebas', 'DATOS BIBLIOGRÁFICOS', 'Índice.', 'Capítulo 1. La llegada', 'Capítulo 2. El cuaderno', 'Capítulo 3. La visita', 'Capítulo 4. El invierno']"
+  },
+  {
+    "feature": "Sentence segmentation",
+    "test": "Chapter 1 shows its heading and four paragraphs, in order",
+    "result": "PASS",
+    "evidence": "5 units: ['Capítulo 1. La llegada', 'Lucía llegó al faro cuando caía la tarde.', 'El camino medía 18 km y costó 3.500 euros.', 'La llave de hierro pesaba más de lo que parecía.', 'Subió los ciento doce escalones sin detenerse.']"
+  },
+  {
+    "feature": "Step 3",
+    "test": "Exactly two primary actions before any build",
+    "result": "PASS",
+    "evidence": "['Descargar ZIP', 'Regenerar ZIP']"
+  },
+  {
+    "feature": "Step 3",
+    "test": "While building: two actions, both locked against a second build",
+    "result": "PASS",
+    "evidence": "2 actions; regenerate disabled=True"
+  },
+  {
+    "feature": "Progress",
+    "test": "Real stages shown while building",
+    "result": "PASS",
+    "evidence": "Preparando el audiolibro : hecho / Comprobando qué ha cambiado : hecho 0 de 30 frases sin cambi / Generando el audio que falta : en curso 5 de 30 frases nueva / Montando los capítulos : pendiente"
+  },
+  {
+    "feature": "Progress",
+    "test": "While building, quality reports units not narrated yet, not a missing tool",
+    "result": "PASS",
+    "evidence": "Estado de calidad: Narrando / 25 segmentos aún no se han narrado. / Generación técnica\ten curso\t5 de 30 párrafos verificados, 0 retomas"
+  },
+  {
+    "feature": "Audiobook generation",
+    "test": "«Descargar ZIP» builds the book and downloads it",
+    "result": "PASS",
+    "evidence": "El faro de prueba.zip, 5126 KB in 16 s"
+  },
+  {
+    "feature": "Step 3",
+    "test": "Ready: status and the ZIP read back",
+    "result": "PASS",
+    "evidence": "ZIP listo · 7 archivos · 0:02:42 · 5 MB · validado"
+  },
+  {
+    "feature": "ZIP integrity",
+    "test": "first: read back and audited",
+    "result": "PASS",
+    "evidence": "32 entries; CRC, layout, manifest, references, audio, order, metadata passed"
+  },
+  {
+    "feature": "DAISY validation",
+    "test": "first: structure, DTD (Z39.86-2005) and timing",
+    "result": "PASS",
+    "evidence": "structural passed; DTD passed (0 errors); timing passed "
+  },
+  {
+    "feature": "Audio playback",
+    "test": "first: every MP3 in the ZIP decodes from start to end",
+    "result": "PASS",
+    "evidence": "8 files (7 chapters + the complete book) decoded without an error"
+  },
+  {
+    "feature": "Audio playback",
+    "test": "first: a chapter MP3 taken from the ZIP plays in the browser",
+    "result": "PASS",
+    "evidence": "chapter-001.mp3: played to 2.5 s of 70.5 s, error None"
+  },
+  {
+    "feature": "ZIP content",
+    "test": "first: edited text is in, removed text is out",
+    "result": "PASS",
+    "evidence": "2 expected texts present, 0 removed texts absent"
+  },
+  {
+    "feature": "Text normalization",
+    "test": "Numbers and units are spelled for the voice, not in the text",
+    "result": "PASS",
+    "evidence": "text «El camino medía 18 km y costó 3.500 euros.» → spoken «El camino medía dieciocho kilómetros y costó tres mil quinientos euros.»"
+  },
+  {
+    "feature": "Playback",
+    "test": "The chapter's final audio plays",
+    "result": "PASS",
+    "evidence": "currentTime 3.4 s, source /api/jobs/a48f4fdd-d368-400a-bc9a-3f0a4fcb4975/sections/3/audio?v=2ff6523a92e25884"
+  },
+  {
+    "feature": "Navigation",
+    "test": "Alt+↓ moves to the next chapter",
+    "result": "PASS",
+    "evidence": "now on «Capítulo 2. El cuaderno»"
+  },
+  {
+    "feature": "Navigation",
+    "test": "Clicking a chapter in the structure opens it",
+    "result": "PASS",
+    "evidence": "Capítulo 3. La visita"
+  },
+  {
+    "feature": "Sentence editing",
+    "test": "Correct, add and remove phrases in chapter 1",
+    "result": "PASS",
+    "evidence": "5 units now: ['Lucía llegó al faro cuando ya caía la tarde, cansada.', 'El camino medía 18 km y costó 3.500 euros.', 'Nadie la esperaba en el muelle aquella tarde.', 'La llave de hierro pesaba más de lo que parecía.']"
+  },
+  {
+    "feature": "Error handling",
+    "test": "Adding a chapter without a title is refused, with the reason",
+    "result": "PASS",
+    "evidence": "Escribe el título del capítulo.; 7 files (was 7)"
+  },
+  {
+    "feature": "Chapter addition",
+    "test": "Add a chapter after chapter 2",
+    "result": "PASS",
+    "evidence": "8 files; ['Capítulo 1. La llegada', 'Capítulo 2. El cuaderno', 'Capítulo nuevo. La tormenta · añadido', 'Capítulo 3. La visita', 'Capítulo 4. El invierno']"
+  },
+  {
+    "feature": "Chapter removal",
+    "test": "Remove chapter 4",
+    "result": "PASS",
+    "evidence": "7 files now"
+  },
+  {
+    "feature": "Search",
+    "test": "A phrase is found anywhere in the book and opens its chapter",
+    "result": "PASS",
+    "evidence": "«paraguas» → Capítulo 3. La visita"
+  },
+  {
+    "feature": "Undo",
+    "test": "«Deshacer» brings back a deleted phrase, on the page and on the server",
+    "result": "PASS",
+    "evidence": "deleted (page and server): True; back after undo (page and server): True"
+  },
+  {
+    "feature": "Step 3",
+    "test": "Says the book changed since the ZIP, and what changed",
+    "result": "PASS",
+    "evidence": "Has cambiado el libro desde el último ZIP. «Regenerar ZIP» lo actualiza: solo se genera lo nuevo o corregido. | Desde el último ZIP: 1 capítulo eliminado («Capítulo 4. El invierno») · 1 capítulo añadido («Capítulo nuevo. La tormenta») · 4 frases nuevas o corregidas · 3 frases quitadas."
+  },
+  {
+    "feature": "Step 3",
+    "test": "The previous ZIP's quality report is shown, and not offered for publication",
+    "result": "PASS",
+    "evidence": "Es el informe del ZIP anterior a tus cambios. Confirmar avisos y publicar se hace sobre el ZIP del texto actual: créalo con «Regenerar ZIP». | publish buttons: 0"
+  },
+  {
+    "feature": "ZIP generation",
+    "test": "«Regenerar ZIP» rebuilds from the latest text without downloading",
+    "result": "PASS",
+    "evidence": "ZIP listo · 7 archivos · 0:02:40 · 4,9 MB · validado in 9 s; Comprobando qué ha cambiado : hecho 23 de 29 frases sin cambios: su au / Generando el audio que falta : hecho 6 de 6 frases nuevas o corregidas / Montando los capítulos : hecho 7 de 7 · 3 sin cambios, reutilizados · "
+  },
+  {
+    "feature": "ZIP download",
+    "test": "«Descargar ZIP» hands over the regenerated ZIP at once",
+    "result": "PASS",
+    "evidence": "El faro de prueba.zip, 5054 KB"
+  },
+  {
+    "feature": "Audio regeneration",
+    "test": "Only new and changed text is narrated; the rest is reused",
+    "result": "PASS",
+    "evidence": "first build narrated 29 units; regeneration narrated 6 and reused 23 (['hit', 'miss'])"
+  },
+  {
+    "feature": "ZIP integrity",
+    "test": "edited: read back and audited",
+    "result": "PASS",
+    "evidence": "32 entries; CRC, layout, manifest, references, audio, order, metadata, sections passed"
+  },
+  {
+    "feature": "DAISY validation",
+    "test": "edited: structure, DTD (Z39.86-2005) and timing",
+    "result": "PASS",
+    "evidence": "structural passed; DTD passed (0 errors); timing passed "
+  },
+  {
+    "feature": "Audio playback",
+    "test": "edited: every MP3 in the ZIP decodes from start to end",
+    "result": "PASS",
+    "evidence": "8 files (7 chapters + the complete book) decoded without an error"
+  },
+  {
+    "feature": "Audio playback",
+    "test": "edited: a chapter MP3 taken from the ZIP plays in the browser",
+    "result": "PASS",
+    "evidence": "chapter-001.mp3: played to 2.5 s of 70.5 s, error None"
+  },
+  {
+    "feature": "ZIP content",
+    "test": "edited: edited text is in, removed text is out",
+    "result": "PASS",
+    "evidence": "4 expected texts present, 4 removed texts absent"
+  },
+  {
+    "feature": "Persistence",
+    "test": "A reload restores the book, the step and the ready ZIP",
+    "result": "PASS",
+    "evidence": "while restoring: «Recuperando el libro y su último ZIP…»; then: «ZIP listo · 7 archivos · 0:02:40 · 4,9 MB · validado»"
+  },
+  {
+    "feature": "Error handling",
+    "test": "A ZIP missing on the server is explained, with what to do",
+    "result": "PASS",
+    "evidence": "El paquete completo todavía no está disponible. Pulsa «Regenerar ZIP» para volver a crearlo."
+  },
+  {
+    "feature": "Error handling",
+    "test": "A lost connection during a build is waited out, and the build finishes",
+    "result": "PASS",
+    "evidence": "ZIP listo · 7 archivos · 0:02:40 · 4,9 MB · validado"
+  },
+  {
+    "feature": "Duplicate prevention",
+    "test": "A double click on «Regenerar ZIP» starts one build",
+    "result": "PASS",
+    "evidence": "1 job request(s), 1 job; ZIP listo · 7 archivos · 0:02:41 · 5 MB · validado"
+  },
+  {
+    "feature": "Book data",
+    "test": "A new publisher outdates the ZIP, and the regenerated ZIP's metadata carries it",
+    "result": "PASS",
+    "evidence": "status «Has cambiado el libro desde el último ZIP. «Regenerar ZIP»…»; OPF dc:Publisher «Ediciones del Faro»"
+  },
+  {
+    "feature": "ZIP generation",
+    "test": "Quality review off: «Descargar ZIP» builds the ZIP directly, marked unverified",
+    "result": "PASS",
+    "evidence": "El faro de prueba.zip, 5070 KB; status «ZIP listo · 0:02:41 · 5 MB · sin verificar»; quality-status.json at the root: {\"state\": \"UNVERIFIED\", \"label\": \"Sin verificar\", \"detail\": \"Descarga directa: no se transcribió ni se comparó la narrac"
+  },
+  {
+    "feature": "ZIP integrity",
+    "test": "direct: read back and audited",
+    "result": "PASS",
+    "evidence": "21 entries; CRC, layout, manifest, references, audio, order, metadata, sections passed"
+  },
+  {
+    "feature": "DAISY validation",
+    "test": "direct: structure, DTD (Z39.86-2005) and timing",
+    "result": "PASS",
+    "evidence": "structural passed; DTD passed (0 errors); timing passed "
+  },
+  {
+    "feature": "Audio playback",
+    "test": "direct: every MP3 in the ZIP decodes from start to end",
+    "result": "PASS",
+    "evidence": "8 files (7 chapters + the complete book) decoded without an error"
+  },
+  {
+    "feature": "Audio playback",
+    "test": "direct: a chapter MP3 taken from the ZIP plays in the browser",
+    "result": "PASS",
+    "evidence": "chapter-001.mp3: played to 2.5 s of 70.5 s, error None"
+  },
+  {
+    "feature": "ZIP content",
+    "test": "direct: edited text is in, removed text is out",
+    "result": "PASS",
+    "evidence": "4 expected texts present, 4 removed texts absent"
+  },
+  {
+    "feature": "Responsive",
+    "test": "Step 3 at 390 px: no horizontal scroll, two actions",
+    "result": "PASS",
+    "evidence": "overflow 0px"
+  },
+  {
+    "feature": "Accessibility",
+    "test": "Every visible button has a name",
+    "result": "PASS",
+    "evidence": "0 unnamed"
+  },
+  {
+    "feature": "Import",
+    "test": "Import EPUB: its 4 chapters and their text",
+    "result": "PASS",
+    "evidence": "7 files (3 ONCE + 4); chapters ['Capítulo 1. La llegada', 'Capítulo 2. El cuaderno', 'Capítulo 3. La visita', 'Capítulo 4. El invierno']; chapter 1 starts ['Capítulo 1. La llegada', 'Lucía llegó al faro cuando caía la tarde.']"
+  },
+  {
+    "feature": "Import",
+    "test": "Import DOCX: its 4 chapters and their text",
+    "result": "PASS",
+    "evidence": "7 files (3 ONCE + 4); chapters ['Capítulo 1. La llegada', 'Capítulo 2. El cuaderno', 'Capítulo 3. La visita', 'Capítulo 4. El invierno']; chapter 1 starts ['Capítulo 1. La llegada', 'Lucía llegó al faro cuando caía la tarde.']"
+  },
+  {
+    "feature": "Import",
+    "test": "Import PDF: its 4 chapters and their text",
+    "result": "PASS",
+    "evidence": "7 files (3 ONCE + 4); chapters ['Capítulo 1. La llegada', 'Capítulo 2. El cuaderno', 'Capítulo 3. La visita', 'Capítulo 4. El invierno']; chapter 1 starts ['Capítulo 1. La llegada', 'Lucía llegó al faro cuando caía la tarde.']"
+  },
+  {
+    "feature": "Import",
+    "test": "Import TXT: its 4 chapters and their text",
+    "result": "PASS",
+    "evidence": "7 files (3 ONCE + 4); chapters ['Capítulo 1', 'Capítulo 2', 'Capítulo 3', 'Capítulo 4']; chapter 1 starts ['Capítulo 1', 'Lucía llegó al faro cuando caía la tarde.']"
+  },
+  {
+    "feature": "Import",
+    "test": "HTML is not a supported format: the picker does not offer it",
+    "result": "PASS",
+    "evidence": "accept=\".pdf,.epub,.docx,.txt,.xml\""
+  },
+  {
+    "feature": "Stability",
+    "test": "No uncaught error in the page",
+    "result": "PASS",
+    "evidence": "none"
+  }
+]

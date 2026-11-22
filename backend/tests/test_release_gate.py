@@ -99,6 +99,22 @@ def test_anything_unresolved_keeps_a_book_from_passing(change, state) -> None:
     assert result["blockers"] or result["reviews"] or state == release_gate.GENERATING
 
 
+def test_units_not_narrated_yet_are_pending_not_unanalysed() -> None:
+    # At the start of a production nothing has audio: that is not a missing ffmpeg.
+    job = {"state": "running", "sentences": [
+        {"sentence_id": "s0", "state": "pending", "audio_path": "", "acoustic": {}},
+        {"sentence_id": "s1", "state": "verified", "audio_path": "audio/s1.mp3", "acoustic": {"status": "passed"}}]}
+    result = release_gate.evaluate(job, simulated_audio=False, **PASSING)
+    assert result["dimensions"]["audio"]["signal_unchecked"] == 0
+    assert not any("ffmpeg" in note for note in result["reviews"])
+    assert "1 segmentos aún no se han narrado." in result["reviews"]
+    # Audio that exists and was not analysed is still reported as such.
+    job["sentences"][1]["acoustic"] = {"status": "unavailable"}
+    result = release_gate.evaluate(job, simulated_audio=False, **PASSING)
+    assert result["dimensions"]["audio"]["signal_unchecked"] == 1
+    assert "1 segmentos no pudieron analizarse acústicamente (falta ffmpeg)." in result["reviews"]
+
+
 def test_an_acknowledged_warning_no_longer_holds_the_book() -> None:
     issue = {"severity": "warning", "code": "unaccounted_words", "message": "faltan", "location": "", "text": "x"}
     options = {**PASSING, "extraction": {"issues": [issue]}}
@@ -388,7 +404,8 @@ def test_differences_are_placed_in_the_chapter_file_and_the_whole_book(offline, 
     assert location["expected"] == "Marta" and location["heard"] == "Martha"
     # "Martha" is word 7 of the paragraph: 0.05 + 6 × 0.02 = 0.17 s into its own audio.
     assert location["paragraph_time"] == 0.17
-    assert location["chapter"] == 1 and location["chapter_file"] == "audio/chapter-001.mp3"
+    # Flat by default, as in ONCE's own books: the chapter file is beside the OPF.
+    assert location["chapter"] == 1 and location["chapter_file"] == "chapter-001.mp3"
     assert location["book_file"].endswith(".mp3") and location["book_time"] is not None
     # The paragraph follows the chapter heading, so it starts after 0 in the chapter file.
     assert location["chapter_time"] > 0.17 and location["book_time"] >= location["chapter_time"]

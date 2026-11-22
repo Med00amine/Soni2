@@ -126,8 +126,8 @@ def _package_files(package: Path) -> tuple[Path, ET.Element, Path, ET.Element]:
     return opf_path, opf, package / by_id["dtbook"], ET.parse(package / by_id["dtbook"]).getroot()
 
 
-def units_to_package(units: list[dict], package: Path) -> list[dict]:
-    """Checks 3-5 on a built package directory."""
+def units_to_package(units: list[dict], package: Path, book_audio: Path | None = None) -> list[dict]:
+    """Checks 3-5 on a built package directory; ``book_audio`` is the complete audiobook beside it."""
     checks: list[dict] = []
     _opf_path, opf, dtbook_path, dtbook = _package_files(package)
     # A page number is a silent marker, not something narrated: it is checked
@@ -235,10 +235,9 @@ def units_to_package(units: list[dict], package: Path) -> list[dict]:
         nav_problems.append("falta el NCX")
     total_meta = next((meta.get("content") for meta in opf.iter(f"{OPF}meta")
                        if meta.get("name") == "dtb:totalTime"), None)
-    full_href = next((item.get("href") for item in opf.iter(f"{OPF}item") if item.get("id") == "full-audiobook"), "")
     total = _seconds(total_meta or "")
-    if full_href and (package / full_href).is_file() and total is not None:
-        actual = mp3_duration((package / full_href).read_bytes())
+    if book_audio is not None and book_audio.is_file() and total is not None:
+        actual = mp3_duration(book_audio.read_bytes())
         if abs(actual - total) > max(1.0, actual * 0.01):
             nav_problems.append(f"dtb:totalTime {total:.1f}s y el audio completo dura {actual:.1f}s")
         chapter_total = sum(durations.values())
@@ -259,22 +258,30 @@ def _seconds(clock: str) -> float | None:
 
 
 def verify(chapters: list[dict], units: list[dict], job_dir: Path, package: Path | None,
-           corrected_ids: set[str], once_plan: dict | None = None, timing: dict | None = None) -> dict:
+           corrected_ids: set[str], once_plan: dict | None = None, timing: dict | None = None,
+           book_audio: Path | None = None) -> dict:
     """The whole chain; with ``once_plan`` (the resolved planilla) the ONCE structure too.
 
     ``timing`` (the arguments of ``daisy_timing.verify``: the silence wanted at
     the edges, the bitrate, the chapter gap) adds the timing checks of the
     package against its real audio; without it they run with no edge targets.
+    ``book_audio`` is the complete audiobook delivered beside the package. The
+    package is also held to ZedVal's Z39.86-2005 requirements (app.zedval_rules),
+    the validator libraries such as ONCE check the books they receive with.
     """
     checks = [source_to_units(chapters, units, corrected_ids), units_to_audio(units, job_dir)]
     if package is not None:
         try:
-            checks.extend(units_to_package(units, package))
+            checks.extend(units_to_package(units, package, book_audio or (timing or {}).get("book_audio")))
         except (ET.ParseError, StopIteration, KeyError, OSError) as exc:
             checks.append(_check("package_readable", "Paquete legible", "failed", f"No se pudo leer el paquete: {exc}"))
-        from app import daisy_timing
+        from app import daisy_timing, zedval_rules
 
-        checks.extend(daisy_timing.verify(package, **(timing or {})))
+        timing_arguments = dict(timing or {})
+        if book_audio is not None:
+            timing_arguments["book_audio"] = book_audio
+        checks.extend(daisy_timing.verify(package, **timing_arguments))
+        checks.extend(zedval_rules.verify(package))
         if once_plan is not None:
             from app import once_validation
 

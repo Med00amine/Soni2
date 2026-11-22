@@ -294,6 +294,45 @@ def test_a_book_without_page_numbers_takes_its_index_pages_from_the_planilla(tmp
     assert checks["once_index"] == "passed" and checks["once_pages"] == "passed"
 
 
+LEFT_OUT_COVER = """<?xml version="1.0" encoding="UTF-8"?>
+<dtbook xmlns="http://www.daisy.org/z3986/2005/dtbook/" version="2005-3"><head>
+<meta name="dc:Title" content="El faro"/><meta name="dc:Creator" content="Ana Pérez"/></head><book><bodymatter>
+<level1><pagenum page="normal" id="p1">1</pagenum><h1>Portada</h1><p>El faro. Ana Pérez.</p>
+<pagenum page="normal" id="p2">2</pagenum><p>Edición digital de la biblioteca.</p>
+<pagenum page="normal" id="p3">3</pagenum><p>Créditos de esta edición digital.</p></level1>
+<level1><pagenum page="normal" id="p4">4</pagenum><h1>Capítulo 1</h1><p>Empieza la historia junto al mar.</p>
+<pagenum page="normal" id="p5">5</pagenum><p>Y sigue en la página cinco.</p></level1>
+<level1><pagenum page="normal" id="p6">6</pagenum><h1>Capítulo 2</h1><p>Termina la historia.</p></level1>
+</bodymatter></book></dtbook>""".encode("utf-8")
+
+
+def test_pages_left_out_before_a_chapter_do_not_change_the_page_its_index_names(tmp_path) -> None:
+    """Found reproducing «Cuentos de la Selva» in the application (2026-11-19).
+
+    The cover, title and credits pages (1-3) are left out of the narration and
+    begin at the first chapter, which starts on page 4; the planilla puts file 1
+    on page 1 and gives files 2 and 3 none. The index said «Página 1» while the
+    package marked page 1 in file 1 only, and the release gate blocked the book.
+    """
+    structure = extract_book_structure("libro.xml", LEFT_OUT_COVER)
+    _chapters, built = main.prepare_book(structure, {"title": "El faro", "author": "Ana Pérez"},
+                                         narration_plan_json="", create_sections=False,
+                                         sheet=planilla.from_dict({"file1_page": "1"}))
+    # Page 1 is file 1's; pages 2 and 3, left out, begin at chapter 1, which starts on page 4.
+    assert [section.title_pages for section in built.sections] == [["1"], [], [], ["2", "3", "4"], ["6"]]
+    assert [section.page_start for section in built.sections[3:]] == ["4", "6"]
+    assert [paragraph.text for paragraph in built.sections[2].paragraphs] == [
+        "Capítulo 1. Página 4.", "Capítulo 2. Página 6.", "Fin de índice."]
+    assert [warning["code"] for warning in built.warnings if warning["code"] != "missing"] == ["duplicate_page"]
+    package = _package(built, tmp_path)
+    dtbook = ET.parse(next(package.glob("*.xml"))).getroot()
+    assert [page.text for page in dtbook.iter(f"{DTBOOK}pagenum")] == ["1", "2", "3", "4", "5", "6"]
+    checks = {check["id"]: check for check in once_validation.verify(package, _records(built),
+                                                                     built.resolved.as_dict())}
+    assert checks["once_index"]["status"] == "passed", checks["once_index"]
+    assert checks["once_pages"]["status"] == "passed", checks["once_pages"]
+
+
 def test_a_book_that_differs_from_the_planillas_files_is_reported() -> None:
     sheet = {**MODEL, "expected_files": [{"number": 4, "heading": "Capítulo 1. La llegada"},
                                          {"number": 5, "heading": "El faro apagado"}]}
@@ -473,7 +512,8 @@ def test_a_reviewed_production_delivers_the_once_structure(offline) -> None:
     assert all(unit["state"] == "verified" for unit in job["sentences"])
     with zipfile.ZipFile(job["output_path"]) as archive:
         names = archive.namelist()
-        assert sum(1 for name in names if re.fullmatch(r"DAISY 3/audio/chapter-\d{3}\.mp3", name)) == 8
+        # Flat by default, as in ONCE's own books.
+        assert sum(1 for name in names if re.fullmatch(r"DAISY 3/chapter-\d{3}\.mp3", name)) == 8
         book = archive.read(next(name for name in names if name.endswith(".xml") and name.count("/") == 1)).decode()
         assert book.count("Aquí finaliza la grabación de El faro de la isla Almendra, De Antonio Pérez.") == 1
         assert "Fin de nota 1." in book
@@ -533,8 +573,11 @@ def test_a_direct_download_has_the_same_structure(offline) -> None:
     assert response.status_code == 200, response.text
     with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
         names = archive.namelist()
-        status = json.loads(archive.read("DAISY 3/quality-status.json"))
-        assert sum(1 for name in names if re.fullmatch(r"DAISY 3/audio/chapter-\d{3}\.mp3", name)) == 8
+        # Beside the package, as in a reviewed delivery: inside it, it was a
+        # file the package's manifest does not list.
+        status = json.loads(archive.read("quality-status.json"))
+        assert "DAISY 3/quality-status.json" not in names
+        assert sum(1 for name in names if re.fullmatch(r"DAISY 3/chapter-\d{3}\.mp3", name)) == 8
         book = archive.read(next(name for name in names if name.endswith(".xml") and name.count("/") == 1)).decode()
     assert status["state"] == "UNVERIFIED"
     assert {check["status"] for check in status["package"]["once_structure"]} == {"passed"}
@@ -554,7 +597,10 @@ def test_without_a_planilla_nothing_changes(offline) -> None:
         book = archive.read(next(name for name in archive.namelist()
                                  if name.endswith(".xml") and name.count("/") == 1)).decode()
     assert "once-" not in book and "Aquí finaliza" not in book
-    assert "<pagenum" not in book
+    # The pages are the original's, not the ONCE structure's: a book produced
+    # without a planilla keeps them too (it had none, which is what ONCE found
+    # in the first deliveries: «el libro no tiene páginas»).
+    assert re.findall(r"<pagenum[^>]*>(\d+)</pagenum>", book) == ["4", "5", "6", "7"]
 
 
 def test_the_outline_shows_the_structure_before_anything_is_narrated(offline) -> None:

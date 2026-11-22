@@ -85,7 +85,12 @@ class _Audio:
     path: Path
     duration: float
     stream: dict
-    data: bytes
+
+    @property
+    def data(self) -> bytes:
+        # Read when needed and not kept: holding every chapter and the
+        # complete audiobook in memory at once doubled the book's size in RAM.
+        return self.path.read_bytes()
 
 
 @dataclass
@@ -99,8 +104,10 @@ class _Clip:
 
 
 class _Package:
-    def __init__(self, package: Path) -> None:
+    def __init__(self, package: Path, book_audio: Path | None = None) -> None:
         self.root = package
+        # The complete audiobook, delivered beside the package (not one of its files).
+        self.book_audio = book_audio
         self.opf_path = next(package.glob("*.opf"))
         self.opf = ET.parse(self.opf_path).getroot()
         self.items = {item.get("id"): item.get("href", "") for item in self.opf.iter(f"{OPF}item")}
@@ -121,9 +128,8 @@ class _Package:
         if path not in self.audio:
             if not path.is_file():
                 return None
-            data = path.read_bytes()
-            stream = inspect_stream(data)
-            self.audio[path] = _Audio(path, stream["duration_seconds"], stream, data)
+            stream = inspect_stream(path.read_bytes())
+            self.audio[path] = _Audio(path, stream["duration_seconds"], stream)
         return self.audio[path]
 
     def text_ids(self, path: Path) -> set[str] | None:
@@ -300,8 +306,7 @@ def _first_frame_estimate(info: _Audio) -> float | None:
 
 
 def _book_audio(built: _Package) -> list[Path]:
-    full = built.items.get("full-audiobook")
-    return [built.root / full] if full and (built.root / full).is_file() else []
+    return [built.book_audio] if built.book_audio is not None and built.book_audio.is_file() else []
 
 
 def _audio_format(built: _Package, bitrate_kbps: int | None) -> dict:
@@ -358,13 +363,15 @@ def _edges(built: _Package, leading: float, trailing: float) -> dict:
         if info is None:
             continue
         name = path.relative_to(built.root.resolve()).as_posix() if built.root.resolve() in path.parents else path.name
-        edges = audio_master.edge_silence(info.data)
+        # Measured where the file is: copying the complete audiobook to a
+        # temporary file three times cost more than measuring it.
+        edges = audio_master.edge_silence_path(info.path, info.stream)
         if edges is None:
             problems.append({"file": name, "problem": "no se pudo medir el silencio de los bordes"})
             continue
-        start_db = audio_master.window_level_db(info.data, 0.0, max(0.05, leading - 0.05)) if leading else None
-        end_db = (audio_master.window_level_db(info.data, max(0.0, info.duration - trailing + 0.05),
-                                               max(0.05, trailing - 0.05)) if trailing else None)
+        start_db = audio_master.window_level_db_path(info.path, 0.0, max(0.05, leading - 0.05)) if leading else None
+        end_db = (audio_master.window_level_db_path(info.path, max(0.0, info.duration - trailing + 0.05),
+                                                    max(0.05, trailing - 0.05)) if trailing else None)
         rows.append({"file": name, **edges.as_dict(), "start_rms_db": start_db, "end_rms_db": end_db})
         if edges.leading < leading - EDGE_SLACK:
             problems.append({"file": name, "problem": f"empieza con {edges.leading:.3f} s de silencio; "
@@ -416,7 +423,12 @@ def _transitions(built: _Package, gap_extra: float | None) -> dict:
             continue
         total = sum(info.duration for info in parts)
         extra = (gap_extra or 0.0) * (len(parts) - 1)
-        allowance = 0.06 * max(1, len(parts) - 1) if gap_extra else MS
+        # Each duration is rounded to the millisecond, so the sum of the parts
+        # can be off by half a millisecond for each of them and the book by
+        # another half: twelve chapters joined frame for frame once summed to
+        # 2 ms less than their book. One frame too many (26 ms) still fails.
+        rounding = max(MS, 0.0005 * (len(parts) + 1))
+        allowance = 0.06 * max(1, len(parts) - 1) if gap_extra else rounding
         if book.duration < total - 0.05:
             problems.append({"problem": f"el audiolibro completo dura {book.duration:.3f} s y sus partes "
                                         f"{total:.3f} s"})
@@ -431,16 +443,18 @@ def _transitions(built: _Package, gap_extra: float | None) -> dict:
 
 
 def verify(package: Path, *, leading: float | None = None, trailing: float | None = None,
-           bitrate_kbps: int | None = None, chapter_gap: float | None = None) -> list[dict]:
+           bitrate_kbps: int | None = None, chapter_gap: float | None = None,
+           book_audio: Path | None = None) -> list[dict]:
     """Every timing check on a built package.
 
     ``leading`` and ``trailing`` are the silence wanted at the edges of each
     audio file (not checked when None), ``bitrate_kbps`` the constant bitrate
     expected, and ``chapter_gap`` the pause wanted between chapters of the
     complete audiobook, from which the silence added between them follows.
+    ``book_audio`` is that complete audiobook, delivered beside the package.
     """
     try:
-        built = _Package(package)
+        built = _Package(package, book_audio)
     except (StopIteration, ET.ParseError, OSError) as exc:
         return [_check("timing_package", "Paquete legible", "failed", f"No se pudo leer el paquete: {exc}")]
     checks = [_xml_files(built)]

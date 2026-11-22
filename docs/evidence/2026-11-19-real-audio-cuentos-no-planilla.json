@@ -1,0 +1,268 @@
+{
+  "what": "Cuentos de la Selva (the PDF ONCE reviewed), produced offline without a planilla: mock voice made audible (a real MP3 tone per paragraph), the real mastering (CBR 128 kbit/s, edge silence, loudness), flat layout. No paid service.",
+  "date": "2026-11-19",
+  "summary": {
+    "zip": "75f8e31e-0253-45d0-b041-74fe69023d0d-once-delivery.zip",
+    "zip_bytes": 122383157,
+    "folders_in_package": [],
+    "beside_package": [
+      "Cuentos_de_la_Selva.mp3",
+      "completeness.json",
+      "daisy-validation.json",
+      "extraction-report.json",
+      "fault-locations.json",
+      "job.log",
+      "quality-report.html",
+      "quality-report.json",
+      "quality-status.json",
+      "review-decisions.log",
+      "reviewed-source.json",
+      "tts.log"
+    ],
+    "pages": "66",
+    "max_page": "66",
+    "nav_labels_with_audio": 10,
+    "nav_points": 10,
+    "structural": "passed",
+    "dtd": "passed",
+    "timing": {
+      "status": "passed",
+      "failed": [],
+      "checks": {
+        "timing_xml": "passed",
+        "timing_clips": "passed",
+        "timing_contiguity": "passed",
+        "timing_totals": "passed",
+        "timing_audio_format": "passed",
+        "timing_edges": "passed",
+        "timing_transitions": "passed"
+      }
+    },
+    "zedval_rules": {
+      "status": "passed",
+      "requirements_failed": [],
+      "checks": {
+        "zedval_timing": "passed",
+        "zedval_metadata": "passed",
+        "zedval_manifest": "passed",
+        "zedval_navigation": "passed",
+        "zedval_documents": "passed"
+      }
+    },
+    "alignment": "622/637",
+    "zip_integrity": "passed"
+  },
+  "checks": [
+    {
+      "id": "timing_xml",
+      "label": "XML bien formado",
+      "status": "passed",
+      "detail": "14 documentos XML, todos bien formados"
+    },
+    {
+      "id": "timing_clips",
+      "label": "Fragmentos de audio SMIL",
+      "status": "passed",
+      "detail": "647 fragmentos en 10 archivos SMIL; cada uno con su audio y su texto, y dentro de su audio"
+    },
+    {
+      "id": "timing_contiguity",
+      "label": "Fragmentos contiguos",
+      "status": "passed",
+      "detail": "10 archivos de audio: los fragmentos cubren cada archivo de principio a fin, sin huecos ni solapes"
+    },
+    {
+      "id": "timing_totals",
+      "label": "Tiempos del libro (totalElapsedTime, dur, totalTime)",
+      "status": "passed",
+      "detail": "10 archivos SMIL, 3804.024 s en total; cada tiempo declarado coincide con la suma de sus fragmentos"
+    },
+    {
+      "id": "timing_audio_format",
+      "label": "Formato del audio",
+      "status": "passed",
+      "detail": "10 archivos MP3, todos a velocidad constante y con la misma frecuencia y canales"
+    },
+    {
+      "id": "timing_edges",
+      "label": "Silencio al principio y al final de cada audio",
+      "status": "passed",
+      "detail": "11 archivos medidos sobre la forma de onda: todos empiezan con al menos 1.00 s y acaban con al menos 1.20 s"
+    },
+    {
+      "id": "timing_transitions",
+      "label": "Transiciones entre capítulos y audiolibro completo",
+      "status": "passed",
+      "detail": "cada archivo SMIL tiene su entrada, en orden; el audiolibro completo dura lo que sus partes"
+    },
+    {
+      "id": "zedval_timing",
+      "label": "Tiempos y fragmentos (reglas de ZedVal)",
+      "status": "passed",
+      "detail": "10 archivos SMIL, 3804024 ms: cada tiempo declarado coincide al milisegundo y ningún fragmento pasa del final de su audio"
+    },
+    {
+      "id": "zedval_metadata",
+      "label": "Metadatos del paquete (reglas de ZedVal)",
+      "status": "passed",
+      "detail": "dc:Title, dc:Identifier, dc:Publisher, dc:Date, dc:Format, dc:Language y los metadatos dtb: obligatorios están presentes y son válidos"
+    },
+    {
+      "id": "zedval_manifest",
+      "label": "Manifiesto, spine y miembros del libro (reglas de ZedVal)",
+      "status": "passed",
+      "detail": "25 archivos en el manifiesto: todos existen, todos forman parte del libro y todo lo que el libro usa está en el manifiesto"
+    },
+    {
+      "id": "zedval_navigation",
+      "label": "Navegación NCX: páginas, playOrder y estructuras saltables (reglas de ZedVal)",
+      "status": "passed",
+      "detail": "76 destinos de navegación y 66 páginas: recuentos, valores, playOrder y customTest coherentes"
+    },
+    {
+      "id": "zedval_documents",
+      "label": "DTBook, SMIL y recursos (reglas de ZedVal)",
+      "status": "passed",
+      "detail": "identificadores, smilref, páginas, notas y estructuras saltables coherentes entre documentos"
+    }
+  ],
+  "zip_integrity": [
+    {
+      "id": "zip_readable",
+      "status": "passed",
+      "detail": "38 entradas, todas legibles y con su CRC correcto"
+    },
+    {
+      "id": "zip_layout",
+      "status": "passed",
+      "detail": "«DAISY 3/» con su OPF, NCX, DTBook y recursos; el audiolibro completo al lado (Cuentos_de_la_Selva.mp3)"
+    },
+    {
+      "id": "zip_xml",
+      "status": "passed",
+      "detail": "14 documentos XML bien formados"
+    },
+    {
+      "id": "zip_manifest",
+      "status": "passed",
+      "detail": "los 25 archivos del manifiesto están en el ZIP, y ninguno más"
+    },
+    {
+      "id": "zip_references",
+      "status": "passed",
+      "detail": "10 archivos SMIL: cada texto, audio, smilref y entrada del NCX lleva a algo que existe"
+    },
+    {
+      "id": "zip_audio",
+      "status": "passed",
+      "detail": "10 archivos MP3: cada uno se reproduce desde la navegación; el audiolibro completo es audio MPEG"
+    },
+    {
+      "id": "zip_order",
+      "status": "passed",
+      "detail": "spine, navegación y archivos de capítulo en el mismo orden"
+    },
+    {
+      "id": "zip_metadata",
+      "status": "passed",
+      "detail": "«Cuentos de la Selva» con el mismo identificador en OPF, DTBook, NCX y SMIL"
+    }
+  ],
+  "alignment": {
+    "boundaries": 637,
+    "in_a_pause_then_speech": 622,
+    "not_confirmed": [
+      {
+        "smil": "chapter-0003.smil",
+        "clipBegin": "0:00:19.769",
+        "before_db": -Infinity,
+        "after_db": -40.614413
+      },
+      {
+        "smil": "chapter-0003.smil",
+        "clipBegin": "0:00:28.406",
+        "before_db": -Infinity,
+        "after_db": -43.227005
+      },
+      {
+        "smil": "chapter-0003.smil",
+        "clipBegin": "0:00:35.482",
+        "before_db": -Infinity,
+        "after_db": -44.804868
+      },
+      {
+        "smil": "chapter-0003.smil",
+        "clipBegin": "0:00:39.437",
+        "before_db": -Infinity,
+        "after_db": -40.986033
+      },
+      {
+        "smil": "chapter-0003.smil",
+        "clipBegin": "0:00:44.692",
+        "before_db": -Infinity,
+        "after_db": -40.112509
+      },
+      {
+        "smil": "chapter-0003.smil",
+        "clipBegin": "0:01:42.291",
+        "before_db": -Infinity,
+        "after_db": -40.42858
+      },
+      {
+        "smil": "chapter-0003.smil",
+        "clipBegin": "0:01:50.928",
+        "before_db": -Infinity,
+        "after_db": -42.771585
+      },
+      {
+        "smil": "chapter-0003.smil",
+        "clipBegin": "0:01:59.565",
+        "before_db": -Infinity,
+        "after_db": -49.693914
+      },
+      {
+        "smil": "chapter-0003.smil",
+        "clipBegin": "0:02:04.170",
+        "before_db": -Infinity,
+        "after_db": -43.603436
+      },
+      {
+        "smil": "chapter-0006.smil",
+        "clipBegin": "0:03:11.422",
+        "before_db": -Infinity,
+        "after_db": -40.087317
+      },
+      {
+        "smil": "chapter-0006.smil",
+        "clipBegin": "0:03:20.058",
+        "before_db": -Infinity,
+        "after_db": -42.875795
+      },
+      {
+        "smil": "chapter-0006.smil",
+        "clipBegin": "0:03:28.694",
+        "before_db": -Infinity,
+        "after_db": -51.14285
+      },
+      {
+        "smil": "chapter-0006.smil",
+        "clipBegin": "0:03:33.507",
+        "before_db": -Infinity,
+        "after_db": -44.380781
+      },
+      {
+        "smil": "chapter-0006.smil",
+        "clipBegin": "0:03:38.761",
+        "before_db": -Infinity,
+        "after_db": -43.105713
+      },
+      {
+        "smil": "chapter-0006.smil",
+        "clipBegin": "0:03:42.819",
+        "before_db": -Infinity,
+        "after_db": -40.49101
+      }
+    ],
+    "note": "All 15 unconfirmed boundaries are in chapters 3 and 6, which ffmpeg could not master because it failed to open one mock clip in each (the mock voice prefixes each clip with its text). Those chapters fell back to the plain join, which keeps each test tone's 250 ms lead-in: digital silence before the boundary, the tone 0.25 s after it. A test-harness artefact; the fallback chapters pass every timing and ZedVal check."
+  }
+}

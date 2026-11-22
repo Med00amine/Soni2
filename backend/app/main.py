@@ -19,7 +19,7 @@ import sqlite3
 import uuid
 import time
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Awaitable, Callable, TypeVar
@@ -32,8 +32,8 @@ from pydantic import BaseModel, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.background import BackgroundTask
 
-from app.daisy_export import (DTBOOK_STYLESHEET, PackagePaths, add_to_archive, build_daisy_package,
-                              join_mp3 as daisy_join_mp3, package_layout,
+from app.daisy_export import (DTBOOK_STYLESHEET, AudioFiles, PackagePaths, add_to_archive, book_audio_name,
+                              build_daisy_package, join_mp3 as daisy_join_mp3, package_layout,
                               make_paragraphs, package_basename)
 from app.book_structure import extract_book_structure
 from app.daisy_validation import validate_daisy_package
@@ -44,8 +44,9 @@ from app import photo_inserts as photo_inserts_module
 from app import toc as toc_module
 from app import jobs as job_store
 from app import (audio_integrity, audio_master, completeness, daisy_dtd, daisy_timing, ocr, once_structure,
-                 once_validation,
-                 planilla, pronunciation, providers, qa_metrics, qa_review, quality_report, release_gate, repair)
+                 once_validation, package_integrity,
+                 planilla, pronunciation, providers, qa_metrics, qa_review, quality_report, release_gate, repair,
+                 zedval_rules)
 from app.audio_cache import AudioCache, write_atomic, write_atomic_text
 from app.job_logging import JobLogger
 from app.narration_plan import SelectedChapter, build_narration_plan, apply_narration_selection, is_generated
@@ -119,17 +120,22 @@ class Settings(BaseSettings):
     # players only have to support constant bitrate, and a variable-bitrate
     # file without a length header has no duration a validator can trust.
     audio_mp3_bitrate_kbps: int = 128
-    # DAISY package layout: "nested" (audio/ and smil/ folders, as delivered
-    # until now) or "flat" (every file beside the OPF, which older DAISY
-    # players handle best). Both pass the same checks; switch to flat once ONCE
-    # has confirmed it on its players.
-    daisy_package_layout: str = "nested"
+    # DAISY package layout: "flat" (every file beside the OPF, as in ONCE's own
+    # DAISY Pipeline books, and what older DAISY players handle best) or
+    # "nested" (audio/ and smil/ folders, as delivered until 2026-11). Both
+    # pass the same checks.
+    daisy_package_layout: str = "flat"
     # The style sheet the DTBook declares and the package carries, as ONCE's
     # books do: <?xml-stylesheet href="dtbookbasic.css" type="text/css"?>.
     # Empty: no style sheet. The media attribute (Z39.86-2005 §12.2) is added
     # only when set, so the declaration is exactly ONCE's by default.
     daisy_dtbook_stylesheet: str = "dtbookbasic.css"
     daisy_stylesheet_media: str = ""
+    # dc:Publisher of the DAISY book: who makes it available (Z39.86-2005 §8.2;
+    # ONCE's own books carry their production unit's code). Empty: ONCE for a
+    # book with the ONCE structure, Soni2 otherwise. The printed book's
+    # publisher is dtb:sourcePublisher.
+    daisy_publisher: str = ""
     # ONCE: foreign words in headings, and foreign surnames in bibliographies
     # and notes, are spelled out in the narration (never in the text).
     # "once": in books produced with the ONCE structure; "always"; "off".
@@ -353,6 +359,74 @@ def timing_targets() -> dict:
     if audio_master.available():
         targets.update(leading=lead, trailing=tail, chapter_gap=options.chapter_gap_ms / 1000)
     return targets
+
+
+# Raise when the way packages are built changes, so a package built before is
+# not handed out again as if it were the current build of the same text.
+PACKAGE_BUILD_VERSION = "2026-11-19-z3986"
+
+# Every build of the same book gets the same dtb:uid (see dtb_identifier).
+DTB_UID_NAMESPACE = uuid.UUID("5f0c1d6e-7a3b-4c2e-9d41-2b8e6f0a9c13")
+
+
+def book_source_hash(content: bytes, pages: str = "", sheet: planilla.Planilla | None = None) -> str:
+    """What a book is made from: the file, the page range read and the planilla."""
+    file_hash = hashlib.sha256(content).hexdigest()
+    # Another page range of the same file is another book, not a duplicate job.
+    source_hash = hashlib.sha256(f"{file_hash}\u0000pages={pages.strip()}".encode()).hexdigest() if pages.strip() else file_hash
+    if sheet is not None:
+        # So is the same book under another planilla.
+        source_hash = hashlib.sha256(
+            f"{source_hash}\u0000once={json.dumps(sheet.as_dict(), sort_keys=True, ensure_ascii=False)}".encode()
+        ).hexdigest()
+    return source_hash
+
+
+def dtb_identifier(source_hash: str, absys: str = "") -> str:
+    """The book's ``dtb:uid``, the same for every build of the same book.
+
+    A DAISY player keeps its bookmarks under this identifier, so a corrected
+    version must not look like another book. An ONCE book is named by its
+    ABSYS record; any other by the file it was made from.
+    """
+    record = re.sub(r"[^A-Za-z0-9._-]", "", absys or "")
+    if record:
+        return f"soni2-absys-{record}"
+    return f"soni2-{uuid.uuid5(DTB_UID_NAMESPACE, source_hash or 'libro')}"
+
+
+def dtb_publisher(once: bool) -> str:
+    """``dc:Publisher`` of the DAISY book; empty lets the package name its producer."""
+    return settings.daisy_publisher.strip() or ("ONCE" if once else "")
+
+
+def narrator_label(voice_id: str) -> str:
+    """``dtb:narrator``: the synthetic voice, named as ONCE names its own ("Síntesis - Charon (Google …)")."""
+    provider = active_tts_provider()
+    voice = find_tts_voice(voice_id, provider)
+    name = voice.name if voice is not None else voice_id
+    model = tts_model_for(provider) or (getattr(voice, "model", "") if voice is not None else "")
+    service = {"elevenlabs": "ElevenLabs", "fishaudio": "Fish Audio", "deepgram": "Deepgram",
+               "mock": "simulada"}.get(provider, provider)
+    return f"Síntesis de voz - {name} ({service}{' ' + model if model else ''})" if name else ""
+
+
+def build_signature() -> str:
+    """Everything besides the text that decides the bytes of a package.
+
+    Mastering (pauses, loudness, edges, bitrate), the package layout and style
+    sheet, the timing checks and whether ffmpeg is there: a finished package is
+    only taken again for the same text built the same way.
+    """
+    try:
+        layout = package_options()
+    except ValueError:
+        layout = {}
+    return hashlib.sha256(json.dumps({
+        "version": PACKAGE_BUILD_VERSION, "mastering": mastering_options().signature(), "package": layout,
+        "timing": timing_targets(), "ffmpeg": audio_master.available(),
+        "integrity": audio_integrity.ANALYSIS_VERSION, "review": settings.quality_review_enabled,
+    }, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
 
 def narration_concurrency() -> int:
@@ -722,6 +796,13 @@ def _permanent_provider_failure(error: Exception) -> bool:
     return _provider_failure_detail(error)[1]
 
 
+# Refusals about the account, not the passage (no credits left, a rejected key,
+# a voice the account does not have): every other unit would be refused the
+# same way, so they are not technical faults of a unit; the unit waits, still
+# pending, and the run stops.
+ACCOUNT_REFUSALS = ("credit", "credentials", "not_configured", "unsupported_voice")
+
+
 def take_seed(text: str, take: int) -> int:
     """A reproducible seed per text and take: the same take sounds the same if
     it is ever regenerated, while a retake explores a different reading."""
@@ -937,24 +1018,54 @@ def _alignment_from_fish_segments(
     return phrases
 
 
-async def _analyze_audio(audio: bytes, expected_text: str) -> dict[str, object]:
+def _mock_integrity(audio: bytes) -> dict[str, object]:
+    stream = audio_integrity.inspect_stream(audio)
+    if stream["errors"]:
+        return {"status": "failed", "engine": "soni2-integrity", "reasons": stream["errors"], "stream": stream}
+    return {"status": "skipped", "engine": "soni2-integrity", "stream": stream,
+            "reason": "El proveedor simulado genera silencio; solo se comprueba que el MP3 sea válido."}
+
+
+def _stored_integrity(cache_key: str, audio: bytes, audio_sha256: str, expected_text: str) -> dict | None:
+    """The integrity report this exact audio already has for this exact text, if any."""
+    if active_tts_provider() == "mock":
+        # Only the stream is checked, which is cheaper than looking a report up.
+        return _mock_integrity(audio)
+    return audio_cache.get_integrity(cache_key, audio_sha256, expected_text, audio_integrity.ANALYSIS_VERSION)
+
+
+async def _analyze_audio(audio: bytes, expected_text: str, *, cache_key: str = "",
+                         audio_sha256: str = "") -> dict[str, object]:
     """Technical integrity of one narrated segment (see app.audio_integrity).
 
     The stream itself is always checked. The decoded signal is checked when
     ffmpeg is available; mock audio is silent on purpose, so for it only the
     stream is checked and the result says so.
+
+    With ``cache_key`` the report is kept beside the cached audio: the same
+    bytes checked against the same text by the same analysis give the same
+    report, so producing the book again does not decode every passage again.
+    Only complete analyses are kept; one made without ffmpeg is repeated.
     """
     if active_tts_provider() == "mock":
-        stream = audio_integrity.inspect_stream(audio)
-        if stream["errors"]:
-            return {"status": "failed", "engine": "soni2-integrity", "reasons": stream["errors"], "stream": stream}
-        return {"status": "skipped", "engine": "soni2-integrity", "stream": stream,
-                "reason": "El proveedor simulado genera silencio; solo se comprueba que el MP3 sea válido."}
+        return _mock_integrity(audio)
+    digest = (audio_sha256 or hashlib.sha256(audio).hexdigest()) if cache_key else ""
+    if cache_key:
+        stored = audio_cache.get_integrity(cache_key, digest, expected_text, audio_integrity.ANALYSIS_VERSION)
+        if stored is not None:
+            return stored
     result = await asyncio.to_thread(audio_integrity.assess, audio, expected_text)
     if result.get("status") == "passed" and (result.get("signal") or {}).get("status") == "unavailable":
         # The stream is sound, but nobody listened to the signal.
         result["status"] = "unavailable"
         result["reason"] = "ffmpeg no está instalado: solo se comprobó el flujo MP3."
+    complete = (result.get("signal") or {}).get("duration_seconds") is not None or (
+        result.get("status") == "failed" and "decode_failed" not in (result.get("reasons") or []))
+    if cache_key and complete:
+        try:
+            audio_cache.put_integrity(cache_key, digest, expected_text, audio_integrity.ANALYSIS_VERSION, result)
+        except OSError as exc:  # an optimisation; never fail a unit over it
+            logger.warning("Could not store the integrity report for %s: %s", cache_key[:16], type(exc).__name__)
     return result
 
 
@@ -1166,6 +1277,8 @@ async def _produce_unit(
                            "voice_id": job["voice_id"], "model": tts_model_for(active_tts_provider())}
         if audio is None:
             last_error = error
+            if error.startswith(ACCOUNT_REFUSALS):
+                final_state = "pending"
             job_store.add_attempt(database_path, job_id, sentence_id, {
                 "trigger": take_trigger, "provider": provider_record, "cache_key": meta.get("cache_key", ""),
                 "outcome": "generation_failed"})
@@ -1184,7 +1297,8 @@ async def _produce_unit(
         attempt_record = {"trigger": take_trigger, "provider": provider_record, "reused_audio": reused,
                           "cache_key": meta.get("cache_key", ""),
                           "audio_path": attempt_path.relative_to(job_dir).as_posix()}
-        integrity = await _analyze_audio(audio, spoken)
+        digest = hashlib.sha256(audio).hexdigest()
+        integrity = await _analyze_audio(audio, spoken, cache_key=meta.get("cache_key", ""), audio_sha256=digest)
         acoustic = integrity
         log.info("tts.validate", "audio integrity checked", sentence_id=sentence_id, chapter_index=chapter_index,
                  integrity=integrity.get("status"), reasons=",".join(integrity.get("reasons") or []) or None,
@@ -1215,7 +1329,8 @@ async def _produce_unit(
             final_state = "needs_human_review"
             last_error = f"{diagnosis.recommendation} {' '.join(diagnosis.reasons)}"
             break
-        prior = audio_cache.get_verdict(meta.get("cache_key", ""), audio, spoken) if reused and not fresh else None
+        prior = (audio_cache.get_verdict(meta.get("cache_key", ""), audio, spoken, audio_sha256=digest)
+                 if reused and not fresh else None)
         if prior is not None:
             # This exact audio was already checked against this exact expected
             # speech (an earlier production of the book): the transcription
@@ -1383,6 +1498,149 @@ async def _produce_unit(
     return UnitResult(final_state, last_error, chosen_audio is not None)
 
 
+# --------------------------------------------------------------------------- #
+# Where a production has got to. Each stage is timed and logged (perf.stage,
+# perf.summary in job.log), and its real counts are what the page shows while
+# the book is built: nothing here is an estimate.
+# --------------------------------------------------------------------------- #
+
+pipeline_progress: dict[str, dict] = {}
+PIPELINE_FILENAME = "pipeline.json"
+# The quality report is the whole book: while units are narrated it is
+# refreshed at most this often (the final state is always written).
+REPORT_INTERVAL_SECONDS = 15.0
+
+
+class PipelineRun:
+    """The stages of one build of a book, timed as they happen."""
+
+    def __init__(self, key: str, log: JobLogger | None = None, folder: Path | None = None) -> None:
+        self.key, self.log, self.folder = key, log, folder
+        self.started = time.monotonic()
+        self.timings: dict[str, float] = {}
+        self.current = ""
+        self.current_started = 0.0
+        self.state: dict = {"stage": "queued", "units": {}, "chapters": {}, "timings": self.timings,
+                            "started_at": job_store.utc_now()}
+        pipeline_progress[key] = self.state
+
+    def enter(self, stage: str, **details: object) -> None:
+        self.close()
+        self.current, self.current_started = stage, time.monotonic()
+        self.state["stage"] = stage
+        for name, value in details.items():
+            if isinstance(value, dict) and isinstance(self.state.get(name), dict):
+                self.state[name].update(value)
+            else:
+                self.state[name] = value
+
+    def count(self, group: str, name: str, amount: int = 1) -> None:
+        self.state[group][name] = int(self.state[group].get(name) or 0) + amount
+
+    def close(self) -> None:
+        if not self.current:
+            return
+        seconds = round(time.monotonic() - self.current_started, 3)
+        self.timings[self.current] = round(self.timings.get(self.current, 0.0) + seconds, 3)
+        if self.log is not None:
+            self.log.info("perf.stage", f"{self.current} finished", stage=self.current, seconds=seconds)
+        self.current = ""
+
+    def finish(self, outcome: str) -> dict:
+        self.close()
+        summary = {"outcome": outcome, "started_at": self.state["started_at"], "finished_at": job_store.utc_now(),
+                   "total_seconds": round(time.monotonic() - self.started, 3), "timings": dict(self.timings),
+                   "units": dict(self.state.get("units") or {}), "chapters": dict(self.state.get("chapters") or {})}
+        self.state.update({"stage": outcome, "finished_at": summary["finished_at"]})
+        if self.log is not None:
+            self.log.info("perf.summary", "build timings", outcome=outcome, total_seconds=summary["total_seconds"],
+                          **{f"{name}_seconds": value for name, value in self.timings.items()},
+                          units=summary["units"] or None, chapters=summary["chapters"] or None)
+        if self.folder is not None:
+            try:
+                write_atomic_text(self.folder / PIPELINE_FILENAME, json.dumps(summary, ensure_ascii=False, indent=2))
+            except OSError:
+                pass
+        return summary
+
+
+def _needs_work(item: dict, job_dir: Path) -> bool:
+    if item["state"] == "verified" and item["audio_path"] and (job_dir / item["audio_path"]).is_file():
+        return False
+    return item["state"] not in {"needs_human_review", "unresolved"}
+
+
+def _reuse_verified_units(job: dict, job_dir: Path) -> dict:
+    """Take over at once every unit an earlier production already narrated and checked.
+
+    A unit's result depends only on what it says and how it is read: the
+    narration cache key covers provider, voice, model, speed, voice settings
+    and the exact synthesis text; the verdict and the integrity report are
+    stored for that exact audio (by its hash) and that exact expected speech,
+    and the integrity report for the analysis that made it. When all of them
+    match, narrating, analysing and transcribing the unit again could only
+    give the same result, so it is recorded as it was, in one transaction for
+    the whole book, with the same take, verdict and event a unit reused one by
+    one gets. Anything that does not match (a new or corrected phrase, another
+    voice, a verdict nobody gave, an older analysis) is left to the normal
+    path, which narrates and checks it.
+    """
+    summary = {"reused": 0, "checked": 0}
+    if not settings.quality_review_enabled:
+        return summary  # every unit then goes to a person, as the normal path decides
+    provider, model = active_tts_provider(), tts_model_for(active_tts_provider())
+    rows: list[dict] = []
+    for position, item in enumerate(job["sentences"]):
+        if item["state"] != "pending" or item["audio_path"] or (job["job_id"], item["sentence_id"]) in units_in_progress:
+            continue
+        summary["checked"] += 1
+        try:
+            key = narration_cache_key(item["synthesis_text"], job["voice_speed"], job["voice_id"])
+        except ProviderError:
+            return summary
+        source = audio_cache.path_for(key)
+        if not source.is_file() or not source.stat().st_size:
+            continue
+        audio = source.read_bytes()
+        digest = hashlib.sha256(audio).hexdigest()
+        spoken = item.get("spoken_text") or item["text"]
+        verdict = audio_cache.get_verdict(key, audio, spoken, audio_sha256=digest)
+        if verdict is None:
+            continue
+        integrity = _stored_integrity(key, audio, digest, spoken)
+        if integrity is None or integrity.get("status") == "failed":
+            continue
+        relative = Path("audio") / f"chapter-{item['chapter_index'] + 1:03d}" / f"segment-{item['sequence'] + 1:04d}.mp3"
+        audio_cache.link_or_copy(source, job_dir / relative)
+        diagnosis = dict(verdict.get("diagnosis") or {})
+        rows.append({
+            "sentence_id": item["sentence_id"],
+            "values": {
+                "state": "verified", "audio_path": relative.as_posix(),
+                "recognized_text": str(verdict.get("recognized_text") or ""),
+                "issues_json": json.dumps(list(verdict.get("issues") or []), ensure_ascii=False),
+                "acoustic_json": json.dumps(integrity, ensure_ascii=False),
+                "confidence": verdict.get("confidence"), "last_error": str(verdict.get("last_error") or ""),
+                "reused_audio": 1, "metrics_json": json.dumps(dict(verdict.get("metrics") or {}), ensure_ascii=False),
+                "diagnosis_json": json.dumps(diagnosis, ensure_ascii=False),
+                "secondary_text": str(verdict.get("secondary_text") or ""),
+                "verification": str(verdict.get("verification") or "asr_primary"),
+            },
+            "attempt": {
+                "trigger": "first_take", "reused_audio": True, "cache_key": key, "audio_path": relative.as_posix(),
+                "provider": {"cache": "hit", "characters_billed": 0, "cache_key": key,
+                             "seed_requested": take_seed(item["synthesis_text"], 0), "technical_attempts": 0,
+                             "provider": provider, "voice_id": job["voice_id"], "model": model},
+                "integrity": integrity, "diagnosis": diagnosis, "outcome": "verdict_reused",
+            },
+            "event": {"sentence_id": item["sentence_id"], "state": "verified", "technical_attempts": 0,
+                      "quality_retakes": 0, "reused": True, "position": position},
+        })
+    job_store.record_reused_units(database_path, job["job_id"], rows)
+    summary["reused"] = len(rows)
+    return summary
+
+
 async def run_production_job(job_id: str) -> None:
     job = job_store.get_job(database_path, job_id)
     if not job:
@@ -1395,55 +1653,73 @@ async def run_production_job(job_id: str) -> None:
              asr_provider=active_asr_provider(), voice=job["voice_id"],
              quality_review=settings.quality_review_enabled)
     job_store.update_job(database_path, job_id, state="running", started_at=job.get("started_at") or job_store.utc_now())
+    run = PipelineRun(job_id, log, job_dir)
     try:
         total = len(job["sentences"])
         cancelled = False
+        run.enter("checking", units={"total": total, "reused": 0, "to_narrate": 0, "narrated": 0,
+                                     "already_done": sum(not _needs_work(item, job_dir) for item in job["sentences"])})
+        reuse = await asyncio.to_thread(_reuse_verified_units, job, job_dir)
+        if reuse["reused"]:
+            log.info("units.reuse", "units taken over with the audio and verdict an earlier production left",
+                     reused=reuse["reused"], checked=reuse["checked"], total=total)
+            job = job_store.get_job(database_path, job_id) or job
+        pending = [(position, item) for position, item in enumerate(job["sentences"]) if _needs_work(item, job_dir)]
+        run.enter("narrating", units={"reused": reuse["reused"], "to_narrate": len(pending)})
+        last_report = time.monotonic()
+        # The account's refusal that stopped the run (no credits left…), if any.
+        stopped = ""
 
         async def produce(position: int, original: dict) -> None:
-            nonlocal cancelled
-            if cancelled:
+            nonlocal cancelled, last_report, stopped
+            if cancelled or stopped:
                 return
-            current = job_store.get_job(database_path, job_id)
-            if not current or current["cancel_requested"]:
+            flags = job_store.job_flags(database_path, job_id)
+            if not flags or flags["cancel_requested"]:
                 cancelled = True
                 job_store.update_job(database_path, job_id, state="cancelled", completed_at=job_store.utc_now())
                 job_store.add_event(database_path, job_id, "WARNING", "job cancelled")
                 log.warning("job.cancel", "job cancelled by request")
                 return
-            item = next(row for row in current["sentences"] if row["sentence_id"] == original["sentence_id"])
-            if item["state"] == "verified" and item["audio_path"] and (job_dir / item["audio_path"]).is_file():
-                return
-            if item["state"] in {"needs_human_review", "unresolved"}:
+            item = job_store.get_sentence(database_path, job_id, original["sentence_id"])
+            if item is None or not _needs_work(item, job_dir):
                 return
             if (job_id, item["sentence_id"]) in units_in_progress:
                 # A person is having this one narrated right now.
                 return
             result = await _produce_unit(job, item, job_dir=job_dir, log=log, context=_unit_context(job, position))
-            # Refresh the reports periodically for progress visibility. Doing it
-            # after every sentence re-renders the whole book each time, which is
-            # quadratic on a long one; the final state is always written below.
-            if result.state != "verified" or position % 20 == 19 or position == total - 1:
-                _write_job_reports(job_id)
+            if result.state == "pending" and result.error.startswith(ACCOUNT_REFUSALS) and not stopped:
+                stopped = result.error
+                log.warning("job.stop", "the narration account refused; the remaining units stay pending",
+                            error=stopped)
+            run.count("units", "narrated")
+            # The report is the whole book: refreshing it after every unit made
+            # a long book quadratic. Now and then for whoever opens it; the
+            # final state is always written below.
+            if time.monotonic() - last_report >= REPORT_INTERVAL_SECONDS:
+                last_report = time.monotonic()
+                await asyncio.to_thread(_write_job_reports, job_id)
 
         # Several units are narrated and checked at once, within the provider's
         # concurrency limit. Each result is stored on its own row, so the order
         # in which they finish does not matter.
-        await _run_limited(
-            [functools.partial(produce, position, original) for position, original in enumerate(job["sentences"])],
-            narration_concurrency,
-        )
+        await _run_limited([functools.partial(produce, position, item) for position, item in pending],
+                           narration_concurrency)
 
         final = job_store.get_job(database_path, job_id)
         if not final or final["state"] == "cancelled":
+            run.finish("cancelled")
             return
         states = [item["state"] for item in final["sentences"]]
         if any(state in {"pending", "generating", "failed"} for state in states):
-            job_store.update_job(database_path, job_id, state="partially_completed", completed_at=job_store.utc_now())
+            job_store.update_job(database_path, job_id, state="partially_completed", completed_at=job_store.utc_now(),
+                                 **({"error": stopped.partition(": ")[2] or stopped} if stopped else {}))
             log.warning("job.partial", "job partially completed with failed or pending sentences",
                         failed=sum(state == "failed" for state in states),
                         pending=sum(state in {"pending", "generating"} for state in states))
             _write_job_reports(job_id, final_state="partially_completed")
             compute_release(job_id)
+            run.finish("partial")
             return
         if any(state != "verified" for state in states):
             job_store.update_job(database_path, job_id, state="partially_completed", completed_at=job_store.utc_now())
@@ -1451,8 +1727,10 @@ async def run_production_job(job_id: str) -> None:
                         awaiting=sum(state != "verified" for state in states))
             _write_job_reports(job_id, final_state="partially_completed")
             compute_release(job_id)
+            run.finish("review")
             return
-        await _assemble_job_delivery(job_id)
+        await _assemble_job_delivery(job_id, run=run)
+        run.finish("completed")
     except Exception as exc:
         logger.exception("Production job %s failed", job_id)
         job = job_store.get_job(database_path, job_id)
@@ -1465,9 +1743,11 @@ async def run_production_job(job_id: str) -> None:
         log.error("job.fail", "job failed", error=detail)
         _write_job_reports(job_id, final_state="failed")
         compute_release(job_id)
+        run.finish("failed")
     finally:
         active_jobs.pop(job_id, None)
         assembly_progress.pop(job_id, None)
+        pipeline_progress.pop(job_id, None)
 
 
 # Where each job being assembled has got to. Assembling changes no sentence, so
@@ -1605,12 +1885,30 @@ def _review_log_text(events: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
-async def _assemble_job_delivery(job_id: str) -> None:
+async def _assemble_job_delivery(job_id: str, run: PipelineRun | None = None) -> None:
     job = job_store.get_job(database_path, job_id)
     if not job:
         return
     job_dir = Path(job["source_path"]).parent
     log = job_logger(job_dir, job_id, book_id=job["source_hash"])
+    own_run = run is None
+    run = run or PipelineRun(job_id, log, job_dir)
+    try:
+        await _assemble(job, job_dir, log, run)
+    finally:
+        if own_run:
+            pipeline_progress.pop(job_id, None)
+
+
+async def _assemble(job: dict, job_dir: Path, log: JobLogger, run: PipelineRun) -> None:
+    """Chapters, package, validation and ZIP of a job whose every unit is verified.
+
+    The audio travels as files, not as bytes held in memory: a book of two
+    hours held every passage, every chapter and the complete audiobook at
+    once, three times its audio, on a server with less than a gigabyte.
+    A chapter whose units did not change is not even read.
+    """
+    job_id = job["job_id"]
     chapter_sentences: dict[int, list[dict]] = {}
     for sentence in job["sentences"]:
         chapter_sentences.setdefault(sentence["chapter_index"], []).append(sentence)
@@ -1621,8 +1919,8 @@ async def _assemble_job_delivery(job_id: str) -> None:
     previous_state = _read_chapter_state(delivery_dir)
 
     chapters: list[tuple[str, list[str]]] = []
-    segments: list[bytes] = []
-    chapter_audio: list[bytes] = []
+    unit_files: list[Path] = []
+    chapter_files: list[Path] = []
     chapter_clips: list[list[tuple[float, float]]] = []
     mastering = mastering_options()
     chapter_state: dict[str, str] = {}
@@ -1644,23 +1942,23 @@ async def _assemble_job_delivery(job_id: str) -> None:
     if shortfall:
         raise NotEnoughDisk(_no_disk_message(shortfall))
     chapters_total = len(chapter_sentences)
+    run.enter("chapters", chapters={"total": chapters_total, "done": 0, "reused": 0, "rebuilt": 0})
 
     for chapter_index, chapter in enumerate(job["chapters"]):
         chapter_items = chapter_sentences.get(chapter_index, [])
         if not chapter_items:
             continue
         assembly_progress[job_id] = {"stage": "chapters", "done": len(chapters), "total": chapters_total}
+        run.state["chapters"]["done"] = len(chapters)
         missing = [item["sentence_id"] for item in chapter_items if not item["audio_path"]]
         if missing:
             raise RuntimeError(f"Chapter {chapter_index + 1} has sentences without audio: {missing[:3]}")
         chapters.append((chapter["title"], [item["text"] for item in chapter_items]))
         packaged_sections.append(chapter)
         packaged_units.append(chapter_items)
-        chapter_segments: list[bytes] = []
         for item in chapter_items:
-            sentence_segment_index[item["sentence_id"]] = len(segments) + len(chapter_segments) + 1
-            chapter_segments.append((job_dir / item["audio_path"]).read_bytes())
-        segments.extend(chapter_segments)
+            unit_files.append(job_dir / item["audio_path"])
+            sentence_segment_index[item["sentence_id"]] = len(unit_files)
 
         fingerprint = _chapter_fingerprint(chapter["title"], chapter_items)
         chapter_state[str(chapter_index)] = fingerprint
@@ -1669,31 +1967,37 @@ async def _assemble_job_delivery(job_id: str) -> None:
         pauses_path = joined_path.with_suffix(".pauses.json")
         cached_clips = _read_chapter_clips(clips_path, len(chapter_items))
         cached_pauses = _read_pauses(pauses_path, len(chapter_items))
-        texts = [item["synthesis_text"] for item in chapter_items]
-        continues = _continues(chapter_items)
-        content_key = _chapter_content_key(chapter_segments, texts, continues, mastering) if mastering.active else ""
-        shared = audio_cache.get_chapter(content_key) if content_key else None
         if (previous_state.get(str(chapter_index)) == fingerprint and joined_path.is_file()
                 and joined_path.stat().st_size and cached_clips is not None):
             # Nothing in this chapter changed, so keep the audio already built.
             # Its measured clip positions are kept with it: recomputing them
             # against mastered audio would drift the text/audio synchronisation.
-            chapter_audio.append(joined_path.read_bytes())
+            chapter_files.append(joined_path)
             chapter_clips.append(cached_clips)
             pauses = cached_pauses or [[] for _ in chapter_items]
             reused_chapters += 1
+            run.count("chapters", "reused")
             log.info("assemble.chapter", "reused unchanged chapter audio", chapter_index=chapter_index,
                      fingerprint=fingerprint[:16], sentences=len(chapter_items))
-        elif shared is not None and len(shared[1]) == len(chapter_items) and len(shared[2]) == len(chapter_items):
+            for item, unit in zip(chapter_items, pauses):
+                unit_pauses[item["sentence_id"]] = unit
+            continue
+        chapter_segments = [(job_dir / item["audio_path"]).read_bytes() for item in chapter_items]
+        texts = [item["synthesis_text"] for item in chapter_items]
+        continues = _continues(chapter_items)
+        content_key = _chapter_content_key(chapter_segments, texts, continues, mastering) if mastering.active else ""
+        shared = audio_cache.get_chapter(content_key) if content_key else None
+        if shared is not None and len(shared[1]) == len(chapter_items) and len(shared[2]) == len(chapter_items):
             # Another job (an earlier production of this book, before an edit)
             # mastered exactly these passages: take its chapter as it is.
             shared_path, clips, pauses = shared
             audio_cache.link_or_copy(shared_path, joined_path)
             write_atomic_text(clips_path, json.dumps([list(clip) for clip in clips]))
             write_atomic_text(pauses_path, json.dumps([[list(pause) for pause in unit] for unit in pauses]))
-            chapter_audio.append(joined_path.read_bytes())
+            chapter_files.append(joined_path)
             chapter_clips.append(clips)
             shared_chapters += 1
+            run.count("chapters", "reused")
             log.info("assemble.chapter", "reused chapter mastered by an earlier job", chapter_index=chapter_index,
                      fingerprint=fingerprint[:16], content_key=content_key[:16], sentences=len(chapter_items))
         else:
@@ -1724,17 +2028,21 @@ async def _assemble_job_delivery(job_id: str) -> None:
             write_atomic_text(pauses_path, json.dumps([[list(pause) for pause in unit] for unit in pauses]))
             if content_key and mastered.mastered and mastered.clips:
                 audio_cache.put_chapter(content_key, joined_path, clips, pauses)
-            chapter_audio.append(joined)
+            chapter_files.append(joined_path)
             chapter_clips.append(clips)
             rebuilt_chapters += 1
+            run.count("chapters", "rebuilt")
             log.info("assemble.chapter", "rebuilt chapter audio", chapter_index=chapter_index,
                      fingerprint=fingerprint[:16], sentences=len(chapter_items), bytes=len(joined),
                      mastered=mastered.mastered, mastering=mastered.detail,
                      pauses_added=sum(len(unit) for unit in pauses))
+            del joined
+        del chapter_segments
         for item, unit in zip(chapter_items, pauses):
             unit_pauses[item["sentence_id"]] = unit
+    run.state["chapters"]["done"] = len(chapters)
 
-    if not segments:
+    if not unit_files:
         raise RuntimeError("No verified sentence audio is available to assemble.")
 
     metadata = job["metadata"]
@@ -1758,9 +2066,15 @@ async def _assemble_job_delivery(job_id: str) -> None:
             audio, _reused = await synthesize_cached(text, job["voice_speed"], job["voice_id"])
             front_matter.append(("Datos bibliográficos", text, audio, settings.once_bibliographic_filename))
     absys = ((once_info or {}).get("planilla") or {}).get("absys", "")
+    isbn = ((once_info or {}).get("planilla") or {}).get("isbn", "")
     images = photo_images(job["source_name"], Path(job["source_path"]), [
         (item.get("provenance") or {}).get("photo") for item in job["sentences"]
         if (item.get("provenance") or {}).get("role") == "photo"], log)
+    # The complete audiobook is delivered beside the DAISY package, not inside it.
+    book_audio_path = delivery_dir / book_audio_name(metadata["title"] or Path(job["source_name"]).stem)
+    if layout is None and not front_matter:
+        # Without a planilla the book still keeps the pages of its original.
+        layout = plain_layout(packaged_units)
 
     if delivery_dir.exists():
         shutil.rmtree(delivery_dir)
@@ -1771,23 +2085,27 @@ async def _assemble_job_delivery(job_id: str) -> None:
     if not use_ffmpeg:
         log.warning("assemble.ffmpeg", "ffmpeg is unavailable; chapter and book audio are byte-concatenated "
                                        "instead of joined into one clean stream")
-    log.info("assemble.start", "building DAISY package", chapters=len(chapters), segments=len(segments),
+    log.info("assemble.start", "building DAISY package", chapters=len(chapters), segments=len(unit_files),
              reused_chapters=reused_chapters, shared_chapters=shared_chapters, rebuilt_chapters=rebuilt_chapters,
              front_matter=len(front_matter), joined_with_ffmpeg=use_ffmpeg)
     clips: list[tuple[str, float, float]] = []
     chapter_starts: list[float] = []
     assembly_progress[job_id] = {"stage": "package", "done": chapters_total, "total": chapters_total}
+    run.enter("package")
     package = await asyncio.to_thread(functools.partial(
         build_daisy_package,
         metadata["title"] or Path(job["source_name"]).stem, [text for _, body in chapters for text in body],
-        segments, delivery_dir / "daisy", chapters=chapters, author=metadata["author"],
+        AudioFiles(unit_files), delivery_dir / "daisy", chapters=chapters, author=metadata["author"],
         edition=metadata["edition"], publication_year=metadata["publication_year"],
         publisher=metadata["publisher"], front_matter=front_matter,
-        chapter_audio=chapter_audio, chapter_clips=chapter_clips, use_ffmpeg=use_ffmpeg,
+        chapter_audio=chapter_files, chapter_clips=chapter_clips, use_ffmpeg=use_ffmpeg,
         clips_out=clips, chapter_starts_out=chapter_starts, mastering=mastering,
         layout=layout, identifiers=[("ABSYS", absys)] if absys else None,
-        images=images, **package_options(),
+        images=images, identifier=dtb_identifier(job["source_hash"], absys), book_audio_path=book_audio_path,
+        dtb_publisher=dtb_publisher(bool(once_info)), narrator=narrator_label(job["voice_id"]), source_isbn=isbn,
+        **package_options(),
     ))
+    run.enter("validating")
     try:
         validate_daisy_package(package)
     except ValueError as exc:
@@ -1804,7 +2122,7 @@ async def _assemble_job_delivery(job_id: str) -> None:
                      and event["details"].get("decision") == "correct"}
     chain = await asyncio.to_thread(completeness.verify, job["chapters"], job["sentences"], job_dir, package,
                                     corrected_ids, (once_info or {}).get("planilla") if once_info else None,
-                                    timing_targets())
+                                    timing_targets(), book_audio_path)
     write_atomic_text(job_dir / "completeness.json", json.dumps(chain, ensure_ascii=False, indent=2))
     validation = _record_validation(job_dir, {
         "status": "passed" if dtd["status"] == "passed" else "failed",
@@ -1815,11 +2133,13 @@ async def _assemble_job_delivery(job_id: str) -> None:
         "dtd": dtd,
         "completeness": chain["status"],
         "timing": {check["id"]: check["status"] for check in chain["checks"] if check["id"].startswith("timing_")},
+        "zedval_rules": {check["id"]: check["status"] for check in chain["checks"] if check["id"].startswith("zedval_")},
         "audio_joined_with_ffmpeg": use_ffmpeg,
         "official_daisy_pipeline": "not_run",
         "detail": "; ".join(dtd["errors"][:3]),
-        "note": "Validación estructural propia y validación contra las DTD oficiales. No sustituye al validador oficial "
-                "(DAISY Pipeline) ni a una comprobación en un reproductor DAISY real.",
+        "note": "Validación estructural propia, DTD oficiales y las reglas de ZedVal (el validador Z39.86-2005 del "
+                "consorcio DAISY) reimplementadas. No sustituye al validador oficial (ZedVal o DAISY Pipeline) ni a "
+                "una comprobación en un reproductor DAISY real.",
     })
     log.info("daisy.validate", "package validated", method="soni2_structural_validation+dtd",
              structural="passed", dtd=dtd["status"], dtd_errors=len(dtd["errors"]),
@@ -1856,10 +2176,10 @@ async def _assemble_job_delivery(job_id: str) -> None:
         chapter_path, begin, end = clips[index - 1]
         audio_hrefs[sentence_id] = f"DAISY 3/{package_paths.audio_href(chapter_path)}#t={begin:.3f},{end:.3f}"
     locations = _fault_locations(job, clips, chapter_starts, sentence_segment_index, unit_pauses,
-                                 package_basename(metadata["title"] or Path(job["source_name"]).stem) + ".mp3",
-                                 package_paths=package_paths)
+                                 book_audio_path.name, package_paths=package_paths)
     write_atomic_text(job_dir / "fault-locations.json", json.dumps(locations, ensure_ascii=False, indent=2))
     log.info("assemble.locations", "differences located in the finished audio", located=len(locations))
+    run.enter("zipping")
     _write_job_reports(job_id, final_state="completed", validation=validation, audio_hrefs=audio_hrefs)
     for name in ("job.log", "quality-report.json", "quality-report.html", "fault-locations.json",
                  "reviewed-source.json", "daisy-validation.json", "extraction-report.json", "completeness.json"):
@@ -1875,6 +2195,9 @@ async def _assemble_job_delivery(job_id: str) -> None:
         for path in sorted(package.rglob("*")):
             if path.is_file():
                 add_to_archive(archive, path, "DAISY 3/" + path.relative_to(package).as_posix())
+        # The complete audiobook beside the DAISY book, not one of its files.
+        if book_audio_path.is_file():
+            add_to_archive(archive, book_audio_path, book_audio_path.name)
         # job.log is the readable history; its JSON Lines twin stays in the
         # job folder for tooling and is not delivered.
         for name in ("quality-report.html", "quality-report.json", "job.log", "tts.log",
@@ -1886,16 +2209,72 @@ async def _assemble_job_delivery(job_id: str) -> None:
         # The DAISY package already carries one copy of every sentence segment
         # and chapter MP3, so the job's working audio is not added again.
         add_to_archive(archive, Path(job["source_path"]), "source/" + Path(job["source_path"]).name)
+    # The archive itself is read back and checked before it replaces anything:
+    # a ZIP that cannot be opened is never delivered, and one whose package
+    # does not hold together blocks the release (see package_integrity).
+    run.enter("verifying")
+    assembly_progress[job_id] = {"stage": "package", "done": chapters_total, "total": chapters_total}
+    audit = await asyncio.to_thread(package_integrity.audit_zip, staging,
+                                    expected_titles=[title for title, _body in chapters])
+    if not audit["readable"]:
+        staging.unlink(missing_ok=True)
+        log.error("zip.audit", "the archive could not be read back", detail=audit["detail"])
+        raise RuntimeError(f"El ZIP generado no se puede leer: {audit['detail']}")
+    _record_zip_audit(job_dir, audit, validation, chain)
+    (log.info if audit["status"] == "passed" else log.error)(
+        "zip.audit", "archive read back and checked", status=audit["status"], files=audit["files"],
+        failed=",".join(check["id"] for check in audit["checks"] if check["status"] == "failed") or None)
     os.replace(staging, archive_path)
     # The staged DAISY tree existed only to be archived. Removing it leaves one
     # copy of the package (inside the ZIP) plus the working set that incremental
     # rebuilds need: per-sentence audio in audio/ and chapter audio in
     # chapter-audio/. The reports and logs beside it stay for direct serving.
     shutil.rmtree(package, ignore_errors=True)
+    book_audio_path.unlink(missing_ok=True)
     log.info("assemble.cleanup", "removed the staged package tree now that the archive holds it",
              archive=archive_path.name, archive_bytes=archive_path.stat().st_size)
     job_store.update_job(database_path, job_id, state="completed", completed_at=job_store.utc_now(), output_path=str(archive_path))
+    _forget_superseded_packages(job, log)
     compute_release(job_id)
+
+
+def _record_zip_audit(job_dir: Path, audit: dict, validation: dict, chain: dict) -> None:
+    """Keep the archive's own check with the package's: the release gate reads both."""
+    summary = {key: audit[key] for key in ("status", "files", "detail", "package")}
+    summary["checks"] = {check["id"]: check["status"] for check in audit["checks"]}
+    _record_validation(job_dir, {**validation, "zip_integrity": summary})
+    chain = {**chain, "checks": [check for check in chain["checks"] if check.get("id") != "zip_integrity"]}
+    chain["checks"].append({"id": "zip_integrity", "label": "ZIP leído de nuevo y comprobado",
+                            "status": audit["status"], "detail": audit["detail"],
+                            "evidence": {"files": audit["files"], "checks": summary["checks"]}})
+    if audit["status"] == "failed":
+        chain["status"] = "failed"
+    write_atomic_text(job_dir / "completeness.json", json.dumps(chain, ensure_ascii=False, indent=2))
+
+
+def _forget_superseded_packages(job: dict, log: JobLogger) -> None:
+    """Remove the ZIPs of earlier productions of the same draft: this one replaces them.
+
+    Only each archive is removed, the one file the size of the book. The
+    jobs' records, reports, chapter files and per-unit audio stay (the audio
+    is hard links to the shared narration cache, which is never touched: a
+    deleted chapter's audio is still there, at no cost, if it comes back). A
+    ZIP that cannot be removed now (being downloaded on Windows) stays.
+    """
+    for older in job_store.superseded_jobs(database_path, job.get("draft_id") or "", job["created_at"], job["job_id"]):
+        archive = Path(older["output_path"])
+        try:
+            if archive.parent != Path(older["source_path"]).parent or not archive.name.endswith(".zip"):
+                continue  # only a job's own package, in its own folder
+            size = archive.stat().st_size if archive.is_file() else 0
+            archive.unlink(missing_ok=True)
+        except OSError:
+            continue
+        job_store.clear_output(database_path, older["job_id"])
+        job_store.add_event(database_path, older["job_id"], "INFO", "package superseded",
+                            {"by_job": job["job_id"], "bytes": size})
+        log.info("assemble.superseded", "removed the package of an earlier production of this book",
+                 earlier_job=older["job_id"][:8], bytes=size)
 
 
 def clock_label(seconds: float) -> str:
@@ -2064,13 +2443,21 @@ async def create_production_job(
     corrections_json: str = Form("{}"), metadata_json: str = Form("{}"), narration_plan_json: str = Form(""),
     edits_json: str = Form(""),
     create_navigation_sections_flag: bool = Form(False, alias="create_navigation_sections"),
-    pages: str = Form(""), planilla_json: str = Form(""),
+    pages: str = Form(""), planilla_json: str = Form(""), force: bool = Form(False),
 ) -> dict[str, object]:
     """Produce the book with quality review.
 
     With ``draft_id`` the book is the saved draft, with its edits: the request
     names only the voice and speed, so it cannot narrate anything other than
     what the reader saved.
+
+    The same text, voice and build give the same package, so a request is
+    answered with the job that already has it: one still running (a second
+    click), one waiting for a person's decisions (producing again would only
+    pay to ask the same questions), or, unless ``force``, one finished whose
+    ZIP is still there. ``force`` ("Regenerar ZIP") builds a new package from
+    the latest text, reusing every unit, verdict and chapter that did not
+    change.
     """
     job_store.initialize_store(database_path)
     if not 0.7 <= voice_speed <= 1.2:
@@ -2111,14 +2498,7 @@ async def create_production_job(
         metadata = {**metadata, "title": once.resolved.title, "author": once.resolved.author,
                     "once": {"planilla": once.resolved.as_dict(), "warnings": once.warnings}}
     extraction = structure.extraction.as_dict() if structure.extraction else {}
-    file_hash = hashlib.sha256(content).hexdigest()
-    # Another page range of the same file is another book, not a duplicate job.
-    source_hash = hashlib.sha256(f"{file_hash}\u0000pages={pages.strip()}".encode()).hexdigest() if pages.strip() else file_hash
-    if sheet is not None:
-        # So is the same book under another planilla.
-        source_hash = hashlib.sha256(
-            f"{source_hash}\u0000once={json.dumps(sheet.as_dict(), sort_keys=True, ensure_ascii=False)}".encode()
-        ).hexdigest()
+    source_hash = book_source_hash(content, pages, sheet)
     chapter_records = [{"title": title, "paragraphs": paragraphs, "title_generated": is_generated(chapter)}
                        for chapter in chapters for title, paragraphs in [chapter]]
     if once_records is not None:
@@ -2135,13 +2515,41 @@ async def create_production_job(
     # A second click on "generate" must not start a second paid job over the
     # same book, text and voice. An edited book is another text: it gets its
     # own job rather than the one still narrating the text before the edit.
-    existing = job_store.find_active_job(database_path, source_hash, voice.voice_id, voice_speed, content_hash)
+    signature = build_signature()
+    draft = inputs.draft or {}
+    # A production still running is joined from anywhere. For the page (a
+    # request that names its draft), a production of this draft's exact text
+    # that waits for decisions, or is finished with its ZIP, is the answer
+    # too; an upload from a script still gets a new job, as it always did.
+    states: tuple[str, ...] = ("queued", "running")
+    if draft:
+        states += ("partially_completed",) + (() if force else ("completed",))
+    existing = job_store.find_reusable_job(database_path, source_hash, voice.voice_id, voice_speed, content_hash,
+                                           signature, states, draft.get("draft_id", ""))
+    if existing and existing["state"] == "completed" and not Path(existing["output_path"] or "").is_file():
+        existing = None  # its ZIP was replaced by a later production: build this text again
+    if existing and existing["state"] == "partially_completed":
+        counts = job_store.unit_state_counts(database_path, existing["job_id"])
+        if any(counts.get(state) for state in ("failed", "pending", "generating")):
+            # Stopped by a technical failure: carry on from where it stopped,
+            # nothing already verified is narrated or paid for again.
+            with sqlite3.connect(database_path) as connection:
+                connection.execute("UPDATE production_sentences SET state='pending',last_error='' "
+                                   "WHERE job_id=? AND state='failed'", (existing["job_id"],))
+            job_store.update_job(database_path, existing["job_id"], state="queued", cancel_requested=0,
+                                 completed_at=None, error="")
+            await _start_or_resume_job(existing["job_id"])
+            existing["state"] = "queued"
     if existing:
+        if draft and existing.get("draft_id") == draft["draft_id"]:
+            job_store.attach_to_draft(database_path, existing["job_id"], draft["draft_id"], draft["revision"])
         return {"job_id": existing["job_id"], "state": existing["state"],
                 "total_sentences": existing["total_sentences"],
                 "status_url": f"/api/jobs/{existing['job_id']}",
-                "reused_existing_job": True,
-                "detail": "Ya existe un trabajo en curso para este libro y esta voz."}
+                "reused_existing_job": True, "reused_package": existing["state"] == "completed",
+                "detail": ("Este libro ya está producido con este texto y esta voz: su ZIP está listo."
+                           if existing["state"] == "completed" else
+                           "Ya existe un trabajo en curso para este libro y esta voz.")}
     # Before anything is paid for: the narration, its chapters and the ZIP must fit.
     shortfall = disk_shortfall(3 * AUDIO_BYTES_PER_CHARACTER * sum(len(item["synthesis_text"]) for item in sentences))
     if shortfall:
@@ -2153,7 +2561,8 @@ async def create_production_job(
     source_path.write_bytes(content)
     draft = inputs.draft or {}
     (job_dir / "reviewed-source.json").write_text(json.dumps({
-        "source_sha256": file_hash, "source_filename": filename, "pages": pages.strip(), "chapters": chapter_records,
+        "source_sha256": hashlib.sha256(content).hexdigest(), "source_filename": filename, "pages": pages.strip(),
+        "chapters": chapter_records,
         **({"once": metadata["once"]} if once is not None else {}),
         # The reader's edits, as saved: what made this text differ from the file.
         **({"edits": json.loads(inputs.edits_json)} if inputs.edits_json.strip() else {}),
@@ -2165,6 +2574,7 @@ async def create_production_job(
         "source_hash": source_hash, "chapters": chapter_records, "metadata": metadata,
         "voice_id": voice.voice_id, "voice_speed": voice_speed, "content_hash": content_hash,
         "draft_id": draft.get("draft_id", ""), "draft_revision": draft.get("revision", 0),
+        "build_signature": signature,
     }, sentences)
     if draft:
         job_store.set_draft_job(database_path, draft["draft_id"], job_id)
@@ -2209,20 +2619,119 @@ def prepare_book(structure, metadata: dict, *, narration_plan_json: str, correct
     selected_ids = _selected_narration_ids(narration_plan_json, plan)
     chapters = apply_narration_selection(plan, selected_ids)
     # What the extractor knew about each paragraph (subheadings, notes, pages)
-    # is found before the edits change any text.
-    provenance = once_structure.selected_provenance(chapters, structure) if sheet is not None else None
+    # is found before the edits change any text: for every book, so a book
+    # without a planilla keeps the pages of its original too.
+    provenance = _provenance_with_left_out_pages(plan, chapters, structure)
     edits = book_edits.parse(edits_json, corrections_json=corrections_json, chapters=chapters)
     book_edits.validate_against(edits, {section.id: len(section.paragraphs) for section in plan})
-    chapters, provenance = book_edits.apply(chapters, edits, provenance)
+    chapters, provenance = book_edits.apply(chapters, edits, provenance, order=[section.id for section in plan])
     if create_sections:
         regrouped = create_navigation_sections(chapters)
-        if provenance is not None:
-            provenance = once_structure.regroup_provenance(chapters, provenance, regrouped)
+        provenance = once_structure.regroup_provenance(chapters, provenance, regrouped)
         chapters = regrouped
+    _attach_pages(chapters, provenance)
     once = (once_structure.build(chapters, provenance, metadata, sheet, toc=toc_module.detect(plan),
                                  photo_inserts=getattr(structure, "photo_inserts", None))
             if sheet is not None else None)
     return chapters, once
+
+
+def _provenance_with_left_out_pages(plan: list, chapters: list, structure) -> list[tuple[dict, list[dict]]]:
+    """The provenance of the selected chapters, with the pages of what was left out.
+
+    A section left out of the narration (a title or credits page the ONCE
+    files replace, the original's contents) still has its pages in the printed
+    copy: they begin where the next narrated text begins, as a blank page's
+    do, so the page list keeps every page ("la paginación coincide con el
+    ejemplar en tinta"). Pages after the last narrated text have nowhere to
+    begin and are left out.
+    """
+    every = [SelectedChapter(section.title, section.paragraphs, section.title_generated) for section in plan]
+    found = dict(zip((section.id for section in plan), once_structure.selected_provenance(every, structure)))
+    kept = {getattr(chapter, "section_id", "") for chapter in chapters}
+    carried: dict[str, list[str]] = {}
+    pending: list[str] = []
+    for section in plan:
+        title_origin, origins = found.get(section.id, ({}, []))
+        if section.id in kept:
+            if pending:
+                carried[section.id], pending = pending, []
+            continue
+        title_pages = [] if section.title_generated else list(title_origin.get("page_breaks") or [])
+        pending += title_pages + [page for origin in origins for page in origin.get("page_breaks") or []]
+    result = []
+    for chapter in chapters:
+        section_id = getattr(chapter, "section_id", "")
+        title_origin, origins = found.get(section_id, ({}, []))
+        title_origin, origins = dict(title_origin), [dict(origin) for origin in origins]
+        before = carried.get(section_id)
+        if before:
+            if not is_generated(chapter) and chapter[0].strip():
+                title_origin["page_breaks"] = before + list(title_origin.get("page_breaks") or [])
+            elif origins:
+                origins[0]["page_breaks"] = before + list(origins[0].get("page_breaks") or [])
+        result.append((title_origin, origins))
+    return result
+
+
+def _attach_pages(chapters: list, provenance: list[tuple[dict, list[dict]]] | None) -> None:
+    """Give each chapter the pages of the original that begin at its title and at each paragraph.
+
+    ``title_pages`` and ``page_breaks`` (one list per paragraph) are what a book
+    without the ONCE structure is paginated from; the ONCE structure reads the
+    same provenance itself.
+    """
+    for index, chapter in enumerate(chapters):
+        title_origin, origins = (provenance[index] if provenance is not None and index < len(provenance)
+                                 else ({}, []))
+        paragraphs = chapter[1]
+        if not isinstance(chapter, SelectedChapter):
+            continue  # a bare (title, paragraphs) pair carries no provenance
+        chapter.title_pages = list(title_origin.get("page_breaks") or [])
+        chapter.page_breaks = [list((origins[number] if number < len(origins) else {}).get("page_breaks") or [])
+                               for number in range(len(paragraphs))]
+
+
+def plain_layout(units_by_chapter: list[list[dict]]) -> list[dict]:
+    """The package layout of a book without the ONCE structure, from what its units record.
+
+    Its chapters, the heading each one reads, and the pages of the original
+    that begin at each unit: a book produced without a planilla keeps the page
+    list of its source (DTBook ``pagenum``, EPUB page breaks, a PDF's printed
+    pages, Word's "Page Number DAISY"), and nothing else of the ONCE structure.
+    A page that begins at a paragraph begins at its first part.
+    """
+    layout = []
+    for units in units_by_chapter:
+        entries = []
+        for unit in units:
+            provenance = unit.get("provenance") or {}
+            first = int(provenance.get("part") or 0) == 0
+            entries.append({"role": "heading" if unit.get("is_heading") else "text",
+                            "page_breaks": list(provenance.get("page_breaks") or []) if first else []})
+        layout.append({"kind": "chapter", "level": 1, "units": entries})
+    return layout
+
+
+def plain_chapter_layout(chapter, pieces: list[list[str]]) -> dict:
+    """``plain_layout`` for one chapter of a direct download, from the pages its selection carries.
+
+    ``pieces`` are its paragraphs split into narration units. Its heading is
+    read when it opens the chapter, as the package has always decided for a
+    direct download; the pages of a title that is not read begin at its first unit.
+    """
+    title = chapter[0]
+    page_breaks = getattr(chapter, "page_breaks", None) or []
+    pending = list(getattr(chapter, "title_pages", None) or [])
+    spoken = bool(pieces and pieces[0] and pieces[0][0].strip() == title.strip())
+    units = []
+    for index, parts in enumerate(pieces):
+        for part, _text in enumerate(parts):
+            pages = list(page_breaks[index]) if part == 0 and index < len(page_breaks) else []
+            if pending:
+                pages, pending = pending + pages, []
+            units.append({"role": "heading" if spoken and index == 0 and part == 0 else "text", "page_breaks": pages})
+    return {"kind": "chapter", "level": 1, "units": units}
 
 
 def once_layout(sections: list[dict], units_by_chapter: list[list[dict]]) -> list[dict]:
@@ -2277,6 +2786,16 @@ def _doubtful_words(structure) -> set[str]:
     return {word for word in doubtful if word}
 
 
+def announce_pages(spoken: str, pages) -> str:
+    """Say each printed page that begins at a unit before its text: «Página 2. …».
+
+    Only the speech changes; the book's text and the silent ``pagenum`` that
+    marks the page in the package stay as they are.
+    """
+    labels = [str(page).strip() for page in pages or [] if str(page).strip()]
+    return " ".join([*(f"Página {label}." for label in labels), spoken]) if labels else spoken
+
+
 def build_units(chapters, source_hash: str, lexicon: dict[str, str], structure=None,
                 records: list[dict] | None = None) -> list[dict]:
     """Narration units for the selected chapters, each traceable to its source.
@@ -2309,9 +2828,9 @@ def build_units(chapters, source_hash: str, lexicon: dict[str, str], structure=N
         spoken = build_spoken_text(sentence["text"], context, foreign_terms=foreign_terms, spelling=spelling)
         sentence["chapter_title"] = chapter_title
         sentence["is_heading"] = heading
-        sentence["spoken_text"] = spoken.spoken
+        sentence["spoken_text"] = announce_pages(spoken.spoken, provenance.get("page_breaks"))
         sentence["normalization"] = spoken.as_dict()
-        sentence["synthesis_text"] = apply_pronunciation_lexicon(spoken.spoken, lexicon)
+        sentence["synthesis_text"] = apply_pronunciation_lexicon(sentence["spoken_text"], lexicon)
         if context != "text":
             provenance = {**provenance, "speech_context": context}
         flags = [{"start": match.start(), "end": match.end(), "code": "extraction_doubt", "text": word}
@@ -2335,9 +2854,16 @@ def build_units(chapters, source_hash: str, lexicon: dict[str, str], structure=N
             heading_sentences = segment_paragraphs([chapter_title], f"{source_hash}:heading", chapter_index)
         title_found = provenance_index.get(chapter_title) or [{}]
         title_terms = (title_found[0] or {}).get("foreign_terms")
+        # The pages of the original that begin at the title and at each
+        # paragraph, after the reader's edits: the ONCE structure's record, or
+        # what the selection carried (app.main._attach_pages) for any other book.
+        title_pages = list((record.get("title_pages") if record else getattr(chapter, "title_pages", None)) or [])
+        chapter_pages = None if record else getattr(chapter, "page_breaks", None)
+        # A title that is not read: its pages begin at the first text read.
+        pending = [] if heading_sentences else title_pages
         for sentence in heading_sentences:
-            extra = {"role": "heading", "page_breaks": list(record.get("title_pages") or []), **section} \
-                if record else {}
+            extra = ({"role": "heading", "page_breaks": title_pages, **section} if record
+                     else {"page_breaks": title_pages})
             finish(sentence, chapter_title, True, {"chapter": chapter_index, "element": "heading", **extra,
                                                    **({"foreign_terms": title_terms} if title_terms else {})})
         # One unit per paragraph, split exactly as the direct download and the
@@ -2362,6 +2888,11 @@ def build_units(chapters, source_hash: str, lexicon: dict[str, str], structure=N
                              **({"frame": detail["frame"]} if detail.get("frame") else {}),
                              **({"note_refs": refs} if refs else {}),
                              **({"photo": detail["photo"]} if detail.get("photo") and part_index == 0 else {})}
+                elif chapter_pages is not None:
+                    extra = {"page_breaks": list(chapter_pages[paragraph_index])
+                             if part_index == 0 and paragraph_index < len(chapter_pages) else []}
+                if pending and (record or chapter_pages is not None):
+                    extra["page_breaks"], pending = pending + list(extra.get("page_breaks") or []), []
                 parts.append((part, {"chapter": chapter_index, "paragraph": paragraph_index,
                                      "part": part_index, "parts": len(pieces), **source, **extra}))
         for sentence, (_part, provenance) in zip(
@@ -2371,8 +2902,54 @@ def build_units(chapters, source_hash: str, lexicon: dict[str, str], structure=N
     return sentences
 
 
+def _live_unit(unit: dict) -> dict:
+    """What the page uses of a unit: its text, state, audio and review evidence.
+
+    The full record (normalization, metrics, the whole integrity report) is
+    several times larger and the page asks for every unit every second.
+    """
+    acoustic = unit.get("acoustic") or {}
+    provenance = unit.get("provenance") or {}
+    diagnosis = unit.get("diagnosis") or {}
+    return {
+        **{key: unit.get(key) for key in ("sentence_id", "chapter_index", "chapter_title", "sequence", "text",
+                                          "state", "recognized_text", "issues", "audio_path", "quality_retakes",
+                                          "technical_attempts", "last_error", "reused_audio", "updated_at",
+                                          "verification", "is_heading")},
+        "acoustic": {"duration_seconds": acoustic.get("duration_seconds"),
+                     "stream": {"duration_seconds": (acoustic.get("stream") or {}).get("duration_seconds")}},
+        "provenance": {key: provenance[key] for key in ("role", "page_breaks", "note", "kind", "level", "source", "page")
+                       if key in provenance},
+        "diagnosis": {key: diagnosis[key] for key in ("origin", "severity", "action", "recommendation", "reasons")
+                      if key in diagnosis},
+    }
+
+
+def _pipeline_view(job: dict) -> dict | None:
+    """The build going on now, stage by stage, or the last one's timings."""
+    live = pipeline_progress.get(job["job_id"])
+    if live is not None:
+        return {**copy.deepcopy(live), "running": True}
+    summary = _read_json(Path(job["source_path"]).parent / PIPELINE_FILENAME, None)
+    return {**summary, "stage": summary.get("outcome"), "running": False} if isinstance(summary, dict) else None
+
+
+def _package_view(job: dict) -> dict | None:
+    """The finished ZIP: its size, when it was built and what reading it back found."""
+    archive = Path(job["output_path"]) if job.get("output_path") else None
+    if job["state"] != "completed" or archive is None or not archive.is_file():
+        return None
+    audit = _read_validation_state(Path(job["source_path"]).parent).get("zip_integrity") or {}
+    return {"bytes": archive.stat().st_size, "built_at": job.get("completed_at"),
+            "audit": audit.get("status", "not_run"), "audit_detail": audit.get("detail", ""),
+            **{key: (audit.get("package") or {}).get(key) for key in ("audio_files", "chapter_files", "total_time")},
+            "sections": len((audit.get("package") or {}).get("sections") or []) or None}
+
+
 @app.get("/api/jobs/{job_id}")
-async def production_job_status(job_id: str) -> dict[str, object]:
+async def production_job_status(job_id: str, view: str = "") -> dict[str, object]:
+    """A job as it stands. ``view=live`` is what the page polls: units without
+    the full evidence, no event history, nothing written."""
     job_store.initialize_store(database_path)
     job = job_store.get_job(database_path, job_id)
     if not job:
@@ -2385,16 +2962,21 @@ async def production_job_status(job_id: str) -> dict[str, object]:
     # Report the voice this job was produced with, so the interface can never
     # show a job next to a different voice the user has since selected.
     voice = find_tts_voice(job["voice_id"])
-    return {key: job[key] for key in keys} | {
+    live = view == "live"
+    result = {key: job[key] for key in keys} | {
         "voice_name": voice.name if voice else "",
         "voice_language": voice.language if voice else "",
         "progress": counts, "assembly": assembly_progress.get(job_id),
-        "sentences": job["sentences"], "events": job_store.get_events(database_path, job_id),
-        "release": compute_release(job_id),
+        "pipeline": _pipeline_view(job), "package": _package_view(job),
+        "sentences": [_live_unit(unit) for unit in job["sentences"]] if live else job["sentences"],
+        "release": compute_release(job_id, job=job, store=not live),
         # Once the book is assembled: every difference as a time in the finished audio.
         "fault_locations": _read_json(Path(job["source_path"]).parent / "fault-locations.json", [])
         if job["state"] == "completed" else [],
     }
+    if not live:
+        result["events"] = job_store.get_events(database_path, job_id)
+    return result
 
 
 @app.get("/api/jobs/{job_id}/review-queue")
@@ -2478,10 +3060,11 @@ async def resolve_production_sentence(job_id: str, decision: SentenceDecision) -
                 # The reviewer's text replaces the unit's text; its spoken form
                 # and the record of how it was derived follow it.
                 spoken = build_spoken_text(corrected)
+                said = announce_pages(spoken.spoken, (sentence.get("provenance") or {}).get("page_breaks"))
                 job_store.update_sentence(
-                    database_path, job_id, decision.sentence_id, text=corrected, spoken_text=spoken.spoken,
+                    database_path, job_id, decision.sentence_id, text=corrected, spoken_text=said,
                     normalization_json=json.dumps(spoken.as_dict(), ensure_ascii=False),
-                    synthesis_text=apply_pronunciation_lexicon(spoken.spoken, job_store.get_lexicon(database_path)))
+                    synthesis_text=apply_pronunciation_lexicon(said, job_store.get_lexicon(database_path)))
             item = next(row for row in job_store.get_job(database_path, job_id)["sentences"]
                         if row["sentence_id"] == decision.sentence_id)
             result = await _produce_unit(
@@ -2555,16 +3138,20 @@ def _read_json(path: Path, default):
         return default
 
 
-def compute_release(job_id: str, *, assume_state: str | None = None) -> dict:
-    """Evaluate the release gate for a job and store the result on it."""
-    job = job_store.get_job(database_path, job_id)
+def compute_release(job_id: str, *, assume_state: str | None = None, job: dict | None = None,
+                    store: bool = True) -> dict:
+    """Evaluate the release gate for a job and store the result on it.
+
+    ``job`` is the job already read, so a caller that has it does not read the
+    whole book again; ``store=False`` only reports (the page asks every second).
+    """
+    job = dict(job) if job is not None else job_store.get_job(database_path, job_id)
     if not job:
         return {}
     job_dir = Path(job["source_path"]).parent
     if assume_state:
         job["state"] = assume_state
-    events = job_store.get_events(database_path, job_id)
-    job["human_decisions"] = sum(1 for event in events if event.get("message") == "human review decision")
+    job["human_decisions"] = job_store.count_events(database_path, job_id, "human review decision")
     finished = job["state"] == "completed"
     validation = _read_validation_state(job_dir) if finished else {}
     result = release_gate.evaluate(
@@ -2578,7 +3165,7 @@ def compute_release(job_id: str, *, assume_state: str | None = None) -> dict:
         acknowledgements=job.get("acknowledgements") or [],
         released=(job.get("release") or {}).get("released"),
     )
-    if not assume_state:
+    if store and not assume_state:
         job_store.update_job(database_path, job_id, release_state=result["state"],
                              release_json=json.dumps({**result, "computed_at": job_store.utc_now()},
                                                      ensure_ascii=False))
@@ -3631,12 +4218,15 @@ async def production_job_structure(job_id: str) -> dict[str, object]:
         states = [row["state"] for row in rows]
         pages = [page for row in rows for page in row["page_breaks"]] or [
             str(row["page"]) for row in rows if row.get("page")]
+        # Several pages marked at the first phrase: the section starts on the
+        # last (the others began in text left out before it), as the index says.
+        first_pages = rows[0]["page_breaks"] if rows else []
         raw_seconds = [row["duration"] for row in rows if row["has_audio"] and row["duration"]]
         sections.append({
             "index": chapter_index, "key": once.get("key") or f"chapter-{chapter_index + 1}",
             "kind": once.get("kind") or "chapter", "level": int(once.get("level") or 1),
             "title": record["title"], "heading_spoken": any(unit.get("is_heading") for unit in units),
-            "page_start": once.get("page_start") or (pages[0] if pages else ""),
+            "page_start": once.get("page_start") or (first_pages[-1] if first_pages else pages[0] if pages else ""),
             "page_end": once.get("page_end") or (pages[-1] if pages else ""),
             "status": _section_status(states),
             "counts": {state: states.count(state) for state in sorted(set(states))},
@@ -3826,10 +4416,22 @@ class PackageProgress:
     total: int = 0
     done: int = 0
     reused: int = 0
-    # narrating, then assembling chapter by chapter, then packaging.
-    stage: str = "narrating"
+    # checking, narrating, then assembling chapter by chapter ("assembling"),
+    # packaging, validating, zipping and verifying the ZIP.
+    stage: str = "checking"
     chapters_done: int = 0
     chapters_total: int = 0
+    chapters_reused: int = 0
+    chapters_rebuilt: int = 0
+    timings: dict = field(default_factory=dict)
+    audit: dict = field(default_factory=dict)
+
+    def enter(self, stage: str, clock: dict) -> None:
+        now = time.monotonic()
+        if clock.get("stage"):
+            self.timings[clock["stage"]] = round(self.timings.get(clock["stage"], 0.0) + now - clock["since"], 3)
+        clock.update(stage=stage, since=now)
+        self.stage = stage
 
 
 async def _build_direct_package(
@@ -3849,12 +4451,15 @@ async def _build_direct_package(
                                          corrections_json=corrections_json, edits_json=edits_json,
                                          create_sections=create_navigation_sections_flag, sheet=sheet)
     layout: list[dict] | None = None
+    # What the package is laid out from: the ONCE structure, or the pages alone.
+    page_layout: list[dict] | None = None
     once_records: list[dict] = []
     if once is not None:
         # The same files, levels, pages, notes and closing phrase as a reviewed
         # production: headings are read, as ONCE requires.
         metadata = {**metadata, "title": once.resolved.title, "author": once.resolved.author}
         chapter_paragraphs, layout, continues = [], [], []
+        page_layout = layout
         for section, record in zip(once.sections, once.records()):
             texts = [paragraph.text for paragraph in section.paragraphs]
             pieces = [make_paragraphs(text) for text in texts]
@@ -3868,12 +4473,15 @@ async def _build_direct_package(
             once_records.append({"title": section.title, "paragraphs": texts,
                                  "title_generated": section.title_generated, "once": record})
     else:
-        split = [(title, [make_paragraphs(paragraph) for paragraph in body]) for title, body in source_chapters]
-        split = [(title, pieces) for title, pieces in split if any(pieces)]
-        chapter_paragraphs = [(title, [part for parts in pieces for part in parts]) for title, pieces in split]
+        split = [(chapter, [make_paragraphs(paragraph) for paragraph in chapter[1]]) for chapter in source_chapters]
+        split = [(chapter, pieces) for chapter, pieces in split if any(pieces)]
+        chapter_paragraphs = [(chapter[0], [part for parts in pieces for part in parts]) for chapter, pieces in split]
         # True where the next unit carries on the same paragraph.
-        continues = [index + 1 < len(parts) for _title, pieces in split for parts in pieces
+        continues = [index + 1 < len(parts) for _chapter, pieces in split for parts in pieces
                      for index in range(len(parts))]
+        # The pages of the original, for the package only: what is narrated
+        # (read with layout None, as before) does not change.
+        page_layout = [plain_chapter_layout(chapter, pieces) for chapter, pieces in split]
     paragraphs = [paragraph for _, body in chapter_paragraphs for paragraph in body]
     if not paragraphs:
         raise ValueError("No hemos encontrado párrafos que se puedan narrar en este documento.")
@@ -3920,6 +4528,10 @@ async def _build_direct_package(
             raise ValueError("La plantilla bibliográfica contiene una variable no válida.") from exc
         biblio_audio, _reused = await synthesize_cached(bibliographic_text, voice_speed, voice_id)
         front_matter.append(("Datos bibliográficos", bibliographic_text, biblio_audio, settings.once_bibliographic_filename))
+    if front_matter:
+        # The legacy .env front matter is written by the package's own older
+        # path, which cannot carry a page layout beside it.
+        page_layout = None
 
     # One request per paragraph, so the voice reads it as connected speech, and
     # several paragraphs at once. The reviewed run and the preview narrate the
@@ -3928,36 +4540,57 @@ async def _build_direct_package(
     job_store.initialize_store(database_path)
     lexicon = job_store.get_lexicon(database_path)
     progress.total = len(paragraphs)
+    clock: dict = {}
+    started = time.monotonic()
+    progress.enter("checking", clock)
     contexts, terms = direct_reading(structure, once, chapter_paragraphs, layout, paragraphs)
     spelling = spelling_rules()
-    texts = [build_synthesis_text(paragraph, lexicon, context, foreign_terms=foreign, spelling=spelling)
-             for paragraph, context, foreign in zip(paragraphs, contexts, terms)]
+    # The pages that begin at each unit are announced, as build_units does.
+    unit_pages = [unit.get("page_breaks") for chapter in page_layout or [] for unit in chapter.get("units") or []]
+    texts = [apply_pronunciation_lexicon(announce_pages(
+                 build_spoken_text(paragraph, context, foreign_terms=foreign, spelling=spelling).spoken,
+                 unit_pages[index] if index < len(unit_pages) else None), lexicon)
+             for index, (paragraph, context, foreign) in enumerate(zip(paragraphs, contexts, terms))]
+    unit_files: list[Path | None] = [None] * len(texts)
+    (work_dir / "units").mkdir(parents=True, exist_ok=True)
 
-    async def narrate(index: int) -> bytes:
+    async def narrate(index: int) -> None:
         context = narration_context(texts[index - 1] if index else "",
                                     texts[index + 1] if index + 1 < len(texts) else "")
         audio, reused = await narrate_with_backoff(texts[index], voice_speed, voice_id, context=context)
+        # The audio is the cache entry for its text: the package reads it from
+        # there instead of the whole book being held in memory.
+        cached = audio_cache.path_for(narration_cache_key(texts[index], voice_speed, voice_id))
+        if cached.is_file() and cached.stat().st_size == len(audio):
+            unit_files[index] = cached
+        else:
+            unit_files[index] = work_dir / "units" / f"{index:05d}.mp3"
+            write_atomic(unit_files[index], audio)
         progress.done += 1
         progress.reused += int(reused)
-        return audio
 
-    audio_segments = await _run_limited(
-        [functools.partial(narrate, index) for index in range(len(texts))], narration_concurrency,
-    )
+    progress.enter("narrating", clock)
+    await _run_limited([functools.partial(narrate, index) for index in range(len(texts))], narration_concurrency)
     logger.info("Package synthesis finished: paragraphs=%d reused_from_cache=%d concurrency=%d",
                 len(paragraphs), progress.reused, narration_concurrency())
-    progress.stage = "assembling"
 
-    def chapter_started(index: int, total: int) -> None:
-        progress.chapters_done, progress.chapters_total = index, total
+    # Chapters: the same content-addressed cache as a reviewed production, so
+    # a chapter whose passages and pauses did not change is not mastered again.
+    progress.enter("assembling", clock)
+    mastering = mastering_options()
+    units = AudioFiles([path for path in unit_files if path is not None])
+    chapter_files, chapter_clips = await asyncio.to_thread(
+        _direct_chapters, chapter_paragraphs, units, texts, continues, mastering, work_dir / "chapters", progress)
+    progress.chapters_done = progress.chapters_total
 
-    # Building and zipping the package is file work; a worker thread keeps the
-    # server answering progress requests meanwhile.
+    progress.enter("packaging", clock)
+    # The complete audiobook travels beside the DAISY package, not inside it.
+    book_audio_path = work_dir / book_audio_name(metadata["title"] or Path(filename).stem or "Libro")
     package_dir = await asyncio.to_thread(functools.partial(
         build_daisy_package,
         metadata["title"] or Path(filename).stem or "Libro",
         paragraphs,
-        audio_segments,
+        units,
         work_dir / "book",
         chapters=chapter_paragraphs,
         author=metadata["author"],
@@ -3965,38 +4598,50 @@ async def _build_direct_package(
         publication_year=metadata["publication_year"],
         publisher=metadata["publisher"],
         front_matter=front_matter,
+        chapter_audio=chapter_files,
+        chapter_clips=chapter_clips,
         # Joined by ffmpeg into clean streams when it is available (it is in
         # Docker); byte-joined MP3 files confuse players about their length.
         use_ffmpeg=bool(filesystem.which("ffmpeg")),
         # A direct download is a finished audiobook too, so it gets the same
         # trimming, pauses and loudness as a reviewed production run.
-        mastering=mastering_options(),
-        layout=layout,
+        mastering=mastering,
+        layout=page_layout,
         identifiers=[("ABSYS", sheet.absys)] if sheet is not None and sheet.absys else None,
         # The pauses inside each passage follow what the voice read.
         segment_texts=texts, segment_continues=continues if len(continues) == len(texts) else None,
-        on_chapter=chapter_started,
         images=photo_images(filename, content, [paragraph.photo for section in (once.sections if once else [])
                                                 for paragraph in section.paragraphs if paragraph.role == "photo"]),
+        identifier=dtb_identifier(book_source_hash(content, pages, sheet), sheet.absys if sheet is not None else ""),
+        book_audio_path=book_audio_path, dtb_publisher=dtb_publisher(once is not None),
+        narrator=narrator_label(voice_id), source_isbn=sheet.isbn if sheet is not None else "",
         **package_options(),
     ))
-    progress.stage = "packaging"
-    progress.chapters_done = progress.chapters_total
+    progress.enter("validating", clock)
     await asyncio.to_thread(validate_daisy_package, package_dir)
     dtd = await asyncio.to_thread(daisy_dtd.validate_package, package_dir)
+    # ZedVal's Z39.86-2005 requirements, as on a reviewed production.
+    zedval_checks = await asyncio.to_thread(zedval_rules.verify, package_dir)
+    for check in zedval_checks:
+        if check["status"] == "failed":
+            logger.error("Direct package Z39.86 rule failed: %s: %s", check["label"], check["detail"][:300])
     structure_checks = (await asyncio.to_thread(once_validation.verify, package_dir, once_records,
                                                 once.resolved.as_dict()) if once is not None else [])
     for check in structure_checks:
         if check["status"] == "failed":
             logger.error("Direct package ONCE check failed: %s: %s", check["label"], check["detail"][:300])
-    timing_checks = await asyncio.to_thread(functools.partial(daisy_timing.verify, package_dir, **timing_targets()))
+    timing_checks = await asyncio.to_thread(functools.partial(daisy_timing.verify, package_dir, **timing_targets(),
+                                                              book_audio=book_audio_path))
     for check in timing_checks:
         if check["status"] != "passed":
             logger.log(logging.ERROR if check["status"] == "failed" else logging.WARNING,
                        "Direct package timing check %s: %s: %s", check["status"], check["label"], check["detail"][:300])
     # Nothing in this path listened to the narration, so the package says so
-    # in plain words instead of looking like a verified audiobook.
-    write_atomic_text(package_dir / "quality-status.json", json.dumps({
+    # in plain words instead of looking like a verified audiobook. Beside the
+    # DAISY folder, as in a reviewed delivery: inside it, it was a file the
+    # package's manifest does not list.
+    status_path = work_dir / "quality-status.json"
+    write_atomic_text(status_path, json.dumps({
         "state": "UNVERIFIED",
         "label": "Sin verificar",
         "detail": "Descarga directa: no se transcribió ni se comparó la narración con el texto, no hubo "
@@ -4004,12 +4649,81 @@ async def _build_direct_package(
         "package": {"structural": "passed", "dtd": dtd["status"], "dtd_errors": dtd["errors"][:10],
                     "timing": [{key: check[key] for key in ("id", "label", "status", "detail")}
                                for check in timing_checks],
+                    "zedval_rules": [{key: check[key] for key in ("id", "label", "status", "detail")}
+                                     for check in zedval_checks],
                     **({"once_structure": [{key: check[key] for key in ("id", "label", "status", "detail")}
                                            for check in structure_checks]} if once is not None else {})},
     }, ensure_ascii=False, indent=2))
+    progress.enter("zipping", clock)
     archive_path = work_dir / "soni2-daisy.zip"
-    await asyncio.to_thread(_zip_package, package_dir, archive_path)
+    extra = {"quality-status.json": status_path}
+    if book_audio_path.is_file():
+        extra[book_audio_path.name] = book_audio_path
+    await asyncio.to_thread(_zip_package, package_dir, archive_path, extra)
+    progress.enter("verifying", clock)
+    audit = await asyncio.to_thread(package_integrity.audit_zip, archive_path,
+                                    expected_titles=[title for title, _body in chapter_paragraphs])
+    progress.audit = {key: audit[key] for key in ("status", "files", "detail", "package")}
+    if not audit["readable"]:
+        raise RuntimeError(f"El ZIP generado no se puede leer: {audit['detail']}")
+    shutil.rmtree(package_dir, ignore_errors=True)
+    book_audio_path.unlink(missing_ok=True)
+    shutil.rmtree(work_dir / "chapters", ignore_errors=True)
+    shutil.rmtree(work_dir / "units", ignore_errors=True)
+    progress.enter("done", clock)
+    logger.info("perf.direct: total=%.2fs %s chapters_reused=%d chapters_rebuilt=%d audit=%s",
+                time.monotonic() - started, " ".join(f"{name}={seconds:.2f}s" for name, seconds in progress.timings.items()),
+                progress.chapters_reused, progress.chapters_rebuilt, audit["status"])
     return archive_path, book_download_name(metadata["title"], filename)
+
+
+def _direct_chapters(chapter_paragraphs: list[tuple[str, list[str]]], units: AudioFiles, texts: list[str],
+                     continues: list[bool], mastering: audio_master.MasteringOptions, folder: Path,
+                     progress: PackageProgress) -> tuple[list[Path], list[list[tuple[float, float]]] | None]:
+    """Each chapter of a direct download: from the chapter cache, or mastered and cached.
+
+    Keyed exactly as a reviewed production keys them (``_chapter_content_key``),
+    so the two paths share mastered chapters as they share narration.
+    """
+    folder.mkdir(parents=True, exist_ok=True)
+    files: list[Path] = []
+    clips: list[list[tuple[float, float]]] = []
+    position = 0
+    progress.chapters_total = len(chapter_paragraphs)
+    flags = continues if len(continues) == len(texts) else [False] * len(texts)
+    for index, (_title, body) in enumerate(chapter_paragraphs):
+        progress.chapters_done = index
+        count = len(body)
+        segments = units[position:position + count]
+        chapter_texts = texts[position:position + count]
+        follows = flags[position:position + count]
+        position += count
+        target = folder / f"chapter-{index + 1:03d}.mp3"
+        if not mastering.active:
+            joined = daisy_join_mp3(segments)
+            write_atomic(target, joined)
+            files.append(target)
+            clips.append(_measure_fallback_clips(segments, joined))
+            progress.chapters_rebuilt += 1
+            continue
+        key = _chapter_content_key(segments, chapter_texts, follows, mastering)
+        shared = audio_cache.get_chapter(key)
+        if shared is not None and len(shared[1]) == count:
+            audio_cache.link_or_copy(shared[0], target)
+            files.append(target)
+            clips.append(shared[1])
+            progress.chapters_reused += 1
+            continue
+        mastered = audio_master.master_chapter(segments, mastering, texts=chapter_texts, continues=follows)
+        write_atomic(target, mastered.audio)
+        chapter = mastered.clips or _measure_fallback_clips(segments, mastered.audio)
+        if mastered.mastered and mastered.clips:
+            pauses = mastered.pauses if len(mastered.pauses) == count else [[] for _ in range(count)]
+            audio_cache.put_chapter(key, target, chapter, pauses)
+        files.append(target)
+        clips.append(chapter)
+        progress.chapters_rebuilt += 1
+    return files, clips
 
 
 def direct_reading(structure, once, chapter_paragraphs: list[tuple[str, list[str]]], layout: list[dict] | None,
@@ -4062,13 +4776,16 @@ def _paragraph_foreign_terms(structure, paragraphs: list[str], index_entry_texts
     return result
 
 
-def _zip_package(package_dir: Path, archive_path: Path) -> None:
+def _zip_package(package_dir: Path, archive_path: Path, extra: dict[str, Path] | None = None) -> None:
+    """The package in "DAISY 3/", and ``extra`` files (name -> file) beside it."""
     with zipfile.ZipFile(archive_path, "w") as archive:
         # Sorted: the file system's order is arbitrary, and chapters are listed in order.
         for path in sorted(package_dir.rglob("*")):
             if path.is_file():
                 # Same layout as the reviewed delivery: the package lives in "DAISY 3/".
                 add_to_archive(archive, path, "DAISY 3/" + path.relative_to(package_dir).as_posix())
+        for name, path in (extra or {}).items():
+            add_to_archive(archive, path, name)
 
 
 def _package_failure(exc: Exception) -> tuple[int, str]:
@@ -4136,6 +4853,23 @@ class PackageTask:
     download_name: str = ""
     finished_at: float | None = None
     runner: asyncio.Task | None = None
+    # What was asked for (book, edits, voice, lexicon, build): the same request
+    # is answered with this task while it runs, and with its ZIP once finished.
+    signature: str = ""
+    reused_package: bool = False
+
+
+def _package_request_signature(inputs: BookInputs, voice_id: str, voice_speed: float) -> str:
+    """The direct download a request asks for, by everything that decides its bytes."""
+    try:
+        voice = resolve_narration_voice(voice_id).voice_id
+    except ProviderError:
+        voice = voice_id
+    return hashlib.sha256(json.dumps({
+        "source": hashlib.sha256(inputs.content).hexdigest(), "options": inputs.package_options(),
+        "voice": voice, "speed": voice_speed, "provider": active_tts_provider(),
+        "lexicon": job_store.get_lexicon(database_path), "build": build_signature(),
+    }, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
 package_tasks: dict[str, PackageTask] = {}
@@ -4181,9 +4915,17 @@ def _package_task(task_id: str) -> PackageTask:
 
 
 def _package_task_status(task: PackageTask) -> dict[str, object]:
+    archive = task.archive_path if task.archive_path and task.archive_path.is_file() else None
     return {"task_id": task.task_id, "state": task.state, "total": task.progress.total,
             "done": task.progress.done, "reused": task.progress.reused, "stage": task.progress.stage,
             "chapters_done": task.progress.chapters_done, "chapters_total": task.progress.chapters_total,
+            "chapters_reused": task.progress.chapters_reused, "chapters_rebuilt": task.progress.chapters_rebuilt,
+            "timings": task.progress.timings, "reused_package": task.reused_package,
+            "package": ({"bytes": archive.stat().st_size, "audit": task.progress.audit.get("status", "not_run"),
+                         "audit_detail": task.progress.audit.get("detail", ""),
+                         **{key: (task.progress.audit.get("package") or {}).get(key)
+                            for key in ("audio_files", "chapter_files", "total_time")}}
+                        if archive is not None else None),
             "detail": task.detail}
 
 
@@ -4194,8 +4936,15 @@ async def start_book_package(
     corrections_json: str = Form("{}"), metadata_json: str = Form("{}"), narration_plan_json: str = Form(""),
     edits_json: str = Form(""),
     create_navigation_sections_flag: bool = Form(False, alias="create_navigation_sections"),
-    pages: str = Form(""), planilla_json: str = Form(""),
+    pages: str = Form(""), planilla_json: str = Form(""), force: bool = Form(False),
 ) -> dict[str, object]:
+    """Start a direct download, or answer with the one that already has this book.
+
+    The same book, edits, voice and build give the same ZIP: a request is
+    answered with the task still building it (a second click, another tab),
+    or, unless ``force``, with the finished ZIP. ``force`` builds it again
+    from the latest text, reusing every narrated passage and mastered chapter.
+    """
     inputs = await _read_package_request(
         file, draft_id, voice_speed, voice_id, corrections_json=corrections_json, metadata_json=metadata_json,
         narration_plan_json=narration_plan_json, edits_json=edits_json,
@@ -4206,10 +4955,21 @@ async def start_book_package(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     _forget_old_package_tasks()
+    signature = _package_request_signature(inputs, voice_id, voice_speed)
+    for existing in sorted(package_tasks.values(), key=lambda item: item.finished_at or float("inf"), reverse=True):
+        if existing.signature != signature:
+            continue
+        if existing.state == "running":
+            return _package_task_status(existing)
+        # A finished ZIP answers the page (a draft); an upload gets a new one.
+        if (existing.state == "completed" and not force and inputs.draft is not None
+                and existing.archive_path is not None and existing.archive_path.is_file()):
+            existing.reused_package = True
+            return _package_task_status(existing)
     task_id = uuid.uuid4().hex
     work_dir = _package_tasks_root() / task_id
     work_dir.mkdir(parents=True, exist_ok=True)
-    task = PackageTask(task_id=task_id, work_dir=work_dir, progress=PackageProgress())
+    task = PackageTask(task_id=task_id, work_dir=work_dir, progress=PackageProgress(), signature=signature)
     package_tasks[task_id] = task
     options = {"voice_speed": voice_speed, "voice_id": voice_id, **inputs.package_options()}
     task.runner = asyncio.create_task(_run_package_task(task, inputs.filename, inputs.content, options))

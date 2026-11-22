@@ -1,0 +1,1684 @@
+{
+  "step 1, before a book": [
+    {
+      "kind": "a",
+      "name": "Saltar al contenido principal",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "a",
+      "name": "Inicio de Soni2",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "1Subir libro",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "2Escuchar y revisar",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "3Exportar",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:file",
+      "name": "Elige un libro en formato PDF, EPUB, Word, texto o XML",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Elegir archivo",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "select",
+      "name": "Voz de narraciónVoz de prueba - EspañaElige una voz para la narración.",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    }
+  ],
+  "step 1, with a book": [
+    {
+      "kind": "a",
+      "name": "Saltar al contenido principal",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "a",
+      "name": "Inicio de Soni2",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "1Subir libro",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "2Escuchar y revisar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "3Exportar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:file",
+      "name": "Elige un libro en formato PDF, EPUB, Word, texto o XML",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Cambiar archivo",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "select",
+      "name": "Voz de narraciónVoz de prueba - EspañaElige una voz para la narración.",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:checkbox",
+      "name": "Capítulo 1. La llegadaContenido del libro · 4 párrafos · Revisar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:checkbox",
+      "name": "Capítulo 2. El cuadernoContenido del libro · 3 párrafos · Incluido",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:checkbox",
+      "name": "Capítulo 3. La visitaContenido del libro · 3 párrafos · Incluido",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:checkbox",
+      "name": "Capítulo 4. El inviernoContenido del libro · 3 párrafos · Incluido",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Generar vista previa",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Ver la estructura del audiolibro (sin generar muestra)",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    }
+  ],
+  "step 2, before production": [
+    {
+      "kind": "a",
+      "name": "Saltar al contenido principal",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "a",
+      "name": "Inicio de Soni2",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "1Subir libro",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "2Escuchar y revisar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "3Exportar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:file",
+      "name": "Elige un libro en formato PDF, EPUB, Word, texto o XML",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Sección anterior",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Frase anterior",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Reproducir",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Frase siguiente",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Sección siguiente",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:range",
+      "name": "Posición en Capítulo 1. La llegada",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Problema anterior",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Problema siguiente",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "select",
+      "name": "Velocidad0,75×1×1,25×1,5×1,75×2×",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Producir el audiolibro con revisión",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:search",
+      "name": "Buscar en el libro",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Archivos iniciales ONCE",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "treeitem",
+      "name": "1El faro de prueba, De Equipo de pruebasNivel 1 · p. 1 · sin audioSin narrar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "treeitem",
+      "name": "2DATOS BIBLIOGRÁFICOSNivel 1 · sin página · sin audioSin narrar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "treeitem",
+      "name": "3Índice.Nivel 1 · sin página · sin audioSin narrar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "treeitem",
+      "name": "4Capítulo 1. La llegadaNivel 1 · p. 1 · sin audioSin narrar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "treeitem",
+      "name": "5Capítulo 2. El cuadernoNivel 1 · p. 2 · sin audioSin narrar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "treeitem",
+      "name": "6Capítulo 3. La visitaNivel 1 · p. 3 · sin audioSin narrar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "treeitem",
+      "name": "7Capítulo 4. El inviernoNivel 1 · p. 4 · sin audioSin narrar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Eliminar capítulo",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Añadir capítulo después",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Escuchar desde el principio",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Escuchar la frase 1",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Eliminar la frase 1",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "1EncabezadoCapítulo 1. La llegada",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Corregir la frase 1",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Añadir una frase después de la frase 1",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Escuchar la frase 2",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Eliminar la frase 2",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "2Lucía llegó al faro cuando caía la tarde.",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Corregir la frase 2",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Añadir una frase después de la frase 2",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Escuchar la frase 3",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Eliminar la frase 3",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "3El camino medía 18 km y costó 3.500 euros.",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Corregir la frase 3",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Añadir una frase después de la frase 3",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Escuchar la frase 4",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Eliminar la frase 4",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "4La llave de hierro pesaba más de lo que parecía.",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Corregir la frase 4",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Añadir una frase después de la frase 4",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Escuchar la frase 5",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Eliminar la frase 5",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "5Subió los ciento doce escalones sin detenerse.",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Corregir la frase 5",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Añadir una frase después de la frase 5",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:checkbox",
+      "name": "Estructura ONCE (archivos iniciales, índice, notas y frase final)",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Revisar la planilla de producción",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    }
+  ],
+  "step 3, no ZIP yet": [
+    {
+      "kind": "a",
+      "name": "Saltar al contenido principal",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "a",
+      "name": "Inicio de Soni2",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "1Subir libro",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "2Escuchar y revisar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "3Exportar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:file",
+      "name": "Elige un libro en formato PDF, EPUB, Word, texto o XML",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Descargar ZIP",
+      "enabled": true,
+      "visible": true,
+      "primary": true
+    },
+    {
+      "kind": "button",
+      "name": "Regenerar ZIP",
+      "enabled": true,
+      "visible": true,
+      "primary": true
+    },
+    {
+      "kind": "summary",
+      "name": "Datos del libroEl faro de prueba · Equipo de pruebas",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:text",
+      "name": "Título",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "input:text",
+      "name": "Autoría",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "input:text",
+      "name": "Edición",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "input:text",
+      "name": "Año de publicación",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "input:text",
+      "name": "Editorial",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "summary",
+      "name": "Opciones de entregacon revisión de calidad",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:checkbox",
+      "name": "Revisión de calidad automática (recomendada)Cada párrafo se transcribe y se compara con el",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    }
+  ],
+  "step 3, ZIP ready": [
+    {
+      "kind": "a",
+      "name": "Saltar al contenido principal",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "a",
+      "name": "Inicio de Soni2",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "1Subir libro",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "2Escuchar y revisar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "3Exportar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:file",
+      "name": "Elige un libro en formato PDF, EPUB, Word, texto o XML",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Descargar ZIP",
+      "enabled": true,
+      "visible": true,
+      "primary": true
+    },
+    {
+      "kind": "button",
+      "name": "Regenerar ZIP",
+      "enabled": true,
+      "visible": true,
+      "primary": true
+    },
+    {
+      "kind": "a",
+      "name": "Si la descarga no empieza, pulsa aquí.",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:text",
+      "name": "Tu nombre (queda registrado con la decisión)",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:checkbox",
+      "name": "He leído lo que estas comprobaciones no demuestran.",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Publicar el audiolibro",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "summary",
+      "name": "Lo que estas comprobaciones no demuestran",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "summary",
+      "name": "Datos del libroEl faro de prueba · Equipo de pruebas",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:text",
+      "name": "Título",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "input:text",
+      "name": "Autoría",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "input:text",
+      "name": "Edición",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "input:text",
+      "name": "Año de publicación",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "input:text",
+      "name": "Editorial",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "summary",
+      "name": "Opciones de entregacon revisión de calidad",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:checkbox",
+      "name": "Revisión de calidad automática (recomendada)Cada párrafo se transcribe y se compara con el",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    }
+  ],
+  "step 2, produced book": [
+    {
+      "kind": "a",
+      "name": "Saltar al contenido principal",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "a",
+      "name": "Inicio de Soni2",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "1Subir libro",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "2Escuchar y revisar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "3Exportar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:file",
+      "name": "Elige un libro en formato PDF, EPUB, Word, texto o XML",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Sección anterior",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Frase anterior",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Reproducir",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Frase siguiente",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Sección siguiente",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:range",
+      "name": "Posición en Capítulo 1. La llegada",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Problema anterior",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Problema siguiente",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "select",
+      "name": "Velocidad0,75×1×1,25×1,5×1,75×2×",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Editar el texto",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:search",
+      "name": "Buscar en el libro",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Archivos iniciales ONCE",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "treeitem",
+      "name": "1El faro de prueba, De Equipo de pruebasNivel 1 · p. 1 · 1:09,3Correcta",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "treeitem",
+      "name": "2DATOS BIBLIOGRÁFICOSNivel 1 · sin página · 0:13,8Correcta",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "treeitem",
+      "name": "3Índice.Nivel 1 · sin página · 0:14,0Correcta",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "treeitem",
+      "name": "4Capítulo 1. La llegadaNivel 1 · p. 1 · 0:16,7Correcta",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "treeitem",
+      "name": "5Capítulo 2. El cuadernoNivel 1 · p. 2 · 0:12,5Correcta",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "treeitem",
+      "name": "6Capítulo 3. La visitaNivel 1 · p. 3 · 0:11,5Correcta",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "treeitem",
+      "name": "7Capítulo 4. El inviernoNivel 1 · p. 4 · 0:16,4Correcta",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Eliminar capítulo",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Añadir capítulo después",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Escuchar desde el principio",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Escuchar la frase 1",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Eliminar la frase 1",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "10:01,00:02,1EncabezadoCorrectaCapítulo 1. La llegada",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Escuchar la frase 2",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Eliminar la frase 2",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "20:02,90:03,1CorrectaLucía llegó al faro cuando caía la tarde.",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Escuchar la frase 3",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Eliminar la frase 3",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "30:05,80:05,1CorrectaEl camino medía 18 km y costó 3.500 euros.",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Escuchar la frase 4",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Eliminar la frase 4",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "40:10,60:03,6CorrectaLa llave de hierro pesaba más de lo que parecía.",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Escuchar la frase 5",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Eliminar la frase 5",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "50:13,80:03,6CorrectaSubió los ciento doce escalones sin detenerse.",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "summary",
+      "name": "Cambiar esta frase",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "textarea",
+      "name": "Texto corregido (sólo si vas a corregirlo)Capítulo 1. La llegada",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Volver a narrarla",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Corregir el texto y narrarla",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "summary",
+      "name": "Corregir la pronunciación de una palabra",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Capítulo",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "La",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "llegada",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    }
+  ],
+  "step 2, editing the text": [
+    {
+      "kind": "a",
+      "name": "Saltar al contenido principal",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "a",
+      "name": "Inicio de Soni2",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "1Subir libro",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "2Escuchar y revisar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "3Exportar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:file",
+      "name": "Elige un libro en formato PDF, EPUB, Word, texto o XML",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Sección anterior",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Frase anterior",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Reproducir",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Frase siguiente",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Sección siguiente",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:range",
+      "name": "Posición en Capítulo 1. La llegada",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Problema anterior",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Problema siguiente",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "select",
+      "name": "Velocidad0,75×1×1,25×1,5×1,75×2×",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Volver al audio producido",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Producir con los cambios",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:search",
+      "name": "Buscar en el libro",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Archivos iniciales ONCE",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "treeitem",
+      "name": "1El faro de prueba, De Equipo de pruebasNivel 1 · p. 1 · sin audioSin narrar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "treeitem",
+      "name": "2DATOS BIBLIOGRÁFICOSNivel 1 · sin página · sin audioSin narrar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "treeitem",
+      "name": "3Índice.Nivel 1 · sin página · sin audioSin narrar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "treeitem",
+      "name": "4Capítulo 1. La llegadaNivel 1 · p. 1 · sin audioSin narrar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "treeitem",
+      "name": "5Capítulo 2. El cuadernoNivel 1 · p. 2 · sin audioSin narrar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "treeitem",
+      "name": "6Capítulo 3. La visitaNivel 1 · p. 3 · sin audioSin narrar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "treeitem",
+      "name": "7Capítulo 4. El inviernoNivel 1 · p. 4 · sin audioSin narrar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Eliminar capítulo",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Añadir capítulo después",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Escuchar desde el principio",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Escuchar la frase 1",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Eliminar la frase 1",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "1EncabezadoCapítulo 1. La llegada",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Corregir la frase 1",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Añadir una frase después de la frase 1",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Escuchar la frase 2",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Eliminar la frase 2",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "2Lucía llegó al faro cuando caía la tarde.",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Corregir la frase 2",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Añadir una frase después de la frase 2",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Escuchar la frase 3",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Eliminar la frase 3",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "3El camino medía 18 km y costó 3.500 euros.",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Corregir la frase 3",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Añadir una frase después de la frase 3",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Escuchar la frase 4",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Eliminar la frase 4",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "4La llave de hierro pesaba más de lo que parecía.",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Corregir la frase 4",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Añadir una frase después de la frase 4",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Escuchar la frase 5",
+      "enabled": false,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Eliminar la frase 5",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "5Subió los ciento doce escalones sin detenerse.",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Corregir la frase 5",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Añadir una frase después de la frase 5",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:checkbox",
+      "name": "Estructura ONCE (archivos iniciales, índice, notas y frase final)",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Revisar la planilla de producción",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    }
+  ],
+  "step 3, book changed since the ZIP": [
+    {
+      "kind": "a",
+      "name": "Saltar al contenido principal",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "a",
+      "name": "Inicio de Soni2",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "1Subir libro",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "2Escuchar y revisar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "tab",
+      "name": "3Exportar",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:file",
+      "name": "Elige un libro en formato PDF, EPUB, Word, texto o XML",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "button",
+      "name": "Descargar ZIP",
+      "enabled": true,
+      "visible": true,
+      "primary": true
+    },
+    {
+      "kind": "button",
+      "name": "Regenerar ZIP",
+      "enabled": true,
+      "visible": true,
+      "primary": true
+    },
+    {
+      "kind": "summary",
+      "name": "Lo que estas comprobaciones no demuestran",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "summary",
+      "name": "Datos del libroEl faro de prueba · Equipo de pruebas",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:text",
+      "name": "Título",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "input:text",
+      "name": "Autoría",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "input:text",
+      "name": "Edición",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "input:text",
+      "name": "Año de publicación",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "input:text",
+      "name": "Editorial",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    },
+    {
+      "kind": "summary",
+      "name": "Opciones de entregacon revisión de calidad",
+      "enabled": true,
+      "visible": true,
+      "primary": false
+    },
+    {
+      "kind": "input:checkbox",
+      "name": "Revisión de calidad automática (recomendada)Cada párrafo se transcribe y se compara con el",
+      "enabled": true,
+      "visible": false,
+      "primary": false
+    }
+  ]
+}

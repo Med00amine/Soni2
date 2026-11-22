@@ -37,6 +37,9 @@ const finishedJob = {
 let requests: { url: string; init?: RequestInit }[]
 let failSaves = false
 let refuseEmpty = false
+// Hold the answer to reading the saved book, or to a save, as a slow network would.
+let holdDraft: Promise<void> | null = null
+let holdSave: Promise<void> | null = null
 
 function json(body: unknown, status = 200) {
   return { ok: status < 400, status, json: async () => body, text: async () => JSON.stringify(body), blob: async () => new Blob() }
@@ -49,6 +52,8 @@ function stub() {
     requests.push({ url, init })
     if (url.endsWith('/api/capabilities')) return json(capabilities)
     if (url.includes('/api/drafts')) {
+      if (holdDraft && !init?.method) await holdDraft
+      if (holdSave && init?.method === 'PUT') await holdSave
       if (failSaves && init?.method === 'PUT') return json({ detail: 'Disco lleno.' }, 500)
       if (refuseEmpty && init?.method === 'PUT' && Object.keys((JSON.parse(String(init.body)).state.edits).slots).length === 2) {
         return json({ detail: 'Has eliminado todo el contenido del libro: no queda nada que narrar.' }, 422)
@@ -117,11 +122,18 @@ function savedEdits() {
   return lastSavedState()?.edits as { slots: Record<string, string[]>; deleted_titles: string[] }
 }
 
+// Where step 3 says how the ZIP stands.
+function exportStatus() {
+  return document.querySelector('#panel-export .xp-status')
+}
+
 beforeEach(() => {
   window.localStorage.clear()
   forgetDraft()
   failSaves = false
   refuseEmpty = false
+  holdDraft = null
+  holdSave = null
   vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} }))
   stub()
 })
@@ -186,6 +198,24 @@ describe('changing the phrases of a chapter', () => {
     await act(async () => { await new Promise(resolve => window.setTimeout(resolve, 650)) })
     await settle()
     expect(phrases()).toEqual(['Frase A.', 'Frase B.', 'Frase C.'])
+  })
+
+  it('saves an undo made while the change it undoes was still on its way to the server', async () => {
+    await openEditor()
+    let release = () => {}
+    holdSave = new Promise<void>(resolve => { release = resolve })
+    await click('Eliminar la frase 1')
+    await click('Eliminar la frase')
+    // The deletion's save has left and not been answered yet.
+    await click('Deshacer')
+    holdSave = null
+    await act(async () => { release() })
+    await act(async () => { await new Promise(resolve => window.setTimeout(resolve, 650)) })
+    await settle()
+    // The server ends up with the undo, not with the change it took back.
+    expect(savedEdits().slots).toEqual({})
+    expect(phrases()).toEqual(['Frase A.', 'Frase B.', 'Frase C.'])
+    expect(document.querySelector('.ed-save')?.textContent).toContain('Cambios guardados')
   })
 
   it('says when a change is saved and when it could not be', async () => {
@@ -313,14 +343,13 @@ describe('producing the edited book', () => {
     await click('Editar el texto')
     expect(find('Producir con los cambios')).toBeTruthy()
     expect(document.querySelector('.ed-notice')?.textContent).toContain('solo se narran las frases nuevas o corregidas')
-    expect(document.querySelector('.production-progress')?.textContent).not.toContain('no incluye tus últimos cambios')
+    expect(exportStatus()?.className).toContain('is-ready')
 
     await click('Eliminar la frase 1')
     await click('Eliminar la frase')
-    expect(document.querySelector('.production-progress')?.textContent).toContain('no incluye tus últimos cambios')
-    // The download of the earlier text is no longer presented as the finished book.
-    expect(document.querySelector('.export-actions')?.textContent).toContain('Producir con los cambios')
-    expect(document.querySelector('.export-actions')?.textContent).not.toContain('Descargar paquete revisado')
+    // The ZIP of the earlier text is no longer presented as the finished book.
+    expect(exportStatus()?.className).toContain('is-stale')
+    expect(exportStatus()?.textContent).toContain('Has cambiado el libro desde el último ZIP')
     expect(requests.filter(call => call.url.endsWith('/api/books/jobs'))).toHaveLength(1)
 
     await click('Producir con los cambios')
@@ -334,8 +363,29 @@ describe('producing the edited book', () => {
     const revision = 1 + savedStates().length
     rememberJob({ job_id: 'job-1', state: 'completed', draft_revision: revision })
     await reload()
-    expect(document.querySelector('.production-progress')?.textContent).toContain('Producción del audiolibro')
-    expect(document.querySelector('.export-actions')?.textContent).toContain('Descargar paquete revisado')
+    expect(exportStatus()?.textContent).toContain('ZIP listo')
+    expect(document.querySelector<HTMLButtonElement>('[data-primary-action="download"]')?.disabled).toBe(false)
+  })
+
+  it('says the book is being restored, not that it has no ZIP, until a reload has found its production', async () => {
+    await openEditor()
+    await click('Eliminar la frase 1')
+    await click('Eliminar la frase')
+    rememberJob({ job_id: 'job-1', state: 'completed', draft_revision: 1 + savedStates().length })
+    let release = () => {}
+    holdDraft = new Promise<void>(resolve => { release = resolve })
+    act(() => root.unmount())
+    document.body.innerHTML = '<div id="root"></div>'
+    root = createRoot(document.getElementById('root')!)
+    await act(async () => { root.render(<App />) })
+    expect(exportStatus()?.textContent).toContain('Recuperando el libro y su último ZIP')
+    expect(exportStatus()?.textContent).not.toContain('Todavía no hay un ZIP')
+    expect(document.querySelector<HTMLButtonElement>('[data-primary-action="download"]')?.disabled).toBe(true)
+    holdDraft = null
+    await act(async () => { release() })
+    await settle()
+    expect(exportStatus()?.textContent).toContain('ZIP listo')
+    expect(document.querySelector<HTMLButtonElement>('[data-primary-action="download"]')?.disabled).toBe(false)
   })
 
   it('follows a production of the same text after a reload instead of stopping it', async () => {
@@ -348,8 +398,8 @@ describe('producing the edited book', () => {
     await reload()
     expect(requests.some(call => call.url.endsWith('/api/jobs/job-1/cancel'))).toBe(false)
     expect(window.localStorage.getItem('soni2-active-production-job')).toBe('job-1')
-    expect(document.querySelector('.production-progress')?.textContent).toContain('Producción del audiolibro')
-    expect(document.querySelector('.export-actions')?.textContent).toContain('Descargar paquete revisado')
+    // Followed to its end: the server's job finished, and its ZIP is the book's.
+    expect(exportStatus()?.textContent).toContain('ZIP listo')
   })
 
   it('stops a production of an earlier text left behind by a reload', async () => {
@@ -360,7 +410,7 @@ describe('producing the edited book', () => {
     window.localStorage.setItem('soni2-active-production-job', 'job-1')
     await reload()
     expect(window.localStorage.getItem('soni2-active-production-job')).toBeNull()
-    expect(document.querySelector('.production-progress')).toBeNull()
+    expect(document.querySelector('.xp-stages')).toBeNull()
   })
 
   it('does not bring back a production of an earlier text', async () => {
@@ -369,8 +419,8 @@ describe('producing the edited book', () => {
     await click('Eliminar la frase')
     rememberJob({ job_id: 'job-1', state: 'completed', draft_revision: 1 })
     await reload()
-    expect(document.querySelector('.production-progress')).toBeNull()
-    expect(document.querySelector('.export-actions')?.textContent).not.toContain('Descargar paquete revisado')
+    expect(document.querySelector('.xp-stages')).toBeNull()
+    expect(exportStatus()?.textContent).toContain('Todavía no hay un ZIP')
   })
 })
 

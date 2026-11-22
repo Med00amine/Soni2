@@ -1141,6 +1141,16 @@ def _from_pdf(content: bytes, result: BookStructure, fallback_text: str, pages: 
             report.method = "pdf-pages" + ("+ocr" if ocr_pages else "")
             result.chapters = _pdf_page_chapters([profile for profile in profiles if profile["page"] not in insert_pages],
                                                  ocr_pages, report)
+        # Pages of the printed copy: an insert of photographs has none.
+        read = [profile for profile in profiles if profile["page"] not in insert_pages]
+        labels, method = pdf_page_labels(pdf, read)
+        mark_page_starts(result.chapters, labels, [profile["page"] for profile in read])
+        report.issue(INFO, "pagination", {
+            "pdf_labels": "Páginas: las etiquetas de página del propio PDF.",
+            "printed": "Páginas: los números impresos en las páginas del libro.",
+            "pdf_index": "Páginas: el PDF no imprime números de página reconocibles; se usa su propia numeración, "
+                         "que puede no coincidir con el ejemplar en tinta.",
+        }[method], location=f"páginas {read[0]['page']}-{read[-1]['page']}" if read else "")
     if not result.chapters:
         result.chapters = [BookChapter(result.title, _paragraphs(fallback_text), title_generated=True)]
 
@@ -1186,6 +1196,7 @@ def _pdf_page_chapters(profiles: list[dict], ocr_pages: dict[int, ocr.OcrPage],
             tail = previous.paragraphs[-1]
             previous.paragraphs[-1] = (tail[:-1] + paragraphs[0] if tail.endswith("-") and tail[-2:-1].isalpha()
                                        else f"{tail} {paragraphs[0]}")
+            _continued_on(previous.sources[-1] if previous.sources else None, number)
             paragraphs = paragraphs[1:]
             if not paragraphs:
                 continue
@@ -1194,7 +1205,6 @@ def _pdf_page_chapters(profiles: list[dict], ocr_pages: dict[int, ocr.OcrPage],
     for chapter in chapters:
         if len(chapter.sources) != len(chapter.paragraphs):
             chapter.sources = [dict(chapter.sources[0]) if chapter.sources else {} for _ in chapter.paragraphs]
-    mark_page_starts(chapters)
     return chapters
 
 
@@ -1592,6 +1602,7 @@ def _pdf_layout_chapters(pdf, pages: tuple[int, int] | None, *, ocr_pages: dict 
                 current.paragraphs[-1] = previous[:-1] + text
             else:
                 current.paragraphs[-1] = f"{previous} {text}"
+            _continued_on(current.sources[-1] if current.sources else None, block["page"])
         else:
             current.paragraphs.append(text)
             current.sources.append({"page": str(block["page"]),
@@ -1605,27 +1616,122 @@ def _pdf_layout_chapters(pdf, pages: tuple[int, int] | None, *, ocr_pages: dict 
     for chapter in result:
         if not chapter.title:
             chapter.title_generated = True
-    mark_page_starts(result)
     return result
 
 
-def mark_page_starts(chapters: list[BookChapter]) -> None:
-    """Note where each page begins, for sources that only say which page they are on.
+def _continued_on(source: dict | None, page: int) -> None:
+    """Record that a paragraph carries on onto ``page``: that page begins inside it."""
+    if source is not None:
+        pages = source.setdefault("continued_pages", [])
+        if str(page) not in pages:
+            pages.append(str(page))
+
+
+def mark_page_starts(chapters: list[BookChapter], labels: dict[int, str] | None = None,
+                     pages: list[int] | None = None) -> None:
+    """Note where each page of the original begins, for sources that only say which page they are on.
 
     A PDF paragraph knows its page, so a page begins at the first paragraph
-    (or heading) found on it. A page that only continues a paragraph from the
-    one before has no paragraph of its own to begin at and gets no marker:
-    placing one elsewhere would point at the wrong text.
+    (or heading) found on it. A page that begins in the middle of a paragraph
+    (the paragraph carries on from the page before) begins, for navigation, at
+    that paragraph: a page marker sits between paragraphs, so its marker goes
+    just before the paragraph it begins in, never after text of that page.
+    ``pages`` (every page of the PDF that is read, in order) lets a page with
+    nothing to read on it (blank, or images only) keep its marker, just before
+    the next text, as ONCE's own books do. ``labels`` gives the number printed
+    on each page (see ``pdf_page_labels``); a page it has none for gets no
+    marker. Without it a page is named by its number in the PDF.
     """
-    previous = ""
+    every = sorted(pages or [])
+    previous = 0
     for chapter in chapters:
         entries = ([chapter.title_source] if chapter.title_source and not chapter.title_generated else []) + [
             source for source in chapter.sources]
         for source in entries:
-            page = str(source.get("page") or "")
-            if page and page != previous and source.get("element") not in {"footnote", "note"}:
-                source["page_breaks"] = [page]
-                previous = page
+            if source.get("element") in {"footnote", "note"}:
+                continue
+            try:
+                numbers = [int(source.get("page") or 0)] + [int(page) for page in source.get("continued_pages") or []]
+            except ValueError:
+                continue
+            breaks: list[int] = []
+            for number in numbers:
+                if number <= previous:
+                    continue
+                # Pages with nothing of their own to read come first, in order.
+                breaks.extend(page for page in every if previous < page < number)
+                breaks.append(number)
+                previous = number
+            named = [labels.get(number) if labels is not None else str(number) for number in breaks]
+            named = [name for name in named if name]
+            if named:
+                source["page_breaks"] = named
+
+
+def pdf_page_labels(pdf, profiles: list[dict]) -> tuple[dict[int, str], str]:
+    """The page number printed on each page of a PDF: what a DAISY page list must show.
+
+    ONCE's books follow the printed copy ("la paginación coincide con el
+    ejemplar en tinta"), and a PDF's own page count rarely does: covers and
+    front matter come first. In order of trust:
+
+    1. the PDF's own page labels, when the file defines them;
+    2. the number printed alone on the first or last line of the pages,
+       wherever at least three pages in a row agree on how it follows the
+       PDF's order (a chapter number at the top of a page does not fool it);
+       each such stretch keeps its own offset, so an unnumbered insert of
+       photographs does not shift the pages after it, and pages before the
+       first numbered one take their place in the sequence (none below 1);
+    3. the PDF's own page numbers.
+
+    Returns the labels by PDF page and the method used.
+    """
+    numbers = [profile["page"] for profile in profiles]
+    try:
+        defined = bool(pdf.get_page_labels())
+    except Exception:  # an old or damaged label tree reads as none
+        defined = False
+    if defined:
+        labels = {number: (pdf[number - 1].get_label() or "").strip() for number in numbers}
+        labels = {number: label for number, label in labels.items() if label}
+        if labels:
+            return labels, "pdf_labels"
+    detected = [(profile["page"], int(folio) - profile["page"]) for profile in profiles
+                for folio in [photo_inserts.printed_page_label(profile.get("_text", ""))] if folio]
+    runs: list[tuple[int, int]] = []  # (first page of the stretch, its offset)
+    start = 0
+    while start < len(detected):
+        end = start
+        while end + 1 < len(detected) and detected[end + 1][1] == detected[start][1]:
+            end += 1
+        if end - start + 1 >= 3:
+            runs.append(detected[start])
+        start = end + 1
+    if not runs:
+        return {number: str(number) for number in numbers}, "pdf_index"
+    labels = {}
+    for number in numbers:
+        offset = runs[0][1]
+        for first, run_offset in runs:
+            if first > number:
+                break
+            offset = run_offset
+        if number + offset >= 1:
+            labels[number] = str(number + offset)
+    # A number two pages would share belongs to the page that prints it: the
+    # other is an unnumbered page (a photo insert not recognized as one) the
+    # sequence ran over, and gets none rather than a second page "5".
+    printed = {page: str(page + offset) for page, offset in detected}
+    owners: dict[str, list[int]] = {}
+    for number, label in labels.items():
+        owners.setdefault(label, []).append(number)
+    for label, pages_named in owners.items():
+        if len(pages_named) > 1:
+            keep = next((page for page in pages_named if printed.get(page) == label), pages_named[0])
+            for page in pages_named:
+                if page != keep:
+                    del labels[page]
+    return labels, "printed"
 
 
 def _first_body_on_page(blocks: list[dict], page: int) -> dict | None:

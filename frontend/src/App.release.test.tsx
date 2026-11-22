@@ -63,6 +63,20 @@ describe('the release panel', () => {
     expect(document.querySelector('.release-bad')).not.toBeNull()
   })
 
+  it('shows the report of a ZIP made before the text changed, without deciding on it', () => {
+    const warning = { id: 'w1', code: 'unaccounted_words', message: '3 palabras del original no aparecen', text: 'hierro' }
+    render({ ...passed, dimensions: { ...passed.dimensions, source: { status: 'needs_review', coverage: { ratio: 0.99 },
+      open_warnings: [warning] } } }, { outdated: true, reviewerName: 'Ana', confirmed: true })
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('Estado de calidad del ZIP anterior: Validado')
+    expect(text).toContain('«Regenerar ZIP»')
+    expect(text).toContain('3 palabras del original no aparecen')
+    const labels = [...document.querySelectorAll('button')].map(item => item.textContent)
+    expect(labels).not.toContain('Publicar el audiolibro')
+    expect(labels).not.toContain('He comprobado el original')
+    expect(document.querySelector('.release-reviewer')).toBeNull()
+  })
+
   it('lets a named reviewer confirm an extraction warning', () => {
     const handlers = render({ ...passed, state: 'NEEDS_REVIEW', label: 'Requiere revisión', reviews: ['Extracción: faltan palabras'],
       dimensions: { ...passed.dimensions, source: { status: 'needs_review', coverage: { ratio: 0.99 },

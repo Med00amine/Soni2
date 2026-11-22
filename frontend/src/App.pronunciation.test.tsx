@@ -81,13 +81,17 @@ async function render() {
   await act(async () => { root.render(<App />) })
 }
 
+// The flagged sentence is decided in step 2, where its pronunciation is corrected too.
 async function reachReviewQueue() {
   const input = document.querySelector<HTMLInputElement>('input[type="file"]')!
   const file = new File(['Texto.'], 'libro.txt', { type: 'text/plain' })
   Object.defineProperty(input, 'files', { configurable: true, value: [file] })
   await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })) })
+  const open = Array.from(document.querySelectorAll('button'))
+    .find(b => b.textContent?.includes('Ver la estructura del audiolibro'))!
+  await act(async () => { open.click() })
   const produce = Array.from(document.querySelectorAll('button'))
-    .find(b => b.textContent?.includes('Producir con revisión de calidad'))!
+    .find(b => b.textContent?.includes('Producir el audiolibro con revisión'))!
   await act(async () => { produce.click() })
 }
 

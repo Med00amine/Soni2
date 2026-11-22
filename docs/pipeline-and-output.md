@@ -1,5 +1,13 @@
 # Soni2 — providers, cost control, output layout, logs and reports
 
+> **2026-11-19:** after ONCE's reply on the stylesheet, indentation, pages and
+> timing: the DTBook carries the Z39.86 committee's own `dtbookbasic.css`, named
+> right after the XML declaration; every book keeps the pages of its original,
+> with or without a planilla; the package is flat by default, with the complete
+> audiobook beside it; the metadata Z39.86 requires is always there; and every
+> package is held to ZedVal's Z39.86-2005 rules. See
+> [once-compliance.md](once-compliance.md) §0.
+
 > **2026-11-10:** every delivered MP3 is constant bitrate and starts with 1.0 s and ends with 1.2 s of digital silence; SMIL clips tile their audio and every SMIL time is summed from them; the package adds `dtbookbasic.css` (and `images/` for photo inserts) and can be flat (`DAISY_PACKAGE_LAYOUT=flat`). See [once-compliance.md](once-compliance.md).
 
 > **2026-11-05:** a paragraph ends with a second of silence and short pauses at
@@ -307,16 +315,22 @@ expanded ("1990 ha sido").
 voice trailing off into a mumble ("… llegara una heno"), never accepted as a
 minor slip.
 
-## 4b. Two ways to export
+## 4b. Two actions, two ways to build
 
-The browser offers both, side by side, and neither forces the other:
+Step 3 (*Exportar*) has exactly two actions: **Descargar ZIP** (hand over the
+ZIP of the book as it stands, building it first when there is none) and
+**Regenerar ZIP** (build it again from the latest text, `force=true`, and leave
+it ready). Which pipeline builds it is an option in *Opciones de entrega*,
+*Revisión de calidad automática*, on by default. How each build reuses earlier
+work, reports its stages and is read back is described in
+[regeneration-and-export.md](regeneration-and-export.md).
 
-| Action | Endpoint | What happens |
+| Option | Endpoint | What happens |
 |---|---|---|
-| **Descargar audiolibro ahora** | `POST /api/books/package-tasks` | Starts a background task and returns its id. The page polls `GET /api/books/package-tasks/{id}` (`done`, `total`, `reused`) for a progress bar and fetches `…/{id}/download` when it is ready; choosing another book or reloading calls `…/{id}/cancel`, so an abandoned download stops spending. No quality review, no retakes, no review queue. `POST /api/books/package` still does the same in a single request for scripts. |
-| **Producir con revisión de calidad** | `POST /api/books/jobs` | The durable job: per-paragraph narration, transcription, Spanish comparison, retakes, a human review queue, logs and the quality report. The package is served from `GET /api/jobs/{id}/artifacts` once every paragraph is verified or accepted. |
+| Quality review on (default) | `POST /api/books/jobs` | The durable job: per-paragraph narration, transcription, Spanish comparison, retakes, a human review queue (decided in step 2), logs and the quality report. The package is served from `GET /api/jobs/{id}/artifacts` once every paragraph is verified or accepted. The page polls `GET /api/jobs/{id}?view=live`. |
+| Quality review off | `POST /api/books/package-tasks` | A background task: no transcription, no retakes, no review queue; the ZIP says so in its `quality-status.json`. The page polls `GET /api/books/package-tasks/{id}` (the same stages as a job) and fetches `…/{id}/download` when it is ready; choosing another book or reloading calls `…/{id}/cancel`, so an abandoned build stops spending. `POST /api/books/package` still does the same in a single request for scripts. |
 
-The preview and both exports narrate **one request per paragraph** (split by
+The preview and both builds narrate **one request per paragraph** (split by
 `make_paragraphs`, at most about 800 characters) with the same synthesis text,
 so they share the narration cache: nothing one of them paid for is paid again.
 Narrating sentence by sentence reset the voice's intonation at every full stop,
@@ -341,9 +355,9 @@ footer rendered outside the tab panels, so they appeared on every step and the
 listen-and-review step looked like a second export screen.
 
 `GET /api/jobs/{id}/artifacts` answers **409** while any sentence still needs
-review. The browser fetches it and shows that reason, and points at the direct
-download as the alternative; it previously clicked a plain link, so the refusal
-turned into a download that silently never happened.
+review. The browser fetches it and shows that reason, and lists the paragraphs
+waiting for a decision, each opening in step 2; it once clicked a plain link,
+so the refusal turned into a download that silently never happened.
 
 ## 4c. Mastering: why the book sounds like one reading
 
@@ -399,17 +413,15 @@ its pause is added — a paragraph of the book is never dropped.
 ### Delivery ZIP — `{job_id}-once-delivery.zip`
 
 ```
-DAISY 3/
-  <Book_Name>.xml                   DTBook full text
-  <Book_Name>.ncx                   navigation (chapters + page targets)
-  <Book_Name>.opf                   package manifest, spine and dtb:totalTime
-  <Book_Name>.res                   resource labels
-  <Book_Name>.mp3                   the complete audiobook, one copy
-  audio/
-    chapter-001.mp3                 final audio for chapter 1
-    chapter-002.mp3                 final audio for chapter 2
-  smil/
-    chapter-0001.smil …             text/audio synchronization (clipBegin/clipEnd)
+DAISY 3/                            the DAISY 3 book, every file in one folder (flat)
+  <Book_Name>.xml                   DTBook full text (declares dtbookbasic.css)
+  <Book_Name>.ncx                   navigation (chapters, pages, notes; labels with audio)
+  <Book_Name>.opf                   package manifest, spine, metadata and dtb:totalTime
+  <Book_Name>.res                   names of the skippable structures (page, note…)
+  dtbookbasic.css                   the Z39.86 committee's style sheet, as ONCE sent it
+  chapter-001.mp3 …                 final audio for each chapter
+  chapter-0001.smil …               text/audio synchronization (clipBegin/clipEnd)
+<Book_Name>.mp3                     the complete audiobook, beside the DAISY book
 quality-report.html                 the readable report
 quality-report.json                 the same data, machine readable
 job.log                             readable execution history
@@ -423,8 +435,18 @@ source/<original file>              the file that was uploaded
 `<Book_Name>` is the title with accents folded and anything but letters,
 digits, dots and hyphens turned into `_` (`Spanish Short Stories for Beginners
 Book 1` → `Spanish_Short_Stories_for_Beginners_Book_1`): the names appear in
-SMIL and OPF references, where spaces and non-ASCII break some players. The
-direct download ("Descargar audiolibro ahora") has the same `DAISY 3/` folder.
+SMIL and OPF references, where spaces and non-ASCII break some players. A ZIP
+built without the quality review has the same `DAISY 3/` folder, with
+`quality-status.json` beside it at the root (inside the folder it was a file
+the OPF does not list).
+
+**The complete audiobook is not a file of the DAISY book.** Nothing in a DAISY
+book plays it (no SMIL clip refers to it), and Z39.86-2005 allows no such file
+in the manifest: ZedVal reports it as "listed in manifest but not part of
+DTB". Until 2026-11-19 it sat in `DAISY 3/` and in the OPF; it now travels
+beside the folder. `DAISY_PACKAGE_LAYOUT=nested` gives the older layout
+(`audio/` and `smil/` folders); flat is the default since 2026-11-19, as in
+ONCE's own DAISY Pipeline books.
 
 **There is no per-sentence MP3.** Each SMIL `<audio>` points at its stretch of
 the chapter file with `clipBegin`/`clipEnd`. The times come from counting MP3
@@ -451,7 +473,8 @@ stored — a 17x difference, and the main reason the download felt slow. Text
 entries (DTBook, SMIL, OPF, NCX, the report, the log) are still deflated, where
 compression actually pays.
 
-Every audio byte has exactly one home: once per chapter, plus the full book.
+Every audio byte has exactly one home: once per chapter, plus the full book
+beside the package.
 
 ### Job working directory — `JOB_STORAGE_DIR/jobs/{job_id}/`
 

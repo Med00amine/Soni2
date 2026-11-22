@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import {
-  AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, CheckCircle2, CircleDashed, FileAudio, Loader2,
+  AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, CheckCircle2, CircleDashed, FileAudio, FilePlus2, Loader2,
   Pause, Pencil, Play, Plus, SkipBack, SkipForward, Trash2, Undo2, XCircle,
 } from 'lucide-react'
-import { canEdit, editableText, sectionFamily, type UnitSource } from './bookEdits'
+import { canEdit, editableText, isAddedSection, sectionAnchor, sectionFamily, type UnitSource } from './bookEdits'
 import './audiobook-editor.css'
 
 // What the editor shows: the audiobook's files (sections) and the units each is
@@ -157,6 +157,10 @@ export type AudiobookEditorProps = {
   onInsertAfter?: (unit: EditorUnit, text: string) => void
   onDeleteUnit?: (unit: EditorUnit) => void
   onDeleteSection?: (index: number) => void
+  // A chapter the book does not have, after the section at `index`.
+  onAddSection?: (index: number, title: string, text: string) => void
+  // A unit to show and select (step 3 sends the reader to one); a new nonce asks again.
+  focusRequest?: { sentenceId: string; nonce: number }
   saveStatus?: 'idle' | 'saving' | 'saved' | 'error'
   saveError?: string
   changes?: number
@@ -204,6 +208,9 @@ export default function AudiobookEditor(props: AudiobookEditorProps) {
   const [confirmSection, setConfirmSection] = useState<number | null>(null)
   // A deletion asked for on the produced audio: it is confirmed once the text is open for editing.
   const [pendingDelete, setPendingDelete] = useState<{ section: string; text?: string } | null>(null)
+  // The chapter being added: after which section, and what the reader typed or imported.
+  const [adding, setAdding] = useState<{ after: number; title: string; text: string; error: string } | null>(null)
+  const [pendingAdd, setPendingAdd] = useState<string | null>(null)
   const [notice, setNotice] = useState('')
   const [treeFocus, setTreeFocus] = useState(0)
   const [query, setQuery] = useState('')
@@ -249,6 +256,22 @@ export default function AudiobookEditor(props: AudiobookEditorProps) {
     if (props.active === false && audio && !audio.paused) audio.pause()
   }, [props.active])
 
+  // The produced audio and the text open for editing are two different books.
+  // Going from one to the other stops what was playing: otherwise it played on
+  // behind the text, with the play button disabled there, and every click in
+  // the structure tried to play instead of opening the chapter while the
+  // audio's clock pulled the selection back to the section it was playing.
+  const mode = model?.mode
+  useEffect(() => {
+    const audio = audioRef.current
+    if (audio && !audio.paused) audio.pause()
+    source.current = null
+    pendingSeek.current = null
+    setPlaying(null)
+    setIsPlaying(false)
+    setSectionTime(0)
+  }, [mode, jobId])
+
   // Everything the toolbar can step through, in reading order.
   const flat = useMemo(() => sections.flatMap((item, s) => item.units.map((unit, u) => ({ s, u, unit }))), [sections])
   const problems = useMemo(() => flat.filter(entry => NEEDS_DECISION.has(stateOf(entry.unit))), [flat])
@@ -256,6 +279,35 @@ export default function AudiobookEditor(props: AudiobookEditorProps) {
   const matches = useMemo(() => normalizedQuery
     ? flat.filter(entry => entry.unit.text.toLocaleLowerCase().includes(normalizedQuery))
     : [], [flat, normalizedQuery])
+
+  // Step 3 sends the reader to one unit (a paragraph waiting for a decision):
+  // it is selected and brought into view once, as soon as it is on screen.
+  const handledFocus = useRef(0)
+  useEffect(() => {
+    const wanted = props.focusRequest
+    if (!wanted || handledFocus.current === wanted.nonce) return
+    const found = flat.find(entry => entry.unit.sentenceId === wanted.sentenceId)
+    if (!found) return
+    handledFocus.current = wanted.nonce
+    const position = { section: found.s, unit: found.u }
+    setSelected(position)
+    setTreeFocus(found.s)
+    setAdding(null)
+    props.onHidePlanilla?.()
+    window.requestAnimationFrame(() => {
+      document.getElementById(`ed-unit-${found.s}-${found.u}`)?.scrollIntoView?.({ block: 'center' })
+    })
+    // The editor's own callbacks are stable enough; the request and the units decide.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.focusRequest, flat])
+
+  // Adding a chapter to a produced book first opens its text for editing.
+  useEffect(() => {
+    if (pendingAdd === null || model?.mode !== 'outline') return
+    setPendingAdd(null)
+    const target = sections.findIndex(item => item.title === pendingAdd)
+    setAdding({ after: Math.max(0, target), title: '', text: '', error: '' })
+  }, [pendingAdd, model?.mode, sections])
 
   // Where each unit starts within its section when units play one by one.
   function offsets(item: EditorSection) {
@@ -386,7 +438,9 @@ export default function AudiobookEditor(props: AudiobookEditorProps) {
   function togglePlay() {
     const audio = audioRef.current
     if (!audio) return
-    if (isPlaying) { audio.pause(); return }
+    // Paused now, not when the media event arrives: a shortcut pressed right
+    // after (Alt+↓) must not take the book for still playing and restart it.
+    if (isPlaying) { audio.pause(); setIsPlaying(false); return }
     if (source.current && audio.getAttribute('src')) {
       const current = source.current
       if (current.section === selected.section && current.unit === selected.unit) {
@@ -428,6 +482,45 @@ export default function AudiobookEditor(props: AudiobookEditorProps) {
     if (model?.mode === 'outline') return setConfirmSection(index)
     setPendingDelete({ section: title })
     props.onEditText?.()
+  }
+
+  function askAddSection(index: number, title: string) {
+    closePanel()
+    setConfirmSection(null)
+    if (model?.mode === 'outline') return setAdding({ after: index, title: '', text: '', error: '' })
+    setPendingAdd(title)
+    props.onEditText?.()
+  }
+
+  function submitAdd() {
+    if (!adding) return
+    const title = adding.title.trim()
+    const text = adding.text.trim()
+    if (!title || !text) {
+      setAdding({ ...adding, error: !title ? 'Escribe el título del capítulo.' : 'Escribe o importa el texto del capítulo.' })
+      return
+    }
+    props.onAddSection?.(adding.after, title, text)
+    setAdding(null)
+    setNotice(`Capítulo «${title}» añadido. Se narra al producir el audiolibro; el resto del libro no cambia.`)
+  }
+
+  // A chapter's text from a plain-text file: its first line is the title when
+  // none was typed, the rest its paragraphs (separated by blank lines).
+  function importChapterText(file?: File) {
+    if (!file || !adding) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const content = String(reader.result ?? '').replace(/\r\n?/g, '\n').trim()
+      setAdding(current => {
+        if (!current) return current
+        if (current.title.trim()) return { ...current, text: content, error: '' }
+        const [first, ...rest] = content.split('\n')
+        return { ...current, title: first.trim(), text: rest.join('\n').trim(), error: '' }
+      })
+    }
+    reader.onerror = () => setAdding(current => current && { ...current, error: 'No se ha podido leer ese archivo.' })
+    reader.readAsText(file, 'utf-8')
   }
 
   function closePanel() {
@@ -485,8 +578,13 @@ export default function AudiobookEditor(props: AudiobookEditorProps) {
     const position = { section: index, unit: 0 }
     if (index !== sectionIndex) finishEditing()
     setTreeFocus(index)
-    if (play) playAt(position)
-    else { setSelected(position); setSectionTime(0) }
+    if (play && firstPlayable(position)) playAt(position)
+    else {
+      // Nothing to hear from here on: the section still opens, and what was playing stops.
+      if (play) audioRef.current?.pause()
+      setSelected(position)
+      setSectionTime(0)
+    }
     props.onHidePlanilla?.()
   }
 
@@ -709,7 +807,7 @@ export default function AudiobookEditor(props: AudiobookEditorProps) {
                 {collapsed[item.key] ? <ChevronRight size={14}/> : <ChevronDown size={14}/>}</button> : <span className="ed-twisty-space" aria-hidden="true"/>}
               <span className="ed-file-number" aria-label={`Archivo ${item.fileNumber}`}>{item.fileNumber}</span>
               <span className="ed-tree-text">
-                <strong title={item.title}>{item.title}</strong>
+                <strong title={item.title}>{item.title}{isAddedSection(sectionAnchor(item)) && <em className="ed-added-tag"> · añadido</em>}</strong>
                 <small>Nivel {item.level} · {pageRange(item)} · {item.duration ? formatClock(item.duration) : 'sin audio'}{notes(item) ? ` · ${notes(item)} nota${notes(item) > 1 ? 's' : ''}` : ''}</small>
               </span>
               <span className="ed-tree-status" title={STATE_LABEL[item.status] ?? item.status}>
@@ -725,6 +823,10 @@ export default function AudiobookEditor(props: AudiobookEditorProps) {
           <button type="button" className="ed-secondary is-danger" disabled={props.editBusy || !canStartDelete || !sectionDeletable}
             title={`Eliminar «${section.title}»`} onClick={() => askDeleteSection(sectionIndex, section.title)} aria-expanded={confirmSection === sectionIndex}>
             <Trash2 size={15} aria-hidden="true"/>{section.level === 2 ? 'Eliminar subcapítulo' : 'Eliminar capítulo'}</button>
+          {props.onAddSection && <button type="button" className="ed-secondary" disabled={props.editBusy || !canStartDelete}
+            title={`Añadir un capítulo nuevo después de «${section.title}»`} onClick={() => askAddSection(sectionIndex, section.title)}
+            aria-expanded={adding?.after === sectionIndex}>
+            <FilePlus2 size={15} aria-hidden="true"/>Añadir capítulo después</button>}
           <small>Seleccionado: {section.title}</small>
           {model.mode === 'outline' && confirmSection === sectionIndex && (() => {
             const family = sectionFamily(sections, sectionIndex)
@@ -744,7 +846,28 @@ export default function AudiobookEditor(props: AudiobookEditorProps) {
       </nav>
 
       <section className="ed-workspace" aria-label="Revisión de la sección">
-        {props.showPlanilla && props.planillaPanel ? props.planillaPanel : section && <>
+        {adding && model.mode === 'outline' && !props.showPlanilla ? <form className="ed-add" aria-labelledby="ed-add-title"
+          onSubmit={event => { event.preventDefault(); submitAdd() }}>
+          <header className="ed-section-head"><div>
+            <p className="ed-kicker">Capítulo nuevo</p>
+            <h2 id="ed-add-title">Añadir un capítulo después de «{sections[adding.after]?.title ?? 'el principio'}»</h2>
+            <p className="ed-hint">Se narra al producir el audiolibro, con la misma voz; nada más del libro cambia ni se vuelve a narrar.</p>
+          </div></header>
+          <label htmlFor="ed-add-name">Título del capítulo (se leerá así)</label>
+          <input id="ed-add-name" type="text" autoFocus maxLength={500} value={adding.title}
+            onChange={event => setAdding({ ...adding, title: event.target.value, error: '' })}/>
+          <label htmlFor="ed-add-text">Texto <small>Separa los párrafos con una línea en blanco.</small></label>
+          <textarea id="ed-add-text" rows={10} value={adding.text}
+            onChange={event => setAdding({ ...adding, text: event.target.value, error: '' })}/>
+          <label className="ed-add-file">Importar el texto de un archivo (.txt)
+            <input type="file" accept=".txt,text/plain" onChange={event => { importChapterText(event.target.files?.[0]); event.currentTarget.value = '' }}/>
+          </label>
+          {adding.error && <p className="ed-add-error" role="alert">{adding.error}</p>}
+          <div className="ed-edit-actions">
+            <button type="submit" className="ed-secondary" disabled={props.editBusy}>Añadir el capítulo</button>
+            <button type="button" className="ed-secondary" onClick={() => setAdding(null)}>Cancelar</button>
+          </div>
+        </form> : props.showPlanilla && props.planillaPanel ? props.planillaPanel : section && <>
           <header className="ed-section-head">
             <div>
               <p className="ed-kicker">Archivo {section.fileNumber} · Nivel {section.level} · {KIND_LABEL[section.kind] ?? section.kind}</p>

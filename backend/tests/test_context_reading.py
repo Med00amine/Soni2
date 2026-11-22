@@ -279,7 +279,10 @@ def test_the_direct_download_reads_each_paragraph_as_the_reviewed_run_does() -> 
                        "units": once_structure.unit_layout(record, texts, section.heading_spoken, make_paragraphs)})
     paragraphs = [text for _title, body in chapter_paragraphs for text in body]
     contexts, terms = main.direct_reading(structure, built, chapter_paragraphs, layout, paragraphs)
-    direct = [build_synthesis_text(text, {}, context, foreign_terms=foreign, spelling=main.spelling_rules())
-              for text, context, foreign in zip(paragraphs, contexts, terms)]
+    pages = [unit.get("page_breaks") for chapter in layout for unit in chapter["units"]]
+    direct = [main.announce_pages(build_synthesis_text(text, {}, context, foreign_terms=foreign,
+                                                       spelling=main.spelling_rules()), page)
+              for text, context, foreign, page in zip(paragraphs, contexts, terms, pages)]
     # The same texts, so the two paths share every cached recording.
     assert direct == reviewed
+    assert any(text.startswith("Página ") for text in reviewed)

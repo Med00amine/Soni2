@@ -4,7 +4,9 @@ import './production-status.css'
 // Loaded after, so the modern tokens win over the older hardcoded palette.
 import './export-modern.css'
 import AudiobookEditor, { KIND_LABEL, formatClock, type EditorModel, type EditorSection, type EditorUnit } from './AudiobookEditor'
-import { NO_EDITS, changeCount, deleteSection, deleteUnit, editUnit, insertAfter, normalizeEdits, type BookEdits, type UnitSource } from './bookEdits'
+import { NO_EDITS, addSection, changeCount, deleteSection, deleteUnit, editUnit, insertAfter, normalizeEdits, type BookEdits, type UnitSource } from './bookEdits'
+import { BuildStages, ExportHeader, ExportSection, Facts, type ExportTone } from './ExportPanel'
+import { changesSince, describeChanges, directStages, formatBytes, formatSeconds, formatTotalTime, jobStages, type DirectProgress, type PackageView, type PipelineView } from './exportView'
 
 const API = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '')
 
@@ -85,7 +87,7 @@ type ReleaseStatus = {
   }
 }
 type FaultLocation = { sentence_id: string; chapter: number; chapter_title: string; paragraph: number; kind: string; expected: string; heard: string; reason: string; decision: string; paragraph_state: string; paragraph_time: number; chapter_file: string; chapter_time: number; chapter_clock: string; book_file: string; book_time: number | null; book_clock: string | null }
-type ProductionJob = { fault_locations?: FaultLocation[]; job_id: string; state: string; source_name: string; total_sentences: number; progress: Record<string, number>; assembly?: { stage: string; done: number; total: number } | null; sentences: ProductionSentence[]; error?: string; voice_id?: string; voice_name?: string; voice_language?: string; release?: ReleaseStatus }
+type ProductionJob = { fault_locations?: FaultLocation[]; job_id: string; state: string; source_name: string; total_sentences: number; progress: Record<string, number>; assembly?: { stage: string; done: number; total: number } | null; sentences: ProductionSentence[]; error?: string; voice_id?: string; voice_name?: string; voice_language?: string; release?: ReleaseStatus; pipeline?: PipelineView | null; package?: PackageView | null; completed_at?: string | null }
 type PronunciationSuggestion = { respelling: string; label: string; reason: string }
 type PronunciationAnalysis = {
   word: string
@@ -105,10 +107,22 @@ type DraftView = {
   outline: BookOutline | null
   outline_error: string
 }
-type PackageTaskStatus = { task_id: string; state: string; total: number; done: number; reused: number; stage?: string; chapters_done?: number; chapters_total?: number; detail?: string }
-type PackageProgress = Pick<PackageTaskStatus, 'total' | 'done' | 'reused' | 'stage' | 'chapters_done' | 'chapters_total'>
+type PackageTaskStatus = DirectProgress & { task_id: string; state: string; total: number; done: number; reused: number; detail?: string; reused_package?: boolean; package?: PackageView | null }
+// The direct download's ZIP, and the book state it was built from.
+type DirectZip = { taskId: string; signature: string; status: PackageTaskStatus }
 
 const PACKAGE_TASK_KEY = 'soni2-active-package-task'
+// Whether step 3 builds the ZIP with automatic quality review (the default) or
+// as a direct, unverified download: a preference of this browser.
+const REVIEW_MODE_KEY = 'soni2-export-review'
+
+function storedReviewMode() {
+  try {
+    return window.localStorage.getItem(REVIEW_MODE_KEY) !== 'off'
+  } catch {
+    return true
+  }
+}
 // The book being prepared and the step it was left on, so a reload finds them.
 const DRAFT_KEY = 'soni2-book-draft'
 const TAB_KEY = 'soni2-workspace-tab'
@@ -156,16 +170,6 @@ function sentenceStateLabel(state: string) {
     unresolved: 'Sin resolver',
     failed: 'Con fallo técnico',
   } as Record<string, string>)[state] ?? state
-}
-
-// 1:02:03,4 in a book, 2:03,4 under an hour: the clock a person reads in a player.
-function clockLabel(seconds: number) {
-  const tenths = Math.max(0, Math.round(seconds * 10))
-  const hours = Math.floor(tenths / 36000)
-  const minutes = Math.floor((tenths % 36000) / 600)
-  const rest = tenths % 600
-  const secondsText = `${String(Math.floor(rest / 10)).padStart(2, '0')},${rest % 10}`
-  return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${secondsText}` : `${minutes}:${secondsText}`
 }
 
 // Start an audio element just before a moment, so the word is heard in context.
@@ -357,18 +361,33 @@ export default function App() {
   const [narrationSections, setNarrationSections] = useState<NarrationSection[]>([])
   const [selectedNarrationIds, setSelectedNarrationIds] = useState<string[]>([])
   const [structureLoading, setStructureLoading] = useState(false)
+  // A reload is putting the saved book and its last production back. Until it
+  // knows, step 3 says so instead of claiming the book has no ZIP.
+  const [restoring, setRestoring] = useState(() => {
+    try {
+      return Boolean(window.localStorage.getItem(DRAFT_KEY))
+    } catch {
+      return false
+    }
+  })
   const [packageBusy, setPackageBusy] = useState(false)
   const [directDownloadBusy, setDirectDownloadBusy] = useState(false)
-  const [directProgress, setDirectProgress] = useState<PackageProgress>()
+  const [directProgress, setDirectProgress] = useState<PackageTaskStatus>()
+  // The last direct download's ZIP and the book state it was made from.
+  const [directZip, setDirectZip] = useState<DirectZip>()
+  // Which of step 3's two actions is running; the other one waits.
+  const [zipAction, setZipAction] = useState<'' | 'download' | 'regenerate'>('')
+  // Step 3 builds the ZIP with automatic quality review, or directly without it.
+  const [reviewMode, setReviewMode] = useState(storedReviewMode)
+  // A unit step 3 sends the reader to in step 2 (a paragraph waiting for a decision).
+  const [editorFocus, setEditorFocus] = useState<{ sentenceId: string; nonce: number }>()
   const [productionJob, setProductionJob] = useState<ProductionJob>()
   const [reviewingSentence, setReviewingSentence] = useState('')
-  // Which export the reader means to use; it decides the primary action.
-  const [exportMode, setExportMode] = useState<'direct' | 'reviewed'>('reviewed')
   // Who signs a release or confirms a warning: recorded with the decision.
   const [reviewerName, setReviewerName] = useState('')
-  // What became of the last download or production, shown beside its button:
-  // the page can be far longer than the screen, so a message elsewhere is not seen.
-  const [downloadNotice, setDownloadNotice] = useState<{ text: string; href?: string } | null>(null)
+  // What became of the last download or production, shown under step 3's
+  // actions: the reader looks there for it.
+  const [downloadNotice, setDownloadNotice] = useState<{ text: string; href?: string; tone?: 'info' | 'error' } | null>(null)
   const [releaseConfirmed, setReleaseConfirmed] = useState(false)
   // Pronunciation editor: which sentence it is open for, the word being
   // worked on, what Spanish rules make of it, and the reviewer's own spelling.
@@ -395,6 +414,9 @@ export default function App() {
   const [review, setReview] = useState<AudioReview>()
   const [reviewBusy, setReviewBusy] = useState(false)
   const [retakeBusy, setRetakeBusy] = useState(false)
+  // Why reviewing or redoing the sample failed, shown beside its buttons in
+  // step 2: the general status line is in step 1, out of sight there.
+  const [sampleError, setSampleError] = useState('')
   // The ONCE structure, from the book's planilla. On by default: Soni2
   // produces for ONCE. Only the values the reader sets are kept here; the
   // server fills the rest with MODELO ONCE's rules.
@@ -448,6 +470,13 @@ export default function App() {
   }
 
   useEffect(() => { void refreshCapabilities() }, [])
+
+  // Leaving the page: the loops following a production or a download stop
+  // asking. (What they followed is stopped, or picked up, by the next visit.)
+  useEffect(() => () => {
+    activeProductionJobId.current = undefined
+    activePackageTaskId.current = undefined
+  }, [])
 
   // MODELO ONCE's rules, to show in the planilla before the reader changes them.
   useEffect(() => {
@@ -582,6 +611,14 @@ export default function App() {
         const newer = JSON.stringify(latestState.current) !== signature
         setSaveStatus(newer ? 'saving' : 'saved')
         setSaveError('')
+        // What changed while this save was on its way is saved next. An undo
+        // made then matched what the server held before it, so the page took
+        // it for saved, and this save would have left the server with the
+        // change the undo took back.
+        if (newer) {
+          window.clearTimeout(saveTimer.current)
+          saveTimer.current = window.setTimeout(() => void saveDraft(), SAVE_DELAY_MS)
+        }
         return true
       } catch (error) {
         setSaveStatus('error')
@@ -681,6 +718,7 @@ export default function App() {
         }
       } finally {
         if (bookSelectionVersion.current === selection) setStructureLoading(false)
+        setRestoring(false)
       }
     })()
     // Once, when the page opens.
@@ -742,6 +780,9 @@ export default function App() {
     setPackageBusy(false)
     setDirectDownloadBusy(false)
     setDirectProgress(undefined)
+    setDirectZip(undefined)
+    setZipAction('')
+    setDownloadNotice(null)
     setAudio(''); setTranscript(''); setAlignment([]); setCurrentPhrase(-1); setReview(undefined)
     if (previousJobId) void cancelProductionJob(previousJobId, selectionVersion)
   }
@@ -803,7 +844,7 @@ export default function App() {
 
   async function generatePreview() {
     if (!draftId || busy) return
-    setAudio(''); setTranscript(''); setAlignment([]); setCurrentPhrase(-1); setReview(undefined); setBusy(true); setMessage('Estamos preparando una muestra de tu libro.')
+    setAudio(''); setTranscript(''); setAlignment([]); setCurrentPhrase(-1); setReview(undefined); setSampleError(''); setBusy(true); setMessage('Estamos preparando una muestra de tu libro.')
     const form = new FormData(); form.append('draft_id', draftId); form.append('voice_id', voiceId)
     try {
       if (!await flushDraft()) throw new Error('No se han podido guardar tus cambios, así que no se ha generado la muestra.')
@@ -884,21 +925,26 @@ export default function App() {
     return `${name}${suffix}.zip`
   }
 
-  // Generate the audiobook and download it with no review queue. It runs as a
-  // background task the page polls, so it can show real progress instead of
-  // one long, silent request, and so choosing another book can stop it.
-  async function downloadBookDirectly() {
+  // The ZIP without automatic review: a background task the page polls, so it
+  // shows real progress instead of one long, silent request, and so choosing
+  // another book can stop it. The server answers a request it already has an
+  // answer to with that task (still running, or finished unless ``force``).
+  async function produceDirect({ force, download }: { force: boolean; download: boolean }) {
     if (!draftId || directDownloadBusy || packageBusy) return
     const selectionVersion = bookSelectionVersion.current
     const filename = bookFilename(book)
     setDirectDownloadBusy(true)
+    setZipAction(download ? 'download' : 'regenerate')
     setDirectProgress(undefined)
     setDownloadNotice(null)
     setMessage('Preparando el audiolibro completo…')
     let taskId: string | undefined
     try {
       if (!await flushDraft()) throw new Error('No se han podido guardar tus cambios, así que no se ha generado el audiolibro.')
-      const response = await fetch(`${API}/api/books/package-tasks`, { method: 'POST', body: buildBookForm() })
+      const signature = JSON.stringify(latestState.current)
+      const form = buildBookForm()
+      if (force) form.append('force', 'true')
+      const response = await fetch(`${API}/api/books/package-tasks`, { method: 'POST', body: form })
       const started = await response.json().catch(() => ({})) as Partial<PackageTaskStatus>
       if (!response.ok || !started.task_id) {
         throw new Error(started.detail || `No se ha podido generar el audiolibro (HTTP ${response.status}).`)
@@ -906,9 +952,17 @@ export default function App() {
       taskId = started.task_id
       activePackageTaskId.current = taskId
       window.localStorage.setItem(PACKAGE_TASK_KEY, taskId)
-      const status = await watchPackageTask(taskId)
+      const status = started.state === 'running' || !started.state ? await watchPackageTask(taskId)
+        : started as PackageTaskStatus
       if (activePackageTaskId.current !== taskId) return
+      setDirectZip({ taskId, signature, status })
       if (status.state !== 'completed') throw new Error(status.detail || 'No se ha podido generar el audiolibro.')
+      const reusedNote = status.reused
+        ? ` ${status.reused} de ${status.total} párrafos ya estaban narrados y no se han vuelto a pagar.` : ''
+      if (!download) {
+        setMessage(`El ZIP está listo.${reusedNote} Pulsa «Descargar ZIP» para guardarlo.`)
+        return
+      }
       setMessage('Audio listo. Descargando el ZIP…')
       // Streamed to disk by the browser rather than buffered in a blob: an
       // audiobook package is far too large to hold in the tab's memory, which
@@ -917,13 +971,13 @@ export default function App() {
         `${API}/api/books/package-tasks/${encodeURIComponent(taskId)}/download`, filename,
       )
       setMessage(status.reused
-        ? `El audiolibro se ha descargado. ${status.reused} de ${status.total} párrafos ya estaban narrados y no se han vuelto a pagar.`
+        ? `El audiolibro se ha descargado.${reusedNote}`
         : 'El audiolibro se ha descargado. Incluye el audio por capítulos y la estructura DAISY.')
     } catch (error) {
       if (bookSelectionVersion.current === selectionVersion) {
         const detail = error instanceof Error ? publicCopy(error.message) : 'No se ha podido descargar el audiolibro.'
         setMessage(detail)
-        setDownloadNotice({ text: detail })
+        setDownloadNotice({ text: detail, tone: 'error' })
       }
     } finally {
       if (taskId && activePackageTaskId.current === taskId) {
@@ -933,6 +987,7 @@ export default function App() {
       if (bookSelectionVersion.current === selectionVersion) {
         setDirectDownloadBusy(false)
         setDirectProgress(undefined)
+        setZipAction('')
       }
     }
   }
@@ -957,12 +1012,11 @@ export default function App() {
       const status = await response.json().catch(() => ({})) as PackageTaskStatus
       if (!response.ok) throw new Error(status.detail || 'No se pudo consultar el avance de la descarga.')
       if (activePackageTaskId.current !== taskId || status.state !== 'running') return status
-      setDirectProgress({ total: status.total, done: status.done, reused: status.reused, stage: status.stage,
-        chapters_done: status.chapters_done, chapters_total: status.chapters_total })
+      setDirectProgress(status)
       setMessage(status.stage === 'assembling'
         ? 'Montando los capítulos del audiolibro…'
-        : status.stage === 'packaging'
-          ? 'Creando el paquete DAISY y el ZIP…'
+        : ['packaging', 'validating', 'zipping', 'verifying'].includes(status.stage ?? '')
+          ? 'Creando y comprobando el paquete DAISY y el ZIP…'
           : status.total
             ? `Narrando el audiolibro: ${status.done} de ${status.total} párrafos.`
             : 'Preparando el audiolibro completo…')
@@ -976,13 +1030,19 @@ export default function App() {
       .catch(() => undefined)
   }
 
-  async function startReviewedProduction() {
-    if (!draftId || packageBusy) return
+  // Production with quality review: narrate what is missing, check it, and
+  // build the package. The server answers with the job that already has this
+  // exact text (running, waiting for decisions, or, unless ``force``,
+  // finished with its ZIP), so a second click never pays twice.
+  async function produceReviewed({ force = false, download = false }: { force?: boolean; download?: boolean } = {}) {
+    if (!draftId || packageBusy || directDownloadBusy) return
     const selectionVersion = bookSelectionVersion.current
     setPackageBusy(true)
+    setZipAction(download ? 'download' : force ? 'regenerate' : '')
     setDownloadNotice(null)
     setMessage('Preparando el libro completo. Este proceso puede tardar varios minutos.')
     const form = buildBookForm()
+    if (force) form.append('force', 'true')
     try {
       if (!await flushDraft()) throw new Error('No se han podido guardar tus cambios, así que no se ha empezado a producir.')
       const signature = JSON.stringify(latestState.current)
@@ -993,67 +1053,72 @@ export default function App() {
         void cancelProductionJob(created.job_id, selectionVersion)
         return
       }
+      const sameJob = productionJob?.job_id === created.job_id
       activeProductionJobId.current = created.job_id
-      setProductionJob({ job_id: created.job_id, state: created.state, source_name: book,
-        total_sentences: created.total_sentences, progress: {}, sentences: [] })
-      setJobStructure(undefined)
+      if (!sameJob) {
+        setProductionJob({ job_id: created.job_id, state: created.state, source_name: book,
+          total_sentences: created.total_sentences, progress: {}, sentences: [] })
+        setJobStructure(undefined)
+      }
       setEditingProduced(false)
       setProducedSignature(signature)
       window.localStorage.setItem('soni2-active-production-job', created.job_id)
-      setMessage(created.reused_existing_job
-        ? 'Este libro ya se está produciendo con esta voz, así que seguimos el trabajo en curso en lugar de empezar otro.'
-        : 'Producción iniciada. Puedes seguir el avance aquí; las frases pendientes de revisión aparecerán abajo.')
-      await watchProductionJob(created.job_id)
+      setMessage(created.reused_package
+        ? 'Este texto ya estaba producido con esta voz: su ZIP está listo y no se ha vuelto a generar.'
+        : created.reused_existing_job
+          ? 'Este libro ya se está produciendo con esta voz, así que seguimos el trabajo en curso en lugar de empezar otro.'
+          : 'Producción iniciada. Puedes seguir el avance aquí.')
+      const final = await watchProductionJob(created.job_id)
+      if (download && final?.state === 'completed' && bookSelectionVersion.current === selectionVersion) {
+        await downloadReviewedZip(final)
+      }
     } catch (error) {
       if (bookSelectionVersion.current === selectionVersion) {
-        const detail = error instanceof Error ? error.message : 'No se ha podido descargar el libro completo.'
+        const detail = error instanceof Error ? publicCopy(error.message) : 'No se ha podido descargar el libro completo.'
         setMessage(detail)
-        setDownloadNotice({ text: detail })
+        setDownloadNotice({ text: detail, tone: 'error' })
       }
     } finally {
-      if (bookSelectionVersion.current === selectionVersion) setPackageBusy(false)
+      if (bookSelectionVersion.current === selectionVersion) {
+        setPackageBusy(false)
+        setZipAction('')
+      }
     }
   }
 
-  // ``quiet`` follows the job without replacing the message, for the short
-  // catch-up after a review decision whose own result is already on screen.
-  async function watchProductionJob(jobId: string, quiet = false) {
+  // Step 2's «Producir»: a reviewed production of the text as it stands.
+  function startReviewedProduction() {
+    return produceReviewed()
+  }
+
+  // Follows a job until it stops, and returns it as it ended. ``quiet``
+  // follows without replacing the message, for the short catch-up after a
+  // review decision whose own result is already on screen.
+  async function watchProductionJob(jobId: string, quiet = false): Promise<ProductionJob | undefined> {
     for (let attempt = 0; attempt < 7200; attempt += 1) {
-      if (activeProductionJobId.current !== jobId) return
-      const response = await pollStatus(`${API}/api/jobs/${jobId}`)
+      if (activeProductionJobId.current !== jobId) return undefined
+      // The live view: units without their full evidence, nothing written.
+      const response = await pollStatus(`${API}/api/jobs/${jobId}?view=live`)
       const status = await response.json().catch(() => ({})) as ProductionJob & { detail?: string }
       if (!response.ok) throw new Error(status.detail || 'No se pudo consultar el estado de producción.')
-      if (activeProductionJobId.current !== jobId) return
+      if (activeProductionJobId.current !== jobId) return undefined
       setProductionJob(status)
       const counts = Object.entries(status.progress ?? {}).reduce((sum, [state, count]) =>
         sum + (['pending', 'generating'].includes(state) ? 0 : count), 0)
       if (!quiet) setMessage(`Producción: ${counts} de ${status.total_sentences} párrafos procesados.`)
       if (status.state === 'completed') {
-        setMessage('El audiolibro est\u00e1 listo. Usa el botón de descarga para guardarlo.')
-        return
+        setMessage('El audiolibro está listo. Usa «Descargar ZIP» para guardarlo.')
+        return status
       }
       if (['partially_completed', 'failed', 'cancelled'].includes(status.state)) {
         if (!quiet) setMessage(status.state === 'partially_completed'
-          ? 'La producción necesita una revisión. Revisa los párrafos señalados abajo y decide si aceptarlos o regenerarlos.'
+          ? 'La producción necesita una revisión: hay párrafos que esperan tu decisión.'
           : `La producción terminó con estado «${status.state}». ${status.error || ''}`)
-        return
+        return status
       }
       await new Promise(resolve => window.setTimeout(resolve, 1000))
     }
     throw new Error('La producción sigue activa. Puedes volver a consultar el estado más tarde.')
-  }
-
-  async function refreshProductionJob() {
-    if (!productionJob) return
-    try {
-      const response = await fetch(`${API}/api/jobs/${productionJob.job_id}`, { cache: 'no-store' })
-      const status = await response.json().catch(() => ({})) as ProductionJob & { detail?: string }
-      if (!response.ok) throw new Error(status.detail || 'No se pudo consultar el trabajo.')
-      setProductionJob(status)
-      setMessage(`Estado del trabajo: ${status.state}.`)
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'No se pudo actualizar el trabajo.')
-    }
   }
 
   // Hand a URL to the browser so it streams the file to disk with its own
@@ -1074,7 +1139,7 @@ export default function App() {
     link.remove()
     setDownloadNotice({
       text: 'La descarga ha empezado. Búscala en el panel de descargas del navegador: como este sitio aún no usa HTTPS, puede pedirte que confirmes que quieres conservar el archivo.',
-      href: url,
+      href: url, tone: 'info',
     })
   }
 
@@ -1094,36 +1159,83 @@ export default function App() {
     }
   }
 
-  async function downloadDiagnosticArtifact(jobId: string, sourceName: string) {
-    setMessage('Descargando el paquete de diagnóstico. No está validado y no debe publicarse.')
+  // A finished reviewed production's ZIP. A book the release gate has not
+  // passed (a warning nobody confirmed, say) still downloads, under a name
+  // that says it is not validated; its quality-status.json says why.
+  //
+  // An audiobook package is hundreds of megabytes. Reading it into a blob
+  // first filled the tab's memory and the download appeared to do nothing, so
+  // the browser is handed the URL and streams it straight to disk. A one-byte
+  // range request first, which costs nothing, still surfaces the real reason
+  // when the package is not ready instead of navigating away.
+  async function downloadReviewedZip(job: ProductionJob) {
+    const validated = !job.release || ['PASSED', 'RELEASED'].includes(job.release.state)
+    setMessage(validated ? 'Comprobando que el paquete esté listo…'
+      : 'Descargando el paquete sin validar. No debe publicarse hasta superar las comprobaciones.')
     try {
-      await streamDownload(`${API}/api/jobs/${encodeURIComponent(jobId)}/artifacts?diagnostic=true`,
-        bookFilename(sourceName, ' (SIN VALIDAR)'))
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : 'No se ha podido descargar el paquete.'
-      setMessage(detail)
-      setDownloadNotice({ text: detail })
-    }
-  }
-
-  async function downloadJobArtifact(jobId: string, sourceName: string) {
-    // An audiobook package is hundreds of megabytes. Reading it into a blob
-    // first filled the tab's memory and the download appeared to do nothing,
-    // so the browser is handed the URL and streams it straight to disk.
-    // A one-byte range request first, which costs nothing, still surfaces the
-    // real reason when the package is not ready instead of navigating away.
-    setMessage('Comprobando que el paquete esté listo…')
-    try {
-      await streamDownload(`${API}/api/jobs/${encodeURIComponent(jobId)}/artifacts`, bookFilename(sourceName))
+      await streamDownload(
+        `${API}/api/jobs/${encodeURIComponent(job.job_id)}/artifacts${validated ? '' : '?diagnostic=true'}`,
+        bookFilename(job.source_name || book, validated ? '' : ' (SIN VALIDAR)'))
       setMessage('La descarga del paquete DAISY ha comenzado. Puede tardar según el tamaño del libro.')
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'No se ha podido descargar el paquete DAISY.'
       const explained = publicCopy(detail.includes('todavía no está disponible')
-        ? `${detail} Resuelve las frases pendientes de revisión, o usa «Descargar audiolibro ahora» para generarlo sin revisión.`
-        : detail)
+        ? `${detail} Pulsa «Regenerar ZIP» para volver a crearlo.` : detail)
       setMessage(explained)
-      setDownloadNotice({ text: explained })
+      setDownloadNotice({ text: explained, tone: 'error' })
     }
+  }
+
+  // Step 3's first action: the ZIP of the book as it stands. One that is
+  // ready is downloaded at once; otherwise it is built (reusing everything
+  // that did not change) and downloaded as soon as it is ready.
+  async function downloadZip() {
+    if (packageBusy || directDownloadBusy) return
+    if (reviewMode) {
+      if (productionJob && productionJob.state === 'completed' && !productionIsStale) {
+        await downloadReviewedZip(productionJob)
+        return
+      }
+      await produceReviewed({ download: true })
+      return
+    }
+    if (directZip && directZip.status.state === 'completed' && directZip.signature === draftSignature) {
+      setDownloadNotice(null)
+      try {
+        await streamDownload(`${API}/api/books/package-tasks/${encodeURIComponent(directZip.taskId)}/download`,
+          bookFilename(book))
+      } catch (error) {
+        const detail = error instanceof Error ? publicCopy(error.message) : 'No se ha podido descargar el ZIP.'
+        setDownloadNotice({ text: `${detail} Pulsa «Regenerar ZIP» para volver a crearlo.`, tone: 'error' })
+      }
+      return
+    }
+    await produceDirect({ force: false, download: true })
+  }
+
+  // Step 3's second action: build the ZIP again from the latest text. Only what
+  // changed is narrated, checked and mastered again; the rest is reused.
+  async function regenerateZip() {
+    if (packageBusy || directDownloadBusy) return
+    if (reviewMode) await produceReviewed({ force: true })
+    else await produceDirect({ force: true, download: false })
+  }
+
+  function chooseReviewMode(value: boolean) {
+    setReviewMode(value)
+    setDownloadNotice(null)
+    try {
+      window.localStorage.setItem(REVIEW_MODE_KEY, value ? 'on' : 'off')
+    } catch {
+      // Only a preference: without storage it lasts until the page closes.
+    }
+  }
+
+  // Step 3 sends the reader to a paragraph in step 2, where it is decided.
+  function openUnitInEditor(sentenceId: string) {
+    setEditingProduced(false)
+    setEditorFocus({ sentenceId, nonce: Date.now() })
+    switchWorkspaceTab('review')
   }
 
   // The server narrates a corrected or retried paragraph inside the request and
@@ -1296,62 +1408,72 @@ export default function App() {
   }
   const canGenerateAudio = Boolean(capabilities?.tts_configured || (capabilities?.voice_id_configurable && voiceId))
   const selectedVoice = voices.find(voice => voice.voice_id === (voiceId || capabilities?.voice))
-  const reviewQueue = (productionJob?.sentences ?? [])
-    .filter(sentence => ['needs_human_review', 'unresolved', 'failed'].includes(sentence.state) || renarrated[sentence.sentence_id])
-  const pendingReview = reviewQueue.filter(sentence => sentence.state !== 'verified').length
-  const inFlightSentences = ['pending', 'generating']
-    .reduce((sum, state) => sum + (productionJob?.progress?.[state] ?? 0), 0)
+  // Paragraphs waiting for a person, in reading order: step 3 lists them, and
+  // each opens in step 2, where it is heard and decided.
+  const awaitingDecision = (productionJob?.sentences ?? [])
+    .filter(sentence => ['needs_human_review', 'unresolved', 'failed'].includes(sentence.state))
   const bookChapters: BookChapter[] = outline?.chapters ?? []
   const totalParagraphCount = bookChapters.reduce((count, chapter) => count + chapter.paragraphs.length, 0)
   // The book changed after this production: its audio and ZIP are the earlier text.
-  // Every paragraph is ready and the book is being put together: nothing is
-  // narrated any more, but a long book still takes minutes.
-  const assembly = productionJob && ['queued', 'running'].includes(productionJob.state) ? productionJob.assembly : null
-  const assemblyNote = !assembly ? '' : assembly.stage === 'chapters'
-    ? `Montando el capítulo ${Math.min(assembly.done + 1, assembly.total)} de ${assembly.total}. Ya no se narra nada, así que no consume créditos. Un libro largo tarda unos minutos por capítulo.`
-    : 'Creando y comprobando el paquete DAISY y el ZIP. Es el último paso.'
   const productionIsStale = Boolean(productionJob && producedSignature && producedSignature !== draftSignature)
   useEffect(() => { setDownloadNotice(null) }, [draftId, productionIsStale])
   // A finished book the release gate has not passed yet can still be taken
   // away, under a name that says it is not validated.
   const release = productionJob?.release
   const unvalidated = productionJob?.state === 'completed' && Boolean(release) && !['PASSED', 'RELEASED'].includes(release?.state ?? '')
-  const directNote = !directProgress?.total
-    ? 'Preparando el libro. Reutilizamos el audio que ya exista; sólo se genera lo que falte.'
-    : directProgress.stage === 'assembling'
-      ? `Montando el capítulo ${Math.min((directProgress.chapters_done ?? 0) + 1, directProgress.chapters_total ?? 1)} de ${directProgress.chapters_total ?? 1}. Ya no se narra nada. Un libro largo tarda unos minutos por capítulo; la descarga empezará sola al terminar.`
-      : directProgress.stage === 'packaging'
-        ? 'Creando y comprobando el paquete DAISY y el ZIP. La descarga empezará sola al terminar.'
-        : `Párrafo ${directProgress.done} de ${directProgress.total}`
-          + (directProgress.reused ? ` · ${directProgress.reused} ya narrados, sin coste` : '')
-          + '. La descarga empezará sola al terminar.'
-  // Whatever state the production ended in, what to do next, beside the buttons.
-  const exportHint = productionJob?.state === 'completed' && !productionIsStale
-    ? unvalidated
-      ? `Puedes descargarlo ya: el archivo llevará «(SIN VALIDAR)» en el nombre. Falta: ${[...(release?.blockers ?? []), ...(release?.reviews ?? [])].join(' ')} Para validarlo, confírmalo en «Estado de calidad», más arriba.`
-      : 'Descarga el ZIP con el audio por capítulos, la navegación DAISY y el informe de calidad.'
-    : productionJob?.state === 'failed'
-      ? `La producción no ha terminado: ${productionJob.error || 'error desconocido'} El audio ya narrado se conserva: pulsa otra vez «Producir» y no se paga de nuevo.`
-      : productionJob?.state === 'partially_completed'
-        ? 'Quedan párrafos por revisar, más arriba. Si no quieres revisarlos ahora, «Descargar audiolibro ahora» genera el ZIP sin verificar y reutiliza lo ya narrado.'
-        : productionJob?.state === 'cancelled'
-          ? 'La producción se detuvo. Pulsa otra vez «Producir»: lo ya narrado no se paga de nuevo.'
-          : 'Las dos opciones usan la voz seleccionada en el paso 1.'
-
-  // The server divides the book, so the outline, the job and the download agree.
-  function createNavigationSections() {
-    setHasManualSections(true)
-    setMessage('Creando secciones en límites de párrafo. Revisa sus nombres antes de descargar el libro.')
+  const generating = packageBusy || directDownloadBusy
+  const jobRunning = Boolean(productionJob && ['queued', 'running'].includes(productionJob.state))
+  // Where the ZIP of the book as it stands is, in the way step 3 builds it.
+  const reviewedReady = Boolean(productionJob?.state === 'completed' && !productionIsStale)
+  const directReady = Boolean(directZip?.status.state === 'completed' && directZip.signature === draftSignature)
+  const zipReady = reviewMode ? reviewedReady : directReady
+  const zipPackage: PackageView | null | undefined = reviewMode ? productionJob?.package : directZip?.status.package
+  const buildView = reviewMode
+    ? (productionJob ? jobStages(productionJob.state, productionJob.pipeline) : null)
+    : (directProgress ? directStages(directProgress) : directZip ? directStages(directZip.status) : null)
+  const buildSeconds = reviewMode ? productionJob?.pipeline?.total_seconds
+    : Object.values(directZip?.status.timings ?? {}).reduce((sum, seconds) => sum + seconds, 0) || undefined
+  // What changed since that ZIP, from the job's structure and the outline.
+  const changesSinceZip = useMemo(() => {
+    if (!productionIsStale || !jobStructure || !outline) return ''
+    return describeChanges(changesSince(
+      jobStructure.sections.map(section => ({ title: section.title, units: section.units })),
+      outline.sections.map(section => ({ title: section.title, units: section.units }))))
+  }, [productionIsStale, jobStructure, outline])
+  const directStale = Boolean(!reviewMode && directZip && directZip.signature !== draftSignature)
+  let exportTone: ExportTone = 'idle'
+  let exportStatus = 'Todavía no hay un ZIP de este libro. «Descargar ZIP» lo genera y lo descarga al terminar.'
+  if (generating || (reviewMode && jobRunning)) {
+    const active = buildView?.find(stage => stage.state === 'active')
+    exportTone = 'busy'
+    exportStatus = `${active?.label ?? 'Preparando el audiolibro'}…`
+  } else if (restoring && !productionJob) {
+    exportTone = 'busy'
+    exportStatus = 'Recuperando el libro y su último ZIP…'
+  } else if ((reviewMode && productionIsStale) || directStale) {
+    exportTone = 'stale'
+    exportStatus = 'Has cambiado el libro desde el último ZIP. «Regenerar ZIP» lo actualiza: solo se genera lo nuevo o corregido.'
+  } else if (zipReady) {
+    exportTone = 'ready'
+    exportStatus = ['ZIP listo', zipPackage?.sections ? `${zipPackage.sections} archivos` : '',
+      formatTotalTime(zipPackage?.total_time), formatBytes(zipPackage?.bytes),
+      !reviewMode ? 'sin verificar' : unvalidated ? 'sin validar' : 'validado'].filter(Boolean).join(' · ')
+  } else if (reviewMode && productionJob?.state === 'partially_completed' && !productionJob.error
+             && awaitingDecision.some(item => item.state !== 'failed')) {
+    exportTone = 'review'
+    exportStatus = `${awaitingDecision.length === 1 ? 'Un párrafo necesita' : `${awaitingDecision.length} párrafos necesitan`} tu decisión antes de crear el ZIP.`
+  } else if (reviewMode && productionJob && ['partially_completed', 'failed', 'cancelled'].includes(productionJob.state)) {
+    exportTone = 'error'
+    exportStatus = productionJob.state === 'cancelled'
+      ? 'La producción se detuvo. «Regenerar ZIP» continúa: lo ya narrado no se paga de nuevo.'
+      : `La producción no ha terminado${productionJob.error ? `: ${publicCopy(productionJob.error)}` : '.'} El audio ya narrado se conserva: «Regenerar ZIP» continúa sin volver a pagarlo.`
   }
-
-  function restoreDetectedStructure() {
-    setHasManualSections(false)
-    setMessage('Se ha restaurado la estructura detectada en el archivo original.')
-  }
+  const canBuild = Boolean(draftId) && canGenerateAudio && selectedNarrationIds.length > 0
 
   async function reviewPreview() {
     if (!audio || !transcript || reviewBusy) return
     setReviewBusy(true)
+    setSampleError('')
       setMessage('Revisando la muestra de audio con el texto…')
     try {
       const audioResponse = await fetch(audio)
@@ -1368,13 +1490,16 @@ export default function App() {
       setReview(result)
       setMessage(`Revisión terminada. Se encontraron ${result.issues.length} diferencias para revisar.`)
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'No se pudo revisar la narración.')
+      const detail = error instanceof Error ? error.message : 'No se pudo revisar la narración.'
+      setMessage(detail)
+      setSampleError(detail)
     } finally { setReviewBusy(false) }
   }
 
   async function regenerateRetake() {
     if (!transcript.trim() || retakeBusy) return
     setRetakeBusy(true)
+    setSampleError('')
     setMessage('Generando de nuevo el fragmento editado…')
     try {
       const form = new FormData()
@@ -1395,7 +1520,9 @@ export default function App() {
       setReview(undefined)
       setMessage('El fragmento corregido ya está listo. Reprodúcelo para revisarlo.')
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'No se pudo regenerar el fragmento.')
+      const detail = error instanceof Error ? error.message : 'No se pudo regenerar el fragmento.'
+      setMessage(detail)
+      setSampleError(detail)
     } finally { setRetakeBusy(false) }
   }
 
@@ -1529,6 +1656,13 @@ export default function App() {
         <dt>Intentos</dt><dd>{sentence.technical_attempts} técnicos · {sentence.quality_retakes} retomas</dd>
       </dl>
       {busyHere && <p className="production-working" role="status"><span className="spinner" aria-hidden="true"/>Narrando la nueva versión de la frase…</p>}
+      {/* The reading a decision just produced, played at once; a new version
+          in the URL, so the browser never replays the old one. */}
+      {fresh && sentence.audio_path && productionJob && <label className="qa-audio">Escucha la nueva locución
+        <audio key={sentence.updated_at || sentence.audio_path} controls preload="auto"
+          autoPlay={lastRenarrated === sentence.sentence_id}
+          src={`${API}/api/jobs/${encodeURIComponent(productionJob.job_id)}/sentences/${encodeURIComponent(sentence.sentence_id)}/audio?v=${encodeURIComponent(sentence.updated_at || sentence.audio_path)}`}/>
+      </label>}
       {needsDecision ? <>
         <div className="qa-compare">
           <section><h5>Texto del libro</h5><p>{highlightDifferences(sentence.text, expectedRanges)}</p></section>
@@ -1576,9 +1710,10 @@ export default function App() {
       {(outline?.warnings?.length ?? 0) > 0 && <ul className="ed-warnings">{outline?.warnings.map(warning =>
         <li key={`${warning.code}-${warning.message}`}>{warning.message}</li>)}</ul>}
     </section>
-    {audio && <section id="listen-section" className="player workflow-card" aria-labelledby="player-title"><div className="player-heading"><span className="player-icon" aria-hidden="true"><Volume2 size={21}/></span><div className="player-title"><h2 id="player-title">Vista previa de audio</h2><span>{bookMetadata.title || book} · Español</span></div></div><audio ref={playerRef} controls src={audio} onTimeUpdate={trackPlayback} onSeeked={trackPlayback} aria-label={`Escuchar la vista previa narrada de ${bookMetadata.title || book}`}/><div className="player-playback"><label htmlFor="playback-speed">Velocidad<select id="playback-speed" value={playbackRate} onChange={event => setPlaybackRate(Number(event.target.value))}><option value={0.75}>0,75×</option><option value={1}>1×</option><option value={1.25}>1,25×</option><option value={1.5}>1,5×</option><option value={1.75}>1,75×</option><option value={2}>2×</option></select></label></div><a className="download" href={audio} download={`${(bookMetadata.title || book).replace(/.[^.]+$/, '')}-vista-previa.mp3`}><Download size={17} aria-hidden="true"/>Descargar muestra MP3</a></section>}
+    {audio && <section id="listen-section" className="player workflow-card" aria-labelledby="player-title"><div className="player-heading"><span className="player-icon" aria-hidden="true"><Volume2 size={21}/></span><div className="player-title"><h2 id="player-title">Vista previa de audio</h2><span>{bookMetadata.title || book} · Español</span></div></div><audio ref={playerRef} controls src={audio} onTimeUpdate={trackPlayback} onSeeked={trackPlayback} aria-label={`Escuchar la vista previa narrada de ${bookMetadata.title || book}`}/><div className="player-playback"><label htmlFor="playback-speed">Velocidad<select id="playback-speed" value={playbackRate} onChange={event => setPlaybackRate(Number(event.target.value))}><option value={0.75}>0,75×</option><option value={1}>1×</option><option value={1.25}>1,25×</option><option value={1.5}>1,5×</option><option value={1.75}>1,75×</option><option value={2}>2×</option></select></label></div><a className="download" href={audio} download={`${bookMetadata.title || book.replace(/\.[^.]+$/, '')}-vista-previa.mp3`}><Download size={17} aria-hidden="true"/>Descargar muestra MP3</a></section>}
     {transcript && <section className="transcript workflow-card audio-transcript" aria-labelledby="transcript-title"><h2 id="transcript-title">Texto de la muestra</h2><details><summary>Mostrar texto sincronizado</summary>{alignment.length > 0 ? <div className="timed-transcript" aria-live="off">{alignedParagraphs.map((paragraph, paragraphIndex) => <p key={`paragraph-${paragraphIndex}`}>{paragraph.map(phrase => { const index = alignment.indexOf(phrase); const active = index === currentPhrase; return <span key={`${phrase.text_start}-${index}`} className={active ? 'timed-phrase is-speaking' : 'timed-phrase'} aria-current={active ? 'true' : undefined}>{phrase.text} </span>})}</p>)}</div> : <><p className="sync-note">{'No se pudieron obtener tiempos para sincronizar esta muestra. El texto sigue disponible por parrafos.'}</p>{transcript.split(/\n{2,}/).map((paragraph, index) => <p key={`${index}-${paragraph.slice(0, 24)}`}>{paragraph}</p>)}</>}</details>
       {capabilities?.audio_review_configured && <div className="review-controls"><button type="button" className="package-download" onClick={reviewPreview} disabled={reviewBusy || !audio}>{reviewBusy ? 'Revisando el audio…' : 'Revisar calidad del audio'}</button><small>Las diferencias son avisos para que una persona las revise.</small></div>}
+      {sampleError && <p className="audio-setup-note" role="alert">{publicCopy(sampleError)}</p>}
       {review && <section className="review-results" aria-labelledby="review-title"><h3 id="review-title">{review.verdict === 'verified' ? 'El audio coincide con el texto' : review.verdict === 'ambiguous' ? 'Diferencias ambiguas: requieren tu criterio' : `Diferencias detectadas: ${review.issues.length}`}</h3><p>{publicCopy(review.review_note)}</p>{review.issues.length > 0 && <ul>{review.issues.map((issue, index) => <li key={`${issue.kind}-${index}`}><strong>{qaIssueLabel(issue.category, issue.kind)}:</strong> {issue.expected ? `Texto: “${issue.expected}”. ` : ''}{issue.recognized ? `Audio: “${issue.recognized}”.` : ''}{issue.reason ? <small> {issue.reason}</small> : null}</li>)}</ul>}<label htmlFor="retake-text">Edita el texto de esta muestra<textarea id="retake-text" value={transcript} onChange={event => setTranscript(event.target.value)} rows={5}/></label><button type="button" className="package-download" onClick={regenerateRetake} disabled={retakeBusy}>{retakeBusy ? 'Generando…' : 'Generar muestra corregida'}</button></section>}</section>}
   </div>
 
@@ -1707,6 +1842,8 @@ export default function App() {
           onInsertAfter={(unit, text) => changeBook((current, sections) => insertAfter(current, sections, unit, text))}
           onDeleteUnit={unit => changeBook((current, sections) => deleteUnit(current, sections, unit))}
           onDeleteSection={index => changeBook((current, sections) => deleteSection(current, sections, index))}
+          onAddSection={(index, title, text) => changeBook((current, sections) => addSection(current, sections, index, title, text))}
+          focusRequest={editorFocus}
           saveStatus={saveStatus} saveError={saveError} changes={changeCount(edits)} editBusy={editBusy}
           onUndo={undoChange} canUndo={undoStack.length > 0}
           editingProduced={editingProduced}
@@ -1725,145 +1862,104 @@ export default function App() {
           statusExtra={productionJob?.release ? <span>Calidad: {productionJob.release.label}</span> : null}/>
       </section>
       <section id="panel-export" className="workspace-panel export-panel" role="tabpanel" aria-labelledby="tab-export" hidden={workspaceTab !== 'export'}>
-        <section className="export-workspace workflow-card" aria-labelledby="export-title"><header className="export-workspace-heading"><div><p className="book-review-kicker">PASO 3 DE 3 · ENTREGA</p><h2 id="export-title">Exportar audiolibro</h2><p>Elige abajo cómo generarlo. El paquete DAISY incluye el audio por capítulos, la navegación y el texto sincronizado.</p></div><div className="book-review-stats"><span>{bookChapters.length} capítulos</span><span>{totalParagraphCount} párrafos revisables</span></div></header>
-          <details className="metadata-editor"><summary>Datos bibliográficos del libro</summary><p>Corrige los datos detectados. Se guardarán en los metadatos del libro dentro del ZIP.</p><label htmlFor="metadata-title">Título<input id="metadata-title" maxLength={500} value={bookMetadata.title} onChange={event => setBookMetadata(current => ({ ...current, title: event.target.value }))}/></label><label htmlFor="metadata-author">Autoría<input id="metadata-author" maxLength={500} value={bookMetadata.author} onChange={event => setBookMetadata(current => ({ ...current, author: event.target.value }))}/></label><div className="metadata-row"><label htmlFor="metadata-edition">Edición<input id="metadata-edition" maxLength={500} value={bookMetadata.edition} onChange={event => setBookMetadata(current => ({ ...current, edition: event.target.value }))}/></label><label htmlFor="metadata-year">Año de publicación<input id="metadata-year" maxLength={500} value={bookMetadata.publication_year} onChange={event => setBookMetadata(current => ({ ...current, publication_year: event.target.value }))}/></label></div><label htmlFor="metadata-publisher">Editorial<input id="metadata-publisher" maxLength={500} value={bookMetadata.publisher} onChange={event => setBookMetadata(current => ({ ...current, publisher: event.target.value }))}/></label></details>
-          {bookChapters.length === 1 && totalParagraphCount > 1 && !hasManualSections && <div className="helper-action"><div><strong>¿El libro no tiene capítulos detectables?</strong><p>Puedo crear secciones de navegación según la longitud, respetando los límites de párrafo. Son secciones para orientarse, no capítulos originales.</p></div><button type="button" className="package-download" onClick={createNavigationSections}>Crear secciones de navegación</button></div>}
-          {hasManualSections && <div className="helper-action"><p>Secciones creadas por longitud. Revisa sus límites antes de exportar.</p><button type="button" className="helper-secondary" onClick={restoreDetectedStructure}>Restaurar estructura original</button></div>}
-          {productionJob && <section className="workflow-card production-progress" aria-labelledby="production-title"><h3 id="production-title">Producción del audiolibro</h3>{productionIsStale && <p className="audio-setup-note" role="status">Has cambiado el libro después de esta producción: este audiolibro no incluye tus últimos cambios. Pulsa «Producir con los cambios» para generarlo de nuevo; solo se narran las frases nuevas o corregidas.</p>}<p className="production-voice">Voz utilizada en este trabajo: <strong>{productionJob.voice_name || productionJob.voice_id || 'sin registrar'}</strong>{productionJob.voice_language ? ` (${productionJob.voice_language})` : ''}</p>{productionJob.voice_id && voiceId && productionJob.voice_id !== voiceId && <p className="audio-setup-note" role="status">Has seleccionado otra voz después de iniciar este trabajo. Este resultado y su informe corresponden a la voz anterior; vuelve a producir para usar la nueva.</p>}<p role="status" aria-live="polite">{publicCopy(message)}</p><progress max={productionJob.total_sentences || 1} value={Object.entries(productionJob.progress ?? {}).reduce((sum, [state, count]) => sum + (['pending', 'generating'].includes(state) ? 0 : count), 0)} aria-label="Avance de producción"/><p>{Object.entries(productionJob.progress ?? {}).map(([state, count]) => `${sentenceStateLabel(state)}: ${count}`).join(' · ')}</p>{inFlightSentences > 0 && <p className="production-working" role="status" aria-live="polite"><span className="spinner" aria-hidden="true"/>Narrando y comprobando {inFlightSentences === 1 ? 'una frase' : `${inFlightSentences} frases`}… Al terminar se reconstruyen el capítulo afectado y el paquete, así que puede tardar un minuto.</p>}{assemblyNote && <p className="production-working" role="status" aria-live="polite"><span className="spinner" aria-hidden="true"/>{assemblyNote} El botón de descarga aparecerá al terminar: no cierres esta página.</p>}{productionJob.release && <ReleasePanel release={productionJob.release} reviewerName={reviewerName}
-              onReviewerName={setReviewerName} confirmed={releaseConfirmed} onConfirmed={setReleaseConfirmed}
-              onAcknowledge={issueId => void releaseAction('acknowledge', { issue_id: issueId, reviewer: reviewerName })}
-              onRelease={() => void releaseAction('release', { reviewer: reviewerName, confirm: releaseConfirmed })}/>}
-            {(productionJob.fault_locations?.length ?? 0) > 0 && <FaultLocations jobId={productionJob.job_id}
-              locations={productionJob.fault_locations ?? []}/>}<div className="review-controls"><button type="button" className="package-download" onClick={refreshProductionJob}>Actualizar estado</button>{productionJob.state === 'completed' && (!productionJob.release || ['PASSED', 'RELEASED'].includes(productionJob.release.state)) && <button type="button" className="package-download" onClick={() => void downloadJobArtifact(productionJob.job_id, productionJob.source_name)}>Descargar ZIP DAISY</button>}{productionJob.state === 'completed' && productionJob.release && !['PASSED', 'RELEASED'].includes(productionJob.release.state) && <button type="button" className="package-download secondary" onClick={() => void downloadDiagnosticArtifact(productionJob.job_id, productionJob.source_name)}>Descargar paquete de diagnóstico (sin validar)</button>}</div>
-            {reviewQueue.length > 0 && <div className="review-queue">
-              <h4 className="review-queue-title">{pendingReview ? `Párrafos que necesitan tu revisión (${pendingReview})` : 'Párrafos corregidos'}</h4>
-              <p className="review-queue-help">Las partes resaltadas son las que no coinciden entre el texto y el audio.
-                 Escucha el párrafo y decide: si la locución es correcta, acéptala; si no, vuelve a narrarla o corrige
-                 el texto. La nueva versión se narra al momento y suena aquí mismo.</p>
-              {reviewQueue.map(sentence => {
-                const expectedRanges = sentence.issues.map(issue => ({ start: issue.expected_start, end: issue.expected_end }))
-                const recognizedRanges = sentence.issues.map(issue => ({ start: issue.recognized_start, end: issue.recognized_end }))
-                const busy = reviewingSentence === sentence.sentence_id
-                const fixed = sentence.state === 'verified'
-                const fresh = Boolean(renarrated[sentence.sentence_id])
-                // A new reading has a new version, so the player never replays a cached old one.
-                const version = encodeURIComponent(sentence.updated_at || sentence.audio_path || '')
-                return <article className={`review-results review-queue-item${fixed ? ' is-fixed' : ''}`} key={sentence.sentence_id}>
-                  <header className="review-queue-head">
-                    <span className={`qa-badge qa-${sentence.state}`}>{fixed ? 'Corregida y comprobada' : sentenceStateLabel(sentence.state)}</span>
-                    <span className="review-queue-where">Capítulo {sentence.chapter_index + 1} · {sentence.chapter_title} · Párrafo {sentence.sequence + 1}</span>
-                  </header>
-                  {fixed && <p className="qa-fixed-note">La nueva locución coincide con el texto. Escúchala y, si te gusta, pulsa «Listo».</p>}
-                  {!fixed && <div className="qa-compare">
-                    <section><h5>Texto del libro</h5><p>{highlightDifferences(sentence.text, expectedRanges)}</p></section>
-                    <section><h5>Lo que se oye en el audio</h5><p>{sentence.recognized_text
-                      ? highlightDifferences(sentence.recognized_text, recognizedRanges)
-                      : <em>No se obtuvo transcripción de este párrafo.</em>}</p></section>
-                  </div>}
-                  {!fixed && sentence.issues.length > 0 && <ul className="qa-issue-list">{sentence.issues.map((issue, index) =>
-                    <li key={`${issue.kind}-${index}`}><strong>{qaIssueLabel(issue.category, issue.kind)}.</strong>{issue.reason ? ` ${issue.reason}` : ''}
-                      {typeof issue.audio_start === 'number' && <span className="qa-issue-time">
-                        {' '}Se oye en el segundo {issue.audio_start.toFixed(1).replace('.', ',')} del párrafo
-                        {typeof issue.book_time === 'number' ? ` (${clockLabel(issue.book_time)} del libro completo)` : ''}.
-                        {sentence.audio_path && <button type="button" className="qa-seek"
-                          onClick={() => playFrom(`audio-${sentence.sentence_id}`, issue.audio_start ?? 0)}>Escuchar desde ahí</button>}
-                      </span>}</li>)}</ul>}
-                  {!fixed && sentence.diagnosis?.recommendation && <p className="qa-diagnosis"><strong>
-                    {sentence.diagnosis.origin ? `Origen probable: ${originLabel(sentence.diagnosis.origin)}. ` : ''}</strong>
-                    {sentence.diagnosis.recommendation}</p>}
-                  {sentence.last_error && <p className="qa-note">{publicCopy(sentence.last_error)}</p>}
-                  {busy && <p className="production-working" role="status"><span className="spinner" aria-hidden="true"/>Narrando la nueva versión del párrafo…</p>}
-                  {sentence.audio_path
-                    ? <label className="qa-audio">{fresh ? 'Escucha la nueva locución' : 'Escucha este párrafo'}
-                        <audio id={`audio-${sentence.sentence_id}`} key={version} controls preload={fresh ? 'auto' : 'none'} autoPlay={lastRenarrated === sentence.sentence_id}
-                          src={`${API}/api/jobs/${productionJob.job_id}/sentences/${encodeURIComponent(sentence.sentence_id)}/audio?v=${version}`}/>
-                      </label>
-                    : <p className="qa-note">No hay audio guardado para este párrafo, así que hay que volver a narrarlo.</p>}
-                  {pronunciationEditor(sentence)}
-                  <label className="qa-correction">Texto corregido (sólo si vas a corregirlo)
-                    <textarea rows={3} value={sentenceCorrections[sentence.sentence_id] ?? sentence.text}
-                      onChange={event => setSentenceCorrections(current => ({ ...current, [sentence.sentence_id]: event.target.value }))}/>
-                  </label>
-                  <div className="review-controls">
-                    {fixed
-                      ? <button type="button" className="package-download" disabled={Boolean(reviewingSentence)}
-                          onClick={() => dismissRenarrated(sentence.sentence_id)}>Listo</button>
-                      : <button type="button" className="package-download" disabled={Boolean(reviewingSentence) || !sentence.audio_path}
-                          onClick={() => decideSentence(sentence, 'accept')}>{busy ? 'Guardando…' : 'La locución es correcta'}</button>}
-                    <button type="button" className="package-download" disabled={Boolean(reviewingSentence)}
-                      onClick={() => decideSentence(sentence, 'retry')}>Volver a narrarla</button>
-                    <button type="button" className="package-download" disabled={Boolean(reviewingSentence)}
-                      onClick={() => decideSentence(sentence, 'correct')}>Corregir el texto y narrarla</button>
+        <div className="xp">
+          <ExportHeader title={bookMetadata.title || outline?.title || book || 'Audiolibro'} tone={exportTone} status={exportStatus}
+            downloadLabel={reviewMode && zipReady && unvalidated ? 'Descargar ZIP (sin validar)' : 'Descargar ZIP'}
+            downloadHint={zipReady ? 'Descarga el ZIP ya generado con el texto actual.'
+              : 'Genera el ZIP con el texto actual y lo descarga al terminar.'}
+            regenerateHint="Vuelve a crear el ZIP con el texto actual: solo se genera lo que ha cambiado y el resto se reutiliza."
+            canDownload={zipReady || canBuild} canRegenerate={canBuild}
+            busy={generating || (reviewMode && jobRunning) || (restoring && !productionJob)}
+            downloading={zipAction === 'download'} regenerating={zipAction === 'regenerate'}
+            onDownload={() => void downloadZip()} onRegenerate={() => void regenerateZip()}
+            notice={downloadNotice ? { text: publicCopy(downloadNotice.text), tone: downloadNotice.tone ?? 'info', href: downloadNotice.href } : null}/>
+          <div className="xp-body">
+            <div className="xp-main">
+              <ExportSection id="xp-build-title" title={generating || (reviewMode && jobRunning) ? 'Generación en curso' : 'Generación del ZIP'}
+                aside={buildSeconds && !generating && !(reviewMode && jobRunning) ? <small>{formatSeconds(buildSeconds)} en total</small> : undefined}>
+                {changesSinceZip && <p className="xp-warn">Desde el último ZIP: {changesSinceZip}.</p>}
+                {buildView
+                  ? <BuildStages stages={buildView} label="Etapas de la generación del ZIP"/>
+                  : <p className="xp-empty">Al pulsar «Descargar ZIP» verás aquí cada etapa con lo que de verdad ocurre: qué se reutiliza, qué se genera y cuánto tarda.</p>}
+                {buildView && reviewMode && productionIsStale && <p className="xp-muted">Estas etapas son de la generación anterior a tus cambios.</p>}
+                {reviewMode && productionJob && (productionJob.voice_name || productionJob.voice_id) && <p className="xp-muted">
+                  Voz de este trabajo: <strong>{productionJob.voice_name || productionJob.voice_id}</strong>{productionJob.voice_language ? ` (${productionJob.voice_language})` : ''}</p>}
+                {reviewMode && productionJob?.voice_id && voiceId && productionJob.voice_id !== voiceId
+                  && <p className="xp-warn">Has seleccionado otra voz después de iniciar este trabajo. Este ZIP y su informe son de la voz anterior; «Regenerar ZIP» lo crea con la nueva.</p>}
+              </ExportSection>
+              {reviewMode && awaitingDecision.length > 0 && !productionIsStale && <ExportSection id="xp-review-title"
+                title={`Párrafos que esperan tu decisión (${awaitingDecision.length})`}>
+                <p className="xp-muted">Se escuchan y se deciden en el paso 2: aceptar la lectura, narrarla de nuevo o corregir su texto. El ZIP se crea en cuanto no quede ninguno.</p>
+                <ul className="xp-list">{awaitingDecision.slice(0, 8).map(sentence => <li key={sentence.sentence_id}>
+                  <button type="button" className="xp-link" onClick={() => openUnitInEditor(sentence.sentence_id)}>
+                    {sentence.chapter_title || `Capítulo ${sentence.chapter_index + 1}`} · párrafo {sentence.sequence + 1}</button>
+                  <small>{sentence.state === 'failed' ? 'Fallo técnico: hay que narrarlo de nuevo.'
+                    : publicCopy(sentence.diagnosis?.recommendation || sentence.last_error || sentence.text).slice(0, 180)}</small>
+                </li>)}</ul>
+                {awaitingDecision.length > 8 && <p className="xp-muted">Y {awaitingDecision.length - 8} más. En el paso 2, «Problema siguiente» (Alt+N) los recorre todos.</p>}
+              </ExportSection>}
+            </div>
+            <div className="xp-side">
+              <ExportSection id="xp-zip-title" title="Contenido del ZIP">
+                {zipReady && zipPackage
+                  ? <Facts rows={[
+                    ['Archivos de audio', String(zipPackage.sections ?? zipPackage.chapter_files ?? '—')],
+                    ['Duración', formatTotalTime(zipPackage.total_time) || '—'],
+                    ['Tamaño', formatBytes(zipPackage.bytes) || '—'],
+                    ['ZIP comprobado', <span key="audit" className={zipPackage.audit === 'passed' ? 'is-ok' : zipPackage.audit === 'failed' ? 'is-bad' : ''}
+                      title={zipPackage.audit_detail}>{zipPackage.audit === 'passed' ? 'Coherente' : zipPackage.audit === 'failed' ? 'Con problemas' : 'Sin comprobar'}</span>],
+                    ['Calidad', <span key="quality" className={!reviewMode ? 'is-warn' : unvalidated ? 'is-warn' : 'is-ok'}>{!reviewMode ? 'Sin verificar' : release?.label ?? 'Revisada'}</span>],
+                    ...(reviewMode && productionJob ? [['Voz', <>{productionJob.voice_name || productionJob.voice_id || '—'}{productionJob.voice_language
+                      ? <> <span className="xp-nowrap">({productionJob.voice_language})</span></> : null}</>] as [string, ReactNode]] : []),
+                  ]}/>
+                  : <p className="xp-empty">{zipReady ? 'El ZIP está listo.' : 'Todavía no hay un ZIP del texto actual.'}</p>}
+                <p className="xp-muted">DAISY 3 (Z39.86-2005): un MP3 por archivo y el audiolibro completo, el texto sincronizado frase a frase y la navegación por capítulos y páginas. Tras crearlo, el ZIP se lee de nuevo y se comprueba entero.</p>
+                {zipReady && zipPackage?.audit === 'failed' && zipPackage.audit_detail && <p className="xp-warn">{zipPackage.audit_detail}</p>}
+              </ExportSection>
+              {reviewMode && productionJob?.release && <ExportSection id="xp-quality-title" title="Calidad">
+                <ReleasePanel release={productionJob.release} reviewerName={reviewerName} outdated={productionIsStale}
+                  onReviewerName={setReviewerName} confirmed={releaseConfirmed} onConfirmed={setReleaseConfirmed}
+                  onAcknowledge={issueId => void releaseAction('acknowledge', { issue_id: issueId, reviewer: reviewerName })}
+                  onRelease={() => void releaseAction('release', { reviewer: reviewerName, confirm: releaseConfirmed })}/>
+                {(productionJob.fault_locations?.length ?? 0) > 0 && <details className="xp-details">
+                  <summary>Dónde se oyen las diferencias <small>{productionJob.fault_locations?.length}</small></summary>
+                  <FaultLocations jobId={productionJob.job_id} locations={productionJob.fault_locations ?? []}/>
+                </details>}
+              </ExportSection>}
+              {!reviewMode && <ExportSection id="xp-quality-title" title="Calidad">
+                <p className="xp-muted">Sin verificar: sin la revisión de calidad, la narración no se transcribe ni se compara con el texto, y el ZIP lo dice en su quality-status.json. Para una entrega formal, actívala en «Opciones de entrega».</p>
+              </ExportSection>}
+              <details className="xp-details">
+                <summary>Datos del libro<small>{[bookMetadata.title, bookMetadata.author].filter(Boolean).join(' · ')}</small></summary>
+                <div className="xp-form">
+                  <p className="xp-muted">Se guardan en los metadatos del paquete. Si los cambias, pulsa después «Regenerar ZIP».</p>
+                  <label htmlFor="metadata-title">Título<input id="metadata-title" maxLength={500} value={bookMetadata.title} onChange={event => setBookMetadata(current => ({ ...current, title: event.target.value }))}/></label>
+                  <label htmlFor="metadata-author">Autoría<input id="metadata-author" maxLength={500} value={bookMetadata.author} onChange={event => setBookMetadata(current => ({ ...current, author: event.target.value }))}/></label>
+                  <div className="metadata-row">
+                    <label htmlFor="metadata-edition">Edición<input id="metadata-edition" maxLength={500} value={bookMetadata.edition} onChange={event => setBookMetadata(current => ({ ...current, edition: event.target.value }))}/></label>
+                    <label htmlFor="metadata-year">Año de publicación<input id="metadata-year" maxLength={500} value={bookMetadata.publication_year} onChange={event => setBookMetadata(current => ({ ...current, publication_year: event.target.value }))}/></label>
                   </div>
-                </article>
-              })}
-            </div>}
-          </section>}
-          <fieldset className="export-choices">
-            <legend>Cómo quieres generar el audiolibro</legend>
-            <label className={exportMode === 'direct' ? 'export-choice is-selected' : 'export-choice'}>
-              <input type="radio" name="export-mode" value="direct" checked={exportMode === 'direct'}
-                onChange={() => setExportMode('direct')}/>
-              <span className="export-choice-title">Descargar directamente
-                <span className="export-choice-tag is-unverified">Sin verificar</span></span>
-              <span className="export-choice-text">Genera el audiolibro completo y lo descarga en un paso. Sin revisión
-                 automática de calidad, sin informe y sin cola de revisión. Es la opción rápida si sólo quieres el archivo.</span>
-            </label>
-            <label className={exportMode === 'reviewed' ? 'export-choice is-selected' : 'export-choice'}>
-              <input type="radio" name="export-mode" value="reviewed" checked={exportMode === 'reviewed'}
-                onChange={() => setExportMode('reviewed')}/>
-              <span className="export-choice-title">Producir con revisión de calidad
-                <span className="export-choice-tag is-verified">Recomendada</span></span>
-              <span className="export-choice-text">Narra párrafo a párrafo, transcribe el audio y lo compara con el texto.
-                 Los párrafos dudosos aparecen aquí para que decidas, y el paquete incluye el informe de calidad y el
-                 registro. Es la opción para una entrega formal.</span>
-            </label>
-          </fieldset>
-          <p className="export-note">La vista previa y las dos opciones comparten el audio ya generado: cambiar de una a
-             otra no vuelve a pagar por los párrafos que no han cambiado.</p>
-          {(draftId || productionJob) && <div className="export-actions" role="group" aria-labelledby="export-actions-title">
-            <div className={directDownloadBusy ? 'export-actions-status is-busy' : 'export-actions-status'}>
-              <strong id="export-actions-title">{directDownloadBusy ? 'Generando el audiolibro…' : assembly ? 'Montando el audiolibro…' : packageBusy ? 'Produciendo con revisión…' : productionJob?.state === 'completed' && !productionIsStale ? 'El audiolibro está listo' : 'Elige cómo generarlo'}</strong>
-              {directDownloadBusy && directProgress?.total
-                ? <progress className="direct-progress" max={directProgress.stage === 'narrating' || !directProgress.stage ? directProgress.total : directProgress.chapters_total || 1}
-                    value={directProgress.stage === 'narrating' || !directProgress.stage ? directProgress.done : directProgress.chapters_done ?? 0}
-                    aria-label="Avance del audiolibro"/>
-                : null}
-              <span>{directDownloadBusy
-                ? directNote
-                : assemblyNote || (packageBusy
-                  ? 'Narrando y revisando párrafo a párrafo. Puedes seguir el avance más arriba.'
-                  : exportHint)}</span>
+                  <label htmlFor="metadata-publisher">Editorial<input id="metadata-publisher" maxLength={500} value={bookMetadata.publisher} onChange={event => setBookMetadata(current => ({ ...current, publisher: event.target.value }))}/></label>
+                </div>
+              </details>
+              <details className="xp-details">
+                <summary>Opciones de entrega<small>{reviewMode ? 'con revisión de calidad' : 'sin verificar'}</small></summary>
+                <div className="xp-form">
+                  <label className="xp-check"><input type="checkbox" checked={reviewMode} disabled={generating}
+                    onChange={event => chooseReviewMode(event.target.checked)}/>
+                    <span>Revisión de calidad automática (recomendada)
+                      <small>Cada párrafo se transcribe y se compara con el texto; las dudas se deciden en el paso 2 y el ZIP lleva el informe de calidad. Sin ella, el ZIP se crea directamente y queda marcado como sin verificar. Las dos formas reutilizan el mismo audio: cambiar de una a otra no vuelve a pagar lo ya narrado.</small></span></label>
+                  {((bookChapters.length === 1 && totalParagraphCount > 1) || hasManualSections) && <label className="xp-check">
+                    <input type="checkbox" checked={hasManualSections} disabled={generating}
+                      onChange={event => setHasManualSections(event.target.checked)}/>
+                    <span>Dividir el libro en secciones de navegación
+                      <small>El libro no tiene capítulos detectables: se crean secciones por longitud, en límites de párrafo, solo para orientarse; no son capítulos del original.</small></span></label>}
+                  <p className="xp-muted">Se narra con la voz elegida en el paso 1{selectedVoice ? `: ${selectedVoice.name}` : ''}.</p>
+                </div>
+              </details>
             </div>
-            <div className="export-actions-buttons">
-              {/* Direct: generate and download in one step, no review queue. */}
-              <button type="button" className={exportMode === 'direct' ? 'export-button is-primary' : 'export-button'}
-                onClick={() => void downloadBookDirectly()}
-                disabled={!draftId || busy || packageBusy || directDownloadBusy || !selectedNarrationIds.length || !canGenerateAudio}
-                aria-busy={directDownloadBusy}>
-                {directDownloadBusy ? <span className="spinner" aria-hidden="true"/> : <Download size={18} aria-hidden="true"/>}
-                <span>Descargar audiolibro ahora <small className="unverified-tag">(sin verificar)</small></span>
-              </button>
-              {productionJob?.state === 'completed' && !productionIsStale
-                ? <button type="button" className={exportMode === 'reviewed' ? 'export-button is-primary' : 'export-button'}
-                    onClick={() => void (unvalidated ? downloadDiagnosticArtifact : downloadJobArtifact)(productionJob.job_id, productionJob.source_name || book)} disabled={directDownloadBusy}>
-                    <Download size={18} aria-hidden="true"/>
-                    {unvalidated
-                      ? <span>Descargar el ZIP <small className="unverified-tag">(sin validar)</small></span>
-                      : <span>Descargar paquete revisado</span>}
-                  </button>
-                : <button type="button" className={exportMode === 'reviewed' ? 'export-button is-primary' : 'export-button'}
-                    onClick={() => void startReviewedProduction()}
-                    disabled={!draftId || busy || packageBusy || directDownloadBusy || !selectedNarrationIds.length || !canGenerateAudio}
-                    aria-busy={packageBusy}>
-                    {packageBusy ? <span className="spinner" aria-hidden="true"/> : <CheckCircle2 size={18} aria-hidden="true"/>}
-                    <span>{productionIsStale ? 'Producir con los cambios' : 'Producir con revisión de calidad'}</span>
-                  </button>}
-            </div>
-            {downloadNotice && <p className="export-actions-notice">{publicCopy(downloadNotice.text)}{downloadNotice.href
-              && <> <a href={downloadNotice.href} download>Si no empieza, pulsa aquí.</a></>}</p>}
-          </div>}
-        </section>
+          </div>
+        </div>
       </section>
     </section>
     <footer className="editor-footer"><span>Creado con cuidado para cada lector.</span><span>Accesible desde el principio · Siempre a tu alcance</span></footer>
@@ -1873,7 +1969,7 @@ export default function App() {
 
 // What the release gate decided, dimension by dimension, and the two decisions
 // only a person can take: confirming an extraction warning and publishing.
-export function ReleasePanel({ release, reviewerName, onReviewerName, confirmed, onConfirmed, onAcknowledge, onRelease }: {
+export function ReleasePanel({ release, reviewerName, onReviewerName, confirmed, onConfirmed, onAcknowledge, onRelease, outdated = false }: {
   release: ReleaseStatus
   reviewerName: string
   onReviewerName: (value: string) => void
@@ -1881,7 +1977,10 @@ export function ReleasePanel({ release, reviewerName, onReviewerName, confirmed,
   onConfirmed: (value: boolean) => void
   onAcknowledge: (issueId: string) => void
   onRelease: () => void
+  // The report of a ZIP made before the text changed: shown, never decided on.
+  outdated?: boolean
 }) {
+  const decide = !outdated
   const dimensions = release.dimensions ?? {}
   const warnings = dimensions.source?.open_warnings ?? []
   const listen = dimensions.human?.listening_recommended?.length ?? 0
@@ -1898,7 +1997,8 @@ export function ReleasePanel({ release, reviewerName, onReviewerName, confirmed,
     ['Revisión humana', undefined, `${dimensions.human?.decisions ?? 0} decisiones, ${listen} párrafos recomendados para escuchar`],
   ]
   return <section className={`release-panel ${RELEASE_STATE_CLASS[release.state] ?? 'release-progress'}`} aria-labelledby="release-title">
-    <h4 id="release-title">Estado de calidad: {release.label}</h4>
+    <h4 id="release-title">Estado de calidad{outdated ? ' del ZIP anterior' : ''}: {release.label}</h4>
+    {outdated && <p className="xp-muted release-outdated">Es el informe del ZIP anterior a tus cambios. Confirmar avisos y publicar se hace sobre el ZIP del texto actual: créalo con «Regenerar ZIP».</p>}
     {release.released && <p role="status">Publicado por {release.released.by} el {new Date(release.released.at).toLocaleString('es-ES')}.</p>}
     {(release.blockers.length > 0 || release.reviews.length > 0) && <ul className="release-reasons">
       {release.blockers.map(reason => <li key={reason} className="is-blocker">{reason}</li>)}
@@ -1907,13 +2007,13 @@ export function ReleasePanel({ release, reviewerName, onReviewerName, confirmed,
     <table className="release-dimensions"><tbody>
       {rows.map(([label, status, detail]) => <tr key={label}><th scope="row">{label}</th><td>{status ? dimensionStatus(status) : '—'}</td><td>{detail}</td></tr>)}
     </tbody></table>
-    {(warnings.length > 0 || release.state === 'PASSED') && <label className="release-reviewer">Tu nombre (queda registrado con la decisión)
+    {decide && (warnings.length > 0 || release.state === 'PASSED') && <label className="release-reviewer">Tu nombre (queda registrado con la decisión)
       <input value={reviewerName} onChange={event => onReviewerName(event.target.value)} autoComplete="name"/></label>}
     {warnings.length > 0 && <ul className="release-warnings">{warnings.map(warning =>
       <li key={warning.id}><span>{warning.message}{warning.text ? ` «${warning.text}»` : ''}</span>
-        <button type="button" disabled={!reviewerName.trim()} onClick={() => onAcknowledge(warning.id)}>He comprobado el original</button></li>)}
+        {decide && <button type="button" disabled={!reviewerName.trim()} onClick={() => onAcknowledge(warning.id)}>He comprobado el original</button>}</li>)}
     </ul>}
-    {release.state === 'PASSED' && <div className="release-action">
+    {decide && release.state === 'PASSED' && <div className="release-action">
       <label><input type="checkbox" checked={confirmed} onChange={event => onConfirmed(event.target.checked)}/>
         He leído lo que estas comprobaciones no demuestran{listen ? ` y he escuchado los ${listen} párrafos recomendados` : ''}.</label>
       <button type="button" className="package-download" disabled={!confirmed || !reviewerName.trim()} onClick={onRelease}>Publicar el audiolibro</button>

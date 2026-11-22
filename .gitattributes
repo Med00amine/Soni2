@@ -1,0 +1,3 @@
+# The DTBook style sheet is the Z39.86 committee's file exactly as ONCE sent it
+# (CRLF line ends included): never let git rewrite it.
+backend/app/package_files/dtbookbasic.css -text

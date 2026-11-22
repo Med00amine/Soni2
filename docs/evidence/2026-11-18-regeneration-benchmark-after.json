@@ -1,0 +1,882 @@
+{
+  "book": {
+    "chapters": 12,
+    "paragraphs_per_chapter": 45,
+    "units": 575,
+    "fake_narration_latency": 0.0
+  },
+  "machine": {
+    "platform": "win32",
+    "python": "3.13.2",
+    "cpus": 12
+  },
+  "scenarios": [
+    {
+      "scenario": "seed",
+      "job_id": "5eb0d3d0-5a6d-4ade-9e4f-2cd8f9afe733",
+      "state": "completed",
+      "units": 575,
+      "reused_existing_job": false,
+      "seconds": {
+        "total": 442.52,
+        "create_request": 0.3,
+        "production_and_assembly": 441.03,
+        "download": 1.18
+      },
+      "narration_calls": 574,
+      "narrated_characters": 130573,
+      "recognition_calls": 574,
+      "stages": {
+        "db: add event": {
+          "calls": 1726,
+          "seconds": 17.567
+        },
+        "db: load whole job": {
+          "calls": 820,
+          "seconds": 25.174
+        },
+        "db: update unit": {
+          "calls": 1150,
+          "seconds": 10.588
+        },
+        "unit: integrity analysis": {
+          "calls": 574,
+          "seconds": 60.345
+        },
+        "db: add attempt": {
+          "calls": 575,
+          "seconds": 6.176
+        },
+        "unit: produce (all work per unit)": {
+          "calls": 575,
+          "seconds": 286.068
+        },
+        "reports: release gate": {
+          "calls": 409,
+          "seconds": 2.123
+        },
+        "db: load events": {
+          "calls": 8,
+          "seconds": 0.081
+        },
+        "reports: render quality report": {
+          "calls": 6,
+          "seconds": 1.589
+        },
+        "phase: units (wall time)": {
+          "calls": 1,
+          "seconds": 80.648
+        },
+        "audio: finish_file (edges+CBR, all calls)": {
+          "calls": 30,
+          "seconds": 237.412
+        },
+        "assembly: master chapters": {
+          "calls": 15,
+          "seconds": 340.881
+        },
+        "assembly: join complete book": {
+          "calls": 1,
+          "seconds": 3.09
+        },
+        "package: build DAISY (incl. chapter work)": {
+          "calls": 1,
+          "seconds": 6.646
+        },
+        "validate: structural": {
+          "calls": 1,
+          "seconds": 1.556
+        },
+        "validate: DTD": {
+          "calls": 1,
+          "seconds": 0.359
+        },
+        "validate: timing (decodes audio)": {
+          "calls": 1,
+          "seconds": 5.489
+        },
+        "validate: ONCE structure": {
+          "calls": 1,
+          "seconds": 0.029
+        },
+        "validate: completeness chain (incl. timing)": {
+          "calls": 1,
+          "seconds": 8.577
+        },
+        "zip: add files": {
+          "calls": 48,
+          "seconds": 0.814
+        },
+        "assembly: total": {
+          "calls": 1,
+          "seconds": 360.299
+        }
+      },
+      "chapters": {
+        "reused": 0,
+        "shared": 0,
+        "rebuilt": 15
+      },
+      "polling": {
+        "requests": 800,
+        "median_ms": 38.4,
+        "max_ms": 401.6,
+        "max_bytes": 700147
+      },
+      "zip": {
+        "bytes": 294186220,
+        "crc": "passed",
+        "structural": "passed",
+        "dtd": "passed",
+        "timing": "passed",
+        "chapter_files": 15,
+        "deleted_titles_found": [],
+        "integrity": "passed"
+      },
+      "perf_log": [
+        "perf.stage: checking finished | stage=checking seconds=0.024",
+        "perf.stage: narrating finished | stage=narrating seconds=80.742",
+        "perf.stage: chapters finished | stage=chapters seconds=341.603",
+        "perf.stage: package finished | stage=package seconds=6.646",
+        "perf.stage: validating finished | stage=validating seconds=10.600",
+        "perf.stage: zipping finished | stage=zipping seconds=1.047",
+        "perf.stage: verifying finished | stage=verifying seconds=0.329",
+        "perf.summary: build timings | outcome=completed total_seconds=440.997 checking_seconds=0.024 narrating_seconds=80.742 chapters_seconds=341.603 package_seconds=6.646 validating_seconds=10.600 zipping_seconds=1.047 verifying_seconds=0.329 units={\"total\":575,\"reused\":0,\"to_narrate\":575,\"narrated\":575,\"already_done\":0} chapters={\"total\":15,\"done\":15,\"reused\":0,\"rebuilt\":15}"
+      ]
+    },
+    {
+      "scenario": "unchanged",
+      "job_id": "5eb0d3d0-5a6d-4ade-9e4f-2cd8f9afe733",
+      "state": "completed",
+      "units": 575,
+      "reused_existing_job": true,
+      "seconds": {
+        "total": 1.42,
+        "create_request": 0.23,
+        "production_and_assembly": 0.0,
+        "download": 1.18
+      },
+      "narration_calls": 0,
+      "narrated_characters": 0,
+      "recognition_calls": 0,
+      "stages": {
+        "db: load whole job": {
+          "calls": 3,
+          "seconds": 0.069
+        },
+        "reports: release gate": {
+          "calls": 1,
+          "seconds": 0.025
+        }
+      },
+      "chapters": {
+        "reused": 0,
+        "shared": 0,
+        "rebuilt": 15
+      },
+      "zip": {
+        "bytes": 294186220,
+        "crc": "passed",
+        "structural": "passed",
+        "dtd": "passed",
+        "timing": "passed",
+        "chapter_files": 15,
+        "deleted_titles_found": [],
+        "integrity": "passed"
+      },
+      "perf_log": [
+        "perf.stage: checking finished | stage=checking seconds=0.024",
+        "perf.stage: narrating finished | stage=narrating seconds=80.742",
+        "perf.stage: chapters finished | stage=chapters seconds=341.603",
+        "perf.stage: package finished | stage=package seconds=6.646",
+        "perf.stage: validating finished | stage=validating seconds=10.600",
+        "perf.stage: zipping finished | stage=zipping seconds=1.047",
+        "perf.stage: verifying finished | stage=verifying seconds=0.329",
+        "perf.summary: build timings | outcome=completed total_seconds=440.997 checking_seconds=0.024 narrating_seconds=80.742 chapters_seconds=341.603 package_seconds=6.646 validating_seconds=10.600 zipping_seconds=1.047 verifying_seconds=0.329 units={\"total\":575,\"reused\":0,\"to_narrate\":575,\"narrated\":575,\"already_done\":0} chapters={\"total\":15,\"done\":15,\"reused\":0,\"rebuilt\":15}"
+      ]
+    },
+    {
+      "scenario": "regenerate",
+      "job_id": "6470607c-5a86-4140-b522-dbe5781391cd",
+      "state": "completed",
+      "units": 575,
+      "reused_existing_job": false,
+      "seconds": {
+        "total": 25.88,
+        "create_request": 0.34,
+        "production_and_assembly": 24.46,
+        "download": 1.08
+      },
+      "narration_calls": 0,
+      "narrated_characters": 0,
+      "recognition_calls": 0,
+      "stages": {
+        "db: add event": {
+          "calls": 3,
+          "seconds": 0.013
+        },
+        "db: load whole job": {
+          "calls": 51,
+          "seconds": 2.626
+        },
+        "reports: release gate": {
+          "calls": 24,
+          "seconds": 0.177
+        },
+        "db: load events": {
+          "calls": 3,
+          "seconds": 0.019
+        },
+        "reports: render quality report": {
+          "calls": 1,
+          "seconds": 0.178
+        },
+        "phase: units (wall time)": {
+          "calls": 1,
+          "seconds": 0.0
+        },
+        "audio: finish_file (edges+CBR, all calls)": {
+          "calls": 15,
+          "seconds": 2.993
+        },
+        "assembly: join complete book": {
+          "calls": 1,
+          "seconds": 2.856
+        },
+        "package: build DAISY (incl. chapter work)": {
+          "calls": 1,
+          "seconds": 6.405
+        },
+        "validate: structural": {
+          "calls": 1,
+          "seconds": 1.457
+        },
+        "validate: DTD": {
+          "calls": 1,
+          "seconds": 0.03
+        },
+        "validate: timing (decodes audio)": {
+          "calls": 1,
+          "seconds": 4.72
+        },
+        "validate: ONCE structure": {
+          "calls": 1,
+          "seconds": 0.027
+        },
+        "validate: completeness chain (incl. timing)": {
+          "calls": 1,
+          "seconds": 7.605
+        },
+        "zip: add files": {
+          "calls": 48,
+          "seconds": 0.628
+        },
+        "assembly: total": {
+          "calls": 1,
+          "seconds": 17.179
+        }
+      },
+      "chapters": {
+        "reused": 0,
+        "shared": 15,
+        "rebuilt": 0
+      },
+      "polling": {
+        "requests": 40,
+        "median_ms": 39.7,
+        "max_ms": 593.6,
+        "max_bytes": 700143
+      },
+      "zip": {
+        "bytes": 294128405,
+        "crc": "passed",
+        "structural": "passed",
+        "dtd": "passed",
+        "timing": "passed",
+        "chapter_files": 15,
+        "deleted_titles_found": [],
+        "integrity": "passed"
+      },
+      "perf_log": [
+        "perf.stage: checking finished | stage=checking seconds=7.224",
+        "perf.stage: narrating finished | stage=narrating seconds=0.085",
+        "perf.stage: chapters finished | stage=chapters seconds=0.387",
+        "perf.stage: package finished | stage=package seconds=6.406",
+        "perf.stage: validating finished | stage=validating seconds=9.165",
+        "perf.stage: zipping finished | stage=zipping seconds=0.821",
+        "perf.stage: verifying finished | stage=verifying seconds=0.332",
+        "perf.summary: build timings | outcome=completed total_seconds=24.425 checking_seconds=7.224 narrating_seconds=0.085 chapters_seconds=0.387 package_seconds=6.406 validating_seconds=9.165 zipping_seconds=0.821 verifying_seconds=0.332 units={\"total\":575,\"reused\":575,\"to_narrate\":0,\"narrated\":0,\"already_done\":0} chapters={\"total\":15,\"done\":15,\"reused\":15,\"rebuilt\":0}"
+      ]
+    },
+    {
+      "scenario": "delete",
+      "job_id": "11c95de5-67be-490b-8289-5dc2c8f914f9",
+      "state": "completed",
+      "units": 528,
+      "reused_existing_job": false,
+      "seconds": {
+        "total": 20.28,
+        "create_request": 0.31,
+        "production_and_assembly": 18.92,
+        "download": 1.04
+      },
+      "narration_calls": 0,
+      "narrated_characters": 0,
+      "recognition_calls": 0,
+      "stages": {
+        "db: add event": {
+          "calls": 3,
+          "seconds": 0.013
+        },
+        "db: load whole job": {
+          "calls": 43,
+          "seconds": 1.831
+        },
+        "reports: release gate": {
+          "calls": 20,
+          "seconds": 0.323
+        },
+        "db: load events": {
+          "calls": 3,
+          "seconds": 0.008
+        },
+        "reports: render quality report": {
+          "calls": 1,
+          "seconds": 0.13
+        },
+        "phase: units (wall time)": {
+          "calls": 1,
+          "seconds": 0.0
+        },
+        "audio: finish_file (edges+CBR, all calls)": {
+          "calls": 15,
+          "seconds": 3.671
+        },
+        "assembly: master chapters": {
+          "calls": 1,
+          "seconds": 2.047
+        },
+        "assembly: join complete book": {
+          "calls": 1,
+          "seconds": 2.701
+        },
+        "package: build DAISY (incl. chapter work)": {
+          "calls": 1,
+          "seconds": 5.916
+        },
+        "validate: structural": {
+          "calls": 1,
+          "seconds": 1.233
+        },
+        "validate: DTD": {
+          "calls": 1,
+          "seconds": 0.01
+        },
+        "validate: timing (decodes audio)": {
+          "calls": 1,
+          "seconds": 4.424
+        },
+        "validate: ONCE structure": {
+          "calls": 1,
+          "seconds": 0.023
+        },
+        "validate: completeness chain (incl. timing)": {
+          "calls": 1,
+          "seconds": 7.087
+        },
+        "zip: add files": {
+          "calls": 46,
+          "seconds": 0.665
+        },
+        "assembly: total": {
+          "calls": 1,
+          "seconds": 17.929
+        }
+      },
+      "chapters": {
+        "reused": 0,
+        "shared": 13,
+        "rebuilt": 1
+      },
+      "polling": {
+        "requests": 32,
+        "median_ms": 38.1,
+        "max_ms": 426.5,
+        "max_bytes": 644052
+      },
+      "zip": {
+        "bytes": 271040511,
+        "crc": "passed",
+        "structural": "passed",
+        "dtd": "passed",
+        "timing": "passed",
+        "chapter_files": 14,
+        "chapter_files_expected": 14,
+        "deleted_titles_found": [],
+        "integrity": "passed"
+      },
+      "perf_log": [
+        "perf.stage: checking finished | stage=checking seconds=0.942",
+        "perf.stage: narrating finished | stage=narrating seconds=0.121",
+        "perf.stage: chapters finished | stage=chapters seconds=2.337",
+        "perf.stage: package finished | stage=package seconds=5.916",
+        "perf.stage: validating finished | stage=validating seconds=8.403",
+        "perf.stage: zipping finished | stage=zipping seconds=0.810",
+        "perf.stage: verifying finished | stage=verifying seconds=0.361",
+        "perf.summary: build timings | outcome=completed total_seconds=18.896 checking_seconds=0.942 narrating_seconds=0.121 chapters_seconds=2.337 package_seconds=5.916 validating_seconds=8.403 zipping_seconds=0.810 verifying_seconds=0.361 units={\"total\":528,\"reused\":528,\"to_narrate\":0,\"narrated\":0,\"already_done\":0} chapters={\"total\":14,\"done\":14,\"reused\":13,\"rebuilt\":1}"
+      ]
+    },
+    {
+      "scenario": "edit",
+      "job_id": "c482d637-d26c-4eaa-b06a-a0f85e94143c",
+      "state": "completed",
+      "units": 528,
+      "reused_existing_job": false,
+      "seconds": {
+        "total": 45.58,
+        "create_request": 0.29,
+        "production_and_assembly": 44.26,
+        "download": 1.03
+      },
+      "narration_calls": 1,
+      "narrated_characters": 432,
+      "recognition_calls": 1,
+      "stages": {
+        "db: add event": {
+          "calls": 6,
+          "seconds": 0.046
+        },
+        "db: load whole job": {
+          "calls": 89,
+          "seconds": 3.315
+        },
+        "db: update unit": {
+          "calls": 2,
+          "seconds": 0.006
+        },
+        "unit: integrity analysis": {
+          "calls": 1,
+          "seconds": 0.13
+        },
+        "db: add attempt": {
+          "calls": 1,
+          "seconds": 0.002
+        },
+        "unit: produce (all work per unit)": {
+          "calls": 1,
+          "seconds": 0.246
+        },
+        "reports: release gate": {
+          "calls": 43,
+          "seconds": 0.312
+        },
+        "db: load events": {
+          "calls": 3,
+          "seconds": 0.008
+        },
+        "reports: render quality report": {
+          "calls": 1,
+          "seconds": 0.179
+        },
+        "phase: units (wall time)": {
+          "calls": 1,
+          "seconds": 0.247
+        },
+        "audio: finish_file (edges+CBR, all calls)": {
+          "calls": 15,
+          "seconds": 21.432
+        },
+        "assembly: master chapters": {
+          "calls": 1,
+          "seconds": 27.026
+        },
+        "assembly: join complete book": {
+          "calls": 1,
+          "seconds": 2.787
+        },
+        "package: build DAISY (incl. chapter work)": {
+          "calls": 1,
+          "seconds": 6.022
+        },
+        "validate: structural": {
+          "calls": 1,
+          "seconds": 1.221
+        },
+        "validate: DTD": {
+          "calls": 1,
+          "seconds": 0.01
+        },
+        "validate: timing (decodes audio)": {
+          "calls": 1,
+          "seconds": 4.42
+        },
+        "validate: ONCE structure": {
+          "calls": 1,
+          "seconds": 0.024
+        },
+        "validate: completeness chain (incl. timing)": {
+          "calls": 1,
+          "seconds": 7.109
+        },
+        "zip: add files": {
+          "calls": 46,
+          "seconds": 0.634
+        },
+        "assembly: total": {
+          "calls": 1,
+          "seconds": 42.999
+        }
+      },
+      "chapters": {
+        "reused": 0,
+        "shared": 13,
+        "rebuilt": 1
+      },
+      "polling": {
+        "requests": 78,
+        "median_ms": 36.9,
+        "max_ms": 303.6,
+        "max_bytes": 644095
+      },
+      "zip": {
+        "bytes": 271105103,
+        "crc": "passed",
+        "structural": "passed",
+        "dtd": "passed",
+        "timing": "passed",
+        "chapter_files": 14,
+        "chapter_files_expected": 14,
+        "deleted_titles_found": [],
+        "integrity": "passed"
+      },
+      "perf_log": [
+        "perf.stage: checking finished | stage=checking seconds=0.928",
+        "perf.stage: narrating finished | stage=narrating seconds=0.376",
+        "perf.stage: chapters finished | stage=chapters seconds=27.314",
+        "perf.stage: package finished | stage=package seconds=6.023",
+        "perf.stage: validating finished | stage=validating seconds=8.419",
+        "perf.stage: zipping finished | stage=zipping seconds=0.827",
+        "perf.stage: verifying finished | stage=verifying seconds=0.342",
+        "perf.summary: build timings | outcome=completed total_seconds=44.234 checking_seconds=0.928 narrating_seconds=0.376 chapters_seconds=27.314 package_seconds=6.023 validating_seconds=8.419 zipping_seconds=0.827 verifying_seconds=0.342 units={\"total\":528,\"reused\":527,\"to_narrate\":1,\"narrated\":1,\"already_done\":0} chapters={\"total\":14,\"done\":14,\"reused\":13,\"rebuilt\":1}"
+      ]
+    },
+    {
+      "scenario": "insert",
+      "job_id": "59d8f719-e078-4519-bf18-d7e2275e8c2a",
+      "state": "completed",
+      "units": 529,
+      "reused_existing_job": false,
+      "seconds": {
+        "total": 47.37,
+        "create_request": 0.68,
+        "production_and_assembly": 45.67,
+        "download": 1.02
+      },
+      "narration_calls": 1,
+      "narrated_characters": 54,
+      "recognition_calls": 1,
+      "stages": {
+        "db: add event": {
+          "calls": 6,
+          "seconds": 0.086
+        },
+        "db: load whole job": {
+          "calls": 91,
+          "seconds": 2.987
+        },
+        "db: update unit": {
+          "calls": 2,
+          "seconds": 0.022
+        },
+        "unit: integrity analysis": {
+          "calls": 1,
+          "seconds": 0.041
+        },
+        "db: add attempt": {
+          "calls": 1,
+          "seconds": 0.005
+        },
+        "unit: produce (all work per unit)": {
+          "calls": 1,
+          "seconds": 0.151
+        },
+        "reports: release gate": {
+          "calls": 44,
+          "seconds": 0.366
+        },
+        "db: load events": {
+          "calls": 3,
+          "seconds": 0.009
+        },
+        "reports: render quality report": {
+          "calls": 1,
+          "seconds": 0.165
+        },
+        "phase: units (wall time)": {
+          "calls": 1,
+          "seconds": 0.153
+        },
+        "audio: finish_file (edges+CBR, all calls)": {
+          "calls": 15,
+          "seconds": 21.336
+        },
+        "assembly: master chapters": {
+          "calls": 1,
+          "seconds": 27.064
+        },
+        "assembly: join complete book": {
+          "calls": 1,
+          "seconds": 2.881
+        },
+        "package: build DAISY (incl. chapter work)": {
+          "calls": 1,
+          "seconds": 6.15
+        },
+        "validate: structural": {
+          "calls": 1,
+          "seconds": 1.463
+        },
+        "validate: DTD": {
+          "calls": 1,
+          "seconds": 0.013
+        },
+        "validate: timing (decodes audio)": {
+          "calls": 1,
+          "seconds": 4.478
+        },
+        "validate: ONCE structure": {
+          "calls": 1,
+          "seconds": 0.028
+        },
+        "validate: completeness chain (incl. timing)": {
+          "calls": 1,
+          "seconds": 7.232
+        },
+        "zip: add files": {
+          "calls": 46,
+          "seconds": 0.736
+        },
+        "assembly: total": {
+          "calls": 1,
+          "seconds": 43.793
+        }
+      },
+      "chapters": {
+        "reused": 0,
+        "shared": 13,
+        "rebuilt": 1
+      },
+      "polling": {
+        "requests": 80,
+        "median_ms": 35.7,
+        "max_ms": 392.1,
+        "max_bytes": 644923
+      },
+      "zip": {
+        "bytes": 271230110,
+        "crc": "passed",
+        "structural": "passed",
+        "dtd": "passed",
+        "timing": "passed",
+        "chapter_files": 14,
+        "chapter_files_expected": 14,
+        "deleted_titles_found": [],
+        "integrity": "passed"
+      },
+      "perf_log": [
+        "perf.stage: checking finished | stage=checking seconds=1.599",
+        "perf.stage: narrating finished | stage=narrating seconds=0.240",
+        "perf.stage: chapters finished | stage=chapters seconds=27.492",
+        "perf.stage: package finished | stage=package seconds=6.151",
+        "perf.stage: validating finished | stage=validating seconds=8.800",
+        "perf.stage: zipping finished | stage=zipping seconds=0.918",
+        "perf.stage: verifying finished | stage=verifying seconds=0.363",
+        "perf.summary: build timings | outcome=completed total_seconds=45.569 checking_seconds=1.599 narrating_seconds=0.240 chapters_seconds=27.492 package_seconds=6.151 validating_seconds=8.800 zipping_seconds=0.918 verifying_seconds=0.363 units={\"total\":529,\"reused\":528,\"to_narrate\":1,\"narrated\":1,\"already_done\":0} chapters={\"total\":14,\"done\":14,\"reused\":13,\"rebuilt\":1}"
+      ]
+    },
+    {
+      "scenario": "remove",
+      "job_id": "e3e1a0be-0e2f-4eb8-99b1-5742b8a5ee0b",
+      "state": "completed",
+      "units": 528,
+      "reused_existing_job": false,
+      "seconds": {
+        "total": 45.07,
+        "create_request": 0.3,
+        "production_and_assembly": 43.71,
+        "download": 1.06
+      },
+      "narration_calls": 0,
+      "narrated_characters": 0,
+      "recognition_calls": 0,
+      "stages": {
+        "db: add event": {
+          "calls": 3,
+          "seconds": 0.022
+        },
+        "db: load whole job": {
+          "calls": 87,
+          "seconds": 3.042
+        },
+        "reports: release gate": {
+          "calls": 42,
+          "seconds": 0.499
+        },
+        "db: load events": {
+          "calls": 3,
+          "seconds": 0.009
+        },
+        "reports: render quality report": {
+          "calls": 1,
+          "seconds": 0.139
+        },
+        "phase: units (wall time)": {
+          "calls": 1,
+          "seconds": 0.0
+        },
+        "audio: finish_file (edges+CBR, all calls)": {
+          "calls": 15,
+          "seconds": 20.975
+        },
+        "assembly: master chapters": {
+          "calls": 1,
+          "seconds": 26.446
+        },
+        "assembly: join complete book": {
+          "calls": 1,
+          "seconds": 2.609
+        },
+        "package: build DAISY (incl. chapter work)": {
+          "calls": 1,
+          "seconds": 5.879
+        },
+        "validate: structural": {
+          "calls": 1,
+          "seconds": 1.261
+        },
+        "validate: DTD": {
+          "calls": 1,
+          "seconds": 0.01
+        },
+        "validate: timing (decodes audio)": {
+          "calls": 1,
+          "seconds": 4.581
+        },
+        "validate: ONCE structure": {
+          "calls": 1,
+          "seconds": 0.027
+        },
+        "validate: completeness chain (incl. timing)": {
+          "calls": 1,
+          "seconds": 7.332
+        },
+        "zip: add files": {
+          "calls": 46,
+          "seconds": 0.666
+        },
+        "assembly: total": {
+          "calls": 1,
+          "seconds": 42.606
+        }
+      },
+      "chapters": {
+        "reused": 0,
+        "shared": 13,
+        "rebuilt": 1
+      },
+      "polling": {
+        "requests": 76,
+        "median_ms": 38.1,
+        "max_ms": 464.1,
+        "max_bytes": 644026
+      },
+      "zip": {
+        "bytes": 271056788,
+        "crc": "passed",
+        "structural": "passed",
+        "dtd": "passed",
+        "timing": "passed",
+        "chapter_files": 14,
+        "chapter_files_expected": 14,
+        "deleted_titles_found": [],
+        "integrity": "passed"
+      },
+      "perf_log": [
+        "perf.stage: checking finished | stage=checking seconds=0.985",
+        "perf.stage: narrating finished | stage=narrating seconds=0.180",
+        "perf.stage: chapters finished | stage=chapters seconds=26.766",
+        "perf.stage: package finished | stage=package seconds=5.879",
+        "perf.stage: validating finished | stage=validating seconds=8.694",
+        "perf.stage: zipping finished | stage=zipping seconds=0.820",
+        "perf.stage: verifying finished | stage=verifying seconds=0.342",
+        "perf.summary: build timings | outcome=completed total_seconds=43.673 checking_seconds=0.985 narrating_seconds=0.180 chapters_seconds=26.766 package_seconds=5.879 validating_seconds=8.694 zipping_seconds=0.820 verifying_seconds=0.342 units={\"total\":528,\"reused\":528,\"to_narrate\":0,\"narrated\":0,\"already_done\":0} chapters={\"total\":14,\"done\":14,\"reused\":13,\"rebuilt\":1}"
+      ]
+    },
+    {
+      "scenario": "direct",
+      "state": "completed",
+      "detail": "",
+      "seconds": {
+        "total": 12.9
+      },
+      "narration_calls": 0,
+      "stages": {
+        "phase: units (wall time)": {
+          "calls": 1,
+          "seconds": 0.222
+        },
+        "audio: finish_file (edges+CBR, all calls)": {
+          "calls": 14,
+          "seconds": 2.738
+        },
+        "assembly: join complete book": {
+          "calls": 1,
+          "seconds": 2.616
+        },
+        "package: build DAISY (incl. chapter work)": {
+          "calls": 1,
+          "seconds": 5.863
+        },
+        "validate: structural": {
+          "calls": 1,
+          "seconds": 1.168
+        },
+        "validate: DTD": {
+          "calls": 1,
+          "seconds": 0.009
+        },
+        "validate: timing (decodes audio)": {
+          "calls": 1,
+          "seconds": 4.391
+        },
+        "validate: ONCE structure": {
+          "calls": 1,
+          "seconds": 0.023
+        },
+        "zip: add files": {
+          "calls": 35,
+          "seconds": 0.52
+        },
+        "zip: direct package": {
+          "calls": 1,
+          "seconds": 0.525
+        },
+        "direct: total": {
+          "calls": 1,
+          "seconds": 12.859
+        }
+      },
+      "zip": {
+        "bytes": 270803350,
+        "crc": "passed",
+        "structural": "passed",
+        "dtd": "passed",
+        "timing": "passed",
+        "chapter_files": 14,
+        "chapter_files_expected": 14,
+        "deleted_titles_found": [],
+        "integrity": "passed"
+      }
+    }
+  ]
+}

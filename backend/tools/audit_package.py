@@ -1,4 +1,4 @@
-"""Audit any DAISY 3 package or delivery ZIP: structure, DTDs, timing against the real audio.
+"""Audit any DAISY 3 package or delivery ZIP: structure, DTDs, timing, ZedVal's Z39.86 rules.
 
     cd backend
     python -m tools.audit_package "D:/Downloads/Cuentos de la Selva/DAISY 3" --out report.json
@@ -6,7 +6,10 @@
 
 Nothing is written into the package. A ZIP is extracted to a temporary folder.
 The silence at the edges is checked against the targets given (the delivery
-defaults unless told otherwise); ``--no-edges`` skips that measurement.
+defaults unless told otherwise); ``--no-edges`` skips that measurement. The
+complete audiobook is found beside the package in a ZIP (or given with
+``--book-audio``). Every package is also held to ZedVal's Z39.86-2005
+requirements (app.zedval_rules), reported under ZedVal's test ids.
 """
 
 from __future__ import annotations
@@ -20,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app import daisy_dtd, daisy_timing  # noqa: E402
+from app import daisy_dtd, daisy_timing, package_integrity, zedval_rules  # noqa: E402
 from app.audio_master import MasteringOptions  # noqa: E402
 from app.daisy_validation import validate_daisy_package  # noqa: E402
 
@@ -33,7 +36,8 @@ def _package_root(folder: Path) -> Path:
 
 
 def audit(package: Path, *, edges: bool = True, leading: float | None = None, trailing: float | None = None,
-          bitrate_kbps: int | None = None, chapter_gap: float | None = None) -> dict:
+          bitrate_kbps: int | None = None, chapter_gap: float | None = None,
+          book_audio: Path | None = None) -> dict:
     defaults = MasteringOptions()
     lead, tail = defaults.edges
     try:
@@ -47,9 +51,12 @@ def audit(package: Path, *, edges: bool = True, leading: float | None = None, tr
         trailing=(tail if trailing is None else trailing) if edges else None,
         bitrate_kbps=bitrate_kbps if bitrate_kbps is not None else defaults.bitrate_kbps,
         chapter_gap=chapter_gap if chapter_gap is not None else defaults.chapter_gap_ms / 1000,
+        book_audio=book_audio,
     )
+    rules = zedval_rules.verify(package)
     return {"package": str(package), "structural": structural, "dtd": daisy_dtd.validate_package(package),
-            "timing": daisy_timing.summary(checks), "checks": checks}
+            "timing": daisy_timing.summary(checks), "zedval_rules": zedval_rules.summary(rules),
+            "checks": checks + rules}
 
 
 def alignment(package: Path, before: float = 0.2, after: float = 0.3) -> dict:
@@ -92,26 +99,40 @@ def main() -> None:
     parser.add_argument("--no-edges", action="store_true", help="do not measure the silence at the edges")
     parser.add_argument("--alignment", action="store_true",
                         help="also measure that every clip boundary falls in a pause followed by speech")
+    parser.add_argument("--book-audio", default="", help="the complete audiobook, when it is not beside the package")
     args = parser.parse_args()
     source = Path(args.source)
+    book_audio = Path(args.book_audio) if args.book_audio else None
     with tempfile.TemporaryDirectory(prefix="soni2-audit-") as folder:
         if source.suffix.lower() == ".zip":
+            # The archive itself first: CRC, layout, manifest, references,
+            # orphaned audio, order and metadata, read as a reader would.
+            integrity = package_integrity.audit_zip(source)
             with zipfile.ZipFile(source) as archive:
                 archive.extractall(folder)
             package = _package_root(Path(folder))
+            # The complete audiobook travels beside "DAISY 3/".
+            beside = sorted(package.parent.glob("*.mp3"))
+            book_audio = book_audio or (beside[0] if beside else None)
         else:
+            integrity = None
             package = _package_root(source)
-        report = audit(package, edges=not args.no_edges)
+        report = audit(package, edges=not args.no_edges, book_audio=book_audio)
+        if integrity is not None:
+            report["zip_integrity"] = integrity
         if args.alignment:
             report["alignment"] = alignment(package)
         report["package"] = str(source)
     if args.out:
         Path(args.out).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps({"structural": report["structural"], "dtd": report["dtd"]["status"],
-                      "timing": report["timing"],
+                      "timing": report["timing"], "zedval_rules": report["zedval_rules"],
+                      **({"zip_integrity": report["zip_integrity"]["status"]} if "zip_integrity" in report else {}),
                       **({"alignment": {key: value for key, value in report["alignment"].items()
                                         if key != "not_confirmed"}} if "alignment" in report else {})},
                      ensure_ascii=False, indent=2))
+    for check in (report.get("zip_integrity") or {}).get("checks", []):
+        print(f"{check['status']:>8}  {check['id']:<22} {check['detail'][:150]}")
     for check in report["checks"]:
         print(f"{check['status']:>8}  {check['id']:<22} {check['detail'][:150]}")
         for problem in check.get("problems", [])[:3]:

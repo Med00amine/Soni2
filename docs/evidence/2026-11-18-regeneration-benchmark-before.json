@@ -1,0 +1,829 @@
+{
+  "book": {
+    "chapters": 12,
+    "paragraphs_per_chapter": 45,
+    "units": 575,
+    "fake_narration_latency": 0.0
+  },
+  "machine": {
+    "platform": "win32",
+    "python": "3.13.2",
+    "cpus": 12
+  },
+  "scenarios": [
+    {
+      "scenario": "seed",
+      "job_id": "99106402-3f04-4335-b6ed-be6f72082492",
+      "state": "completed",
+      "units": 575,
+      "reused_existing_job": false,
+      "seconds": {
+        "total": 544.58,
+        "create_request": 0.32,
+        "production_and_assembly": 542.93,
+        "download": 1.33
+      },
+      "narration_calls": 574,
+      "narrated_characters": 130573,
+      "recognition_calls": 574,
+      "stages": {
+        "db: add event": {
+          "calls": 1726,
+          "seconds": 19.851
+        },
+        "db: load whole job": {
+          "calls": 2026,
+          "seconds": 59.352
+        },
+        "db: update unit": {
+          "calls": 1150,
+          "seconds": 8.392
+        },
+        "unit: integrity analysis": {
+          "calls": 575,
+          "seconds": 52.905
+        },
+        "db: add attempt": {
+          "calls": 575,
+          "seconds": 4.159
+        },
+        "unit: produce (all work per unit)": {
+          "calls": 575,
+          "seconds": 329.189
+        },
+        "db: load events": {
+          "calls": 987,
+          "seconds": 9.482
+        },
+        "reports: release gate": {
+          "calls": 494,
+          "seconds": 23.457
+        },
+        "reports: render quality report": {
+          "calls": 30,
+          "seconds": 3.885
+        },
+        "phase: units (wall time)": {
+          "calls": 1,
+          "seconds": 98.822
+        },
+        "audio: finish_file (edges+CBR, all calls)": {
+          "calls": 30,
+          "seconds": 280.697
+        },
+        "assembly: master chapters": {
+          "calls": 15,
+          "seconds": 369.561
+        },
+        "assembly: join complete book": {
+          "calls": 1,
+          "seconds": 3.471
+        },
+        "package: build DAISY (incl. chapter work)": {
+          "calls": 1,
+          "seconds": 24.251
+        },
+        "validate: structural": {
+          "calls": 1,
+          "seconds": 1.585
+        },
+        "validate: DTD": {
+          "calls": 1,
+          "seconds": 0.401
+        },
+        "validate: timing (decodes audio)": {
+          "calls": 1,
+          "seconds": 42.826
+        },
+        "validate: ONCE structure": {
+          "calls": 1,
+          "seconds": 0.035
+        },
+        "validate: completeness chain (incl. timing)": {
+          "calls": 1,
+          "seconds": 46.12
+        },
+        "zip: add files": {
+          "calls": 48,
+          "seconds": 0.882
+        },
+        "assembly: total": {
+          "calls": 1,
+          "seconds": 444.06
+        }
+      },
+      "chapters": {
+        "reused": 0,
+        "shared": 0,
+        "rebuilt": 15
+      },
+      "polling": {
+        "requests": 922,
+        "median_ms": 89.4,
+        "max_ms": 986.0,
+        "max_bytes": 1913698
+      },
+      "zip": {
+        "bytes": 294185285,
+        "crc": "passed",
+        "structural": "passed",
+        "dtd": "passed",
+        "timing": "passed",
+        "chapter_files": 15,
+        "deleted_titles_found": [],
+        "integrity": "not available"
+      },
+      "perf_log": []
+    },
+    {
+      "scenario": "unchanged",
+      "job_id": "fa39f7e2-a7ca-4bf8-b595-f23f804b7907",
+      "state": "completed",
+      "units": 575,
+      "reused_existing_job": false,
+      "seconds": {
+        "total": 155.65,
+        "create_request": 0.34,
+        "production_and_assembly": 154.09,
+        "download": 1.22
+      },
+      "narration_calls": 0,
+      "narrated_characters": 0,
+      "recognition_calls": 0,
+      "stages": {
+        "db: add event": {
+          "calls": 1152,
+          "seconds": 12.298
+        },
+        "db: load whole job": {
+          "calls": 1021,
+          "seconds": 34.979
+        },
+        "db: update unit": {
+          "calls": 1150,
+          "seconds": 7.031
+        },
+        "unit: integrity analysis": {
+          "calls": 575,
+          "seconds": 56.532
+        },
+        "db: add attempt": {
+          "calls": 575,
+          "seconds": 6.866
+        },
+        "unit: produce (all work per unit)": {
+          "calls": 575,
+          "seconds": 257.774
+        },
+        "db: load events": {
+          "calls": 317,
+          "seconds": 2.877
+        },
+        "reports: release gate": {
+          "calls": 159,
+          "seconds": 8.842
+        },
+        "reports: render quality report": {
+          "calls": 30,
+          "seconds": 5.098
+        },
+        "phase: units (wall time)": {
+          "calls": 1,
+          "seconds": 80.52
+        },
+        "audio: finish_file (edges+CBR, all calls)": {
+          "calls": 15,
+          "seconds": 20.205
+        },
+        "assembly: join complete book": {
+          "calls": 1,
+          "seconds": 3.321
+        },
+        "package: build DAISY (incl. chapter work)": {
+          "calls": 1,
+          "seconds": 24.227
+        },
+        "validate: structural": {
+          "calls": 1,
+          "seconds": 1.627
+        },
+        "validate: DTD": {
+          "calls": 1,
+          "seconds": 0.013
+        },
+        "validate: timing (decodes audio)": {
+          "calls": 1,
+          "seconds": 42.711
+        },
+        "validate: ONCE structure": {
+          "calls": 1,
+          "seconds": 0.03
+        },
+        "validate: completeness chain (incl. timing)": {
+          "calls": 1,
+          "seconds": 45.857
+        },
+        "zip: add files": {
+          "calls": 48,
+          "seconds": 0.781
+        },
+        "assembly: total": {
+          "calls": 1,
+          "seconds": 73.522
+        }
+      },
+      "chapters": {
+        "reused": 0,
+        "shared": 15,
+        "rebuilt": 0
+      },
+      "polling": {
+        "requests": 252,
+        "median_ms": 96.9,
+        "max_ms": 698.4,
+        "max_bytes": 1773642
+      },
+      "zip": {
+        "bytes": 294181253,
+        "crc": "passed",
+        "structural": "passed",
+        "dtd": "passed",
+        "timing": "passed",
+        "chapter_files": 15,
+        "deleted_titles_found": [],
+        "integrity": "not available"
+      },
+      "perf_log": []
+    },
+    {
+      "scenario": "delete",
+      "job_id": "b8cde7b1-35d5-4585-ae2f-4db87ac29415",
+      "state": "completed",
+      "units": 528,
+      "reused_existing_job": false,
+      "seconds": {
+        "total": 144.32,
+        "create_request": 0.32,
+        "production_and_assembly": 142.75,
+        "download": 1.1
+      },
+      "narration_calls": 0,
+      "narrated_characters": 0,
+      "recognition_calls": 0,
+      "stages": {
+        "db: add event": {
+          "calls": 1058,
+          "seconds": 11.001
+        },
+        "db: load whole job": {
+          "calls": 946,
+          "seconds": 30.0
+        },
+        "db: update unit": {
+          "calls": 1056,
+          "seconds": 6.817
+        },
+        "unit: integrity analysis": {
+          "calls": 528,
+          "seconds": 52.869
+        },
+        "db: add attempt": {
+          "calls": 528,
+          "seconds": 5.719
+        },
+        "unit: produce (all work per unit)": {
+          "calls": 528,
+          "seconds": 235.06
+        },
+        "db: load events": {
+          "calls": 297,
+          "seconds": 2.564
+        },
+        "reports: release gate": {
+          "calls": 149,
+          "seconds": 7.16
+        },
+        "reports: render quality report": {
+          "calls": 28,
+          "seconds": 4.751
+        },
+        "phase: units (wall time)": {
+          "calls": 1,
+          "seconds": 72.488
+        },
+        "audio: finish_file (edges+CBR, all calls)": {
+          "calls": 15,
+          "seconds": 19.593
+        },
+        "assembly: master chapters": {
+          "calls": 1,
+          "seconds": 2.22
+        },
+        "assembly: join complete book": {
+          "calls": 1,
+          "seconds": 2.979
+        },
+        "package: build DAISY (incl. chapter work)": {
+          "calls": 1,
+          "seconds": 22.168
+        },
+        "validate: structural": {
+          "calls": 1,
+          "seconds": 1.36
+        },
+        "validate: DTD": {
+          "calls": 1,
+          "seconds": 0.01
+        },
+        "validate: timing (decodes audio)": {
+          "calls": 1,
+          "seconds": 40.158
+        },
+        "validate: ONCE structure": {
+          "calls": 1,
+          "seconds": 0.029
+        },
+        "validate: completeness chain (incl. timing)": {
+          "calls": 1,
+          "seconds": 43.019
+        },
+        "zip: add files": {
+          "calls": 46,
+          "seconds": 0.628
+        },
+        "assembly: total": {
+          "calls": 1,
+          "seconds": 70.219
+        }
+      },
+      "chapters": {
+        "reused": 0,
+        "shared": 13,
+        "rebuilt": 1
+      },
+      "polling": {
+        "requests": 236,
+        "median_ms": 89.6,
+        "max_ms": 738.5,
+        "max_bytes": 1630847
+      },
+      "zip": {
+        "bytes": 271088894,
+        "crc": "passed",
+        "structural": "passed",
+        "dtd": "passed",
+        "timing": "passed",
+        "chapter_files": 14,
+        "chapter_files_expected": 14,
+        "deleted_titles_found": [],
+        "integrity": "not available"
+      },
+      "perf_log": []
+    },
+    {
+      "scenario": "edit",
+      "job_id": "27d6e7d6-72e7-4f9c-a9ec-23c96a6f0151",
+      "state": "completed",
+      "units": 528,
+      "reused_existing_job": false,
+      "seconds": {
+        "total": 171.44,
+        "create_request": 0.33,
+        "production_and_assembly": 170.03,
+        "download": 1.09
+      },
+      "narration_calls": 1,
+      "narrated_characters": 432,
+      "recognition_calls": 1,
+      "stages": {
+        "db: add event": {
+          "calls": 1059,
+          "seconds": 9.809
+        },
+        "db: load whole job": {
+          "calls": 1015,
+          "seconds": 32.644
+        },
+        "db: update unit": {
+          "calls": 1056,
+          "seconds": 6.357
+        },
+        "unit: integrity analysis": {
+          "calls": 528,
+          "seconds": 53.971
+        },
+        "db: add attempt": {
+          "calls": 528,
+          "seconds": 5.339
+        },
+        "unit: produce (all work per unit)": {
+          "calls": 528,
+          "seconds": 227.627
+        },
+        "db: load events": {
+          "calls": 343,
+          "seconds": 3.073
+        },
+        "reports: release gate": {
+          "calls": 172,
+          "seconds": 8.273
+        },
+        "reports: render quality report": {
+          "calls": 28,
+          "seconds": 4.998
+        },
+        "phase: units (wall time)": {
+          "calls": 1,
+          "seconds": 71.46
+        },
+        "audio: finish_file (edges+CBR, all calls)": {
+          "calls": 15,
+          "seconds": 40.189
+        },
+        "assembly: master chapters": {
+          "calls": 1,
+          "seconds": 30.259
+        },
+        "assembly: join complete book": {
+          "calls": 1,
+          "seconds": 2.996
+        },
+        "package: build DAISY (incl. chapter work)": {
+          "calls": 1,
+          "seconds": 22.288
+        },
+        "validate: structural": {
+          "calls": 1,
+          "seconds": 1.42
+        },
+        "validate: DTD": {
+          "calls": 1,
+          "seconds": 0.012
+        },
+        "validate: timing (decodes audio)": {
+          "calls": 1,
+          "seconds": 39.996
+        },
+        "validate: ONCE structure": {
+          "calls": 1,
+          "seconds": 0.031
+        },
+        "validate: completeness chain (incl. timing)": {
+          "calls": 1,
+          "seconds": 42.938
+        },
+        "zip: add files": {
+          "calls": 46,
+          "seconds": 0.623
+        },
+        "assembly: total": {
+          "calls": 1,
+          "seconds": 98.501
+        }
+      },
+      "chapters": {
+        "reused": 0,
+        "shared": 13,
+        "rebuilt": 1
+      },
+      "polling": {
+        "requests": 282,
+        "median_ms": 87.1,
+        "max_ms": 702.5,
+        "max_bytes": 1630894
+      },
+      "zip": {
+        "bytes": 271153207,
+        "crc": "passed",
+        "structural": "passed",
+        "dtd": "passed",
+        "timing": "passed",
+        "chapter_files": 14,
+        "chapter_files_expected": 14,
+        "deleted_titles_found": [],
+        "integrity": "not available"
+      },
+      "perf_log": []
+    },
+    {
+      "scenario": "insert",
+      "job_id": "1bf116f4-ab07-4a3d-a21c-375e11d89501",
+      "state": "completed",
+      "units": 529,
+      "reused_existing_job": false,
+      "seconds": {
+        "total": 169.28,
+        "create_request": 0.35,
+        "production_and_assembly": 167.87,
+        "download": 1.05
+      },
+      "narration_calls": 1,
+      "narrated_characters": 54,
+      "recognition_calls": 1,
+      "stages": {
+        "db: add event": {
+          "calls": 1061,
+          "seconds": 8.968
+        },
+        "db: load whole job": {
+          "calls": 1016,
+          "seconds": 30.852
+        },
+        "db: update unit": {
+          "calls": 1058,
+          "seconds": 7.166
+        },
+        "unit: integrity analysis": {
+          "calls": 529,
+          "seconds": 54.736
+        },
+        "db: add attempt": {
+          "calls": 529,
+          "seconds": 5.812
+        },
+        "unit: produce (all work per unit)": {
+          "calls": 529,
+          "seconds": 225.183
+        },
+        "db: load events": {
+          "calls": 343,
+          "seconds": 3.175
+        },
+        "reports: release gate": {
+          "calls": 172,
+          "seconds": 8.073
+        },
+        "reports: render quality report": {
+          "calls": 28,
+          "seconds": 4.937
+        },
+        "phase: units (wall time)": {
+          "calls": 1,
+          "seconds": 69.684
+        },
+        "audio: finish_file (edges+CBR, all calls)": {
+          "calls": 15,
+          "seconds": 40.101
+        },
+        "assembly: master chapters": {
+          "calls": 1,
+          "seconds": 31.129
+        },
+        "assembly: join complete book": {
+          "calls": 1,
+          "seconds": 2.912
+        },
+        "package: build DAISY (incl. chapter work)": {
+          "calls": 1,
+          "seconds": 22.059
+        },
+        "validate: structural": {
+          "calls": 1,
+          "seconds": 1.324
+        },
+        "validate: DTD": {
+          "calls": 1,
+          "seconds": 0.011
+        },
+        "validate: timing (decodes audio)": {
+          "calls": 1,
+          "seconds": 39.236
+        },
+        "validate: ONCE structure": {
+          "calls": 1,
+          "seconds": 0.026
+        },
+        "validate: completeness chain (incl. timing)": {
+          "calls": 1,
+          "seconds": 42.184
+        },
+        "zip: add files": {
+          "calls": 46,
+          "seconds": 0.61
+        },
+        "assembly: total": {
+          "calls": 1,
+          "seconds": 98.145
+        }
+      },
+      "chapters": {
+        "reused": 0,
+        "shared": 13,
+        "rebuilt": 1
+      },
+      "polling": {
+        "requests": 282,
+        "median_ms": 84.0,
+        "max_ms": 536.1,
+        "max_bytes": 1633092
+      },
+      "zip": {
+        "bytes": 271278107,
+        "crc": "passed",
+        "structural": "passed",
+        "dtd": "passed",
+        "timing": "passed",
+        "chapter_files": 14,
+        "chapter_files_expected": 14,
+        "deleted_titles_found": [],
+        "integrity": "not available"
+      },
+      "perf_log": []
+    },
+    {
+      "scenario": "remove",
+      "job_id": "6ce17680-7742-4b21-8479-8dd9608dfb6a",
+      "state": "completed",
+      "units": 528,
+      "reused_existing_job": false,
+      "seconds": {
+        "total": 172.23,
+        "create_request": 0.33,
+        "production_and_assembly": 170.81,
+        "download": 1.09
+      },
+      "narration_calls": 0,
+      "narrated_characters": 0,
+      "recognition_calls": 0,
+      "stages": {
+        "db: add event": {
+          "calls": 1058,
+          "seconds": 11.072
+        },
+        "db: load whole job": {
+          "calls": 1021,
+          "seconds": 31.741
+        },
+        "db: update unit": {
+          "calls": 1056,
+          "seconds": 6.869
+        },
+        "unit: integrity analysis": {
+          "calls": 528,
+          "seconds": 53.421
+        },
+        "db: add attempt": {
+          "calls": 528,
+          "seconds": 5.925
+        },
+        "unit: produce (all work per unit)": {
+          "calls": 528,
+          "seconds": 235.564
+        },
+        "db: load events": {
+          "calls": 347,
+          "seconds": 3.453
+        },
+        "reports: release gate": {
+          "calls": 174,
+          "seconds": 8.896
+        },
+        "reports: render quality report": {
+          "calls": 28,
+          "seconds": 4.945
+        },
+        "phase: units (wall time)": {
+          "calls": 1,
+          "seconds": 73.122
+        },
+        "audio: finish_file (edges+CBR, all calls)": {
+          "calls": 15,
+          "seconds": 39.572
+        },
+        "assembly: master chapters": {
+          "calls": 1,
+          "seconds": 30.087
+        },
+        "assembly: join complete book": {
+          "calls": 1,
+          "seconds": 2.97
+        },
+        "package: build DAISY (incl. chapter work)": {
+          "calls": 1,
+          "seconds": 22.335
+        },
+        "validate: structural": {
+          "calls": 1,
+          "seconds": 1.372
+        },
+        "validate: DTD": {
+          "calls": 1,
+          "seconds": 0.01
+        },
+        "validate: timing (decodes audio)": {
+          "calls": 1,
+          "seconds": 39.279
+        },
+        "validate: ONCE structure": {
+          "calls": 1,
+          "seconds": 0.029
+        },
+        "validate: completeness chain (incl. timing)": {
+          "calls": 1,
+          "seconds": 42.297
+        },
+        "zip: add files": {
+          "calls": 46,
+          "seconds": 0.715
+        },
+        "assembly: total": {
+          "calls": 1,
+          "seconds": 97.643
+        }
+      },
+      "chapters": {
+        "reused": 0,
+        "shared": 13,
+        "rebuilt": 1
+      },
+      "polling": {
+        "requests": 286,
+        "median_ms": 86.1,
+        "max_ms": 549.3,
+        "max_bytes": 1630391
+      },
+      "zip": {
+        "bytes": 271105339,
+        "crc": "passed",
+        "structural": "passed",
+        "dtd": "passed",
+        "timing": "passed",
+        "chapter_files": 14,
+        "chapter_files_expected": 14,
+        "deleted_titles_found": [],
+        "integrity": "not available"
+      },
+      "perf_log": []
+    },
+    {
+      "scenario": "direct",
+      "state": "completed",
+      "detail": "",
+      "seconds": {
+        "total": 403.92
+      },
+      "narration_calls": 0,
+      "stages": {
+        "phase: units (wall time)": {
+          "calls": 1,
+          "seconds": 0.202
+        },
+        "audio: finish_file (edges+CBR, all calls)": {
+          "calls": 28,
+          "seconds": 259.172
+        },
+        "assembly: master chapters": {
+          "calls": 14,
+          "seconds": 340.25
+        },
+        "assembly: join complete book": {
+          "calls": 1,
+          "seconds": 3.051
+        },
+        "package: build DAISY (incl. chapter work)": {
+          "calls": 1,
+          "seconds": 362.524
+        },
+        "validate: structural": {
+          "calls": 1,
+          "seconds": 1.237
+        },
+        "validate: DTD": {
+          "calls": 1,
+          "seconds": 0.011
+        },
+        "validate: timing (decodes audio)": {
+          "calls": 1,
+          "seconds": 39.143
+        },
+        "validate: ONCE structure": {
+          "calls": 1,
+          "seconds": 0.028
+        },
+        "zip: add files": {
+          "calls": 35,
+          "seconds": 0.486
+        },
+        "zip: direct package": {
+          "calls": 1,
+          "seconds": 0.491
+        },
+        "direct: total": {
+          "calls": 1,
+          "seconds": 403.89
+        }
+      },
+      "zip": {
+        "bytes": 270802533,
+        "crc": "passed",
+        "structural": "passed",
+        "dtd": "passed",
+        "timing": "passed",
+        "chapter_files": 14,
+        "chapter_files_expected": 14,
+        "deleted_titles_found": [],
+        "integrity": "not available"
+      }
+    }
+  ]
+}

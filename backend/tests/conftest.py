@@ -50,4 +50,7 @@ def deterministic_environment(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "settings", main.settings.model_copy(update=TEST_SETTINGS))
     # A concurrency limit one test's fake provider reported must not carry over.
     monkeypatch.setattr(providers, "reported_concurrency", {})
+    # Nor a download another test started: the same request is answered with
+    # the task already building (or holding) its ZIP.
+    monkeypatch.setattr(main, "package_tasks", {})
     return main.audio_cache

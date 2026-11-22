@@ -58,7 +58,7 @@ beforeEach(() => {
       title: 'Libro de prueba', author: 'Autora', audio_error: 'Sin audio de muestra.',
     })
     if (url.endsWith('/api/books/jobs')) return response({ job_id: 'job-1', state: 'queued', total_sentences: 2 })
-    if (url.endsWith('/api/jobs/job-1')) return response({
+    if (url.includes('/api/jobs/job-1') && !url.endsWith('/review')) return response({
       job_id: 'job-1', state: 'partially_completed', source_name: 'sample.txt', total_sentences: 2,
       progress: { verified: 1, needs_human_review: 1 }, sentences: [{
         sentence_id: 'sentence-review', chapter_index: 0, chapter_title: 'Capítulo uno', sequence: 1,
@@ -121,7 +121,7 @@ describe('Soni2 audiobook workspace', () => {
         chapters: [{ title: 'Capítulo de prueba', paragraphs }], title: 'Libro largo', audio_error: 'Sin audio de muestra.',
       }) as Response
       if (url.endsWith('/api/books/jobs')) return response({ job_id: 'job-long', state: 'queued', total_sentences: 115 }) as Response
-      if (url.endsWith('/api/jobs/job-long')) return response({
+      if (url.includes('/api/jobs/job-long')) return response({
         job_id: 'job-long', state: 'partially_completed', source_name: 'sample.txt', total_sentences: 115,
         progress: {}, sentences: [],
       }) as Response
@@ -140,8 +140,9 @@ describe('Soni2 audiobook workspace', () => {
     expect(phrases[0].textContent).toContain('Párrafo de prueba 1.')
     expect(phrases[114].textContent).toContain('Párrafo de prueba 115.')
     expect(document.querySelector('#tab-review')?.getAttribute('aria-selected')).toBe('true')
-    expect(document.querySelector('.export-actions button')?.textContent).toContain('Descargar audiolibro ahora')
-    expect(document.querySelector('.export-actions')?.textContent).toContain('Producir con revisión de calidad')
+    // Step 3's two actions are there, and only there.
+    expect([...document.querySelectorAll('#panel-export [data-primary-action]')].map(item => item.textContent?.trim()))
+      .toEqual(['Descargar ZIP', 'Regenerar ZIP'])
 
     // A phrase is corrected in place, before anything is narrated.
     const edit = document.querySelector<HTMLButtonElement>('button[aria-label="Corregir la frase 13"]')!
@@ -163,10 +164,8 @@ describe('Soni2 audiobook workspace', () => {
     await act(async () => document.querySelector<HTMLButtonElement>('#tab-review')!.click())
     expect(document.querySelectorAll('#panel-review .ed-phrase')[12].textContent).toContain('Texto corregido de forma persistente.')
 
-    // The reviewed production run is its own action, beside the direct
-    // download, and it narrates the corrected text.
-    const produce = [...document.querySelectorAll<HTMLButtonElement>('.export-actions button')]
-      .find(button => button.textContent?.includes('Producir con revisión de calidad'))!
+    // «Descargar ZIP» produces the book with review, from the corrected text.
+    const produce = document.querySelector<HTMLButtonElement>('#panel-export [data-primary-action="download"]')!
     await act(async () => produce.click())
     const request = vi.mocked(fetch).mock.calls.find(([url]) => String(url) === '/api/books/jobs')!
     expect(request[1]).toEqual(expect.objectContaining({ method: 'POST', body: expect.any(FormData) }))
@@ -227,8 +226,7 @@ describe('Soni2 audiobook workspace', () => {
     await act(async () => document.querySelector<HTMLButtonElement>('#tab-export')!.click())
     expect(document.querySelector('#panel-export')?.hasAttribute('hidden')).toBe(false)
     expect(document.querySelector('#panel-review')?.hasAttribute('hidden')).toBe(true)
-    expect(document.querySelector('.export-actions button')?.textContent).toContain('Descargar audiolibro ahora')
-    expect(document.querySelector('.export-actions')?.textContent).toContain('Producir con revisión de calidad')
+    expect(document.querySelectorAll('#panel-export [data-primary-action]')).toHaveLength(2)
     await act(async () => document.querySelector<HTMLButtonElement>('#tab-review')!.click())
     expect(phraseTexts()).toEqual(['Capítulo segundo editado.'])
   })
@@ -239,12 +237,15 @@ describe('Soni2 audiobook workspace', () => {
     await uploadTextBook()
     const previewButton = [...document.querySelectorAll('button')].find(button => button.textContent?.includes('Generar vista previa'))!
     await act(async () => previewButton.click())
-    const generateButton = [...document.querySelectorAll<HTMLButtonElement>('.export-actions button')]
-      .find(button => button.textContent?.includes('Producir con revisión de calidad'))!
+    const generateButton = document.querySelector<HTMLButtonElement>('#panel-export [data-primary-action="download"]')!
     await act(async () => generateButton.click())
-    expect(document.body.textContent).toContain('Producción del audiolibro')
-    expect(document.body.textContent).toContain('Párrafos que necesitan tu revisión (1)')
-    expect(document.body.textContent).toContain('Lo que se oye en el audio')
+    expect(document.querySelector('#panel-export')?.textContent).toContain('Párrafos que esperan tu decisión (1)')
+    // Step 3 sends the reader to the paragraph; step 2 is where it is decided.
+    const open = [...document.querySelectorAll<HTMLButtonElement>('#panel-export .xp-link')]
+      .find(button => button.textContent?.includes('Capítulo uno · párrafo 2'))!
+    await act(async () => open.click())
+    expect(document.querySelector('#tab-review')?.getAttribute('aria-selected')).toBe('true')
+    expect(document.querySelector('#panel-review')?.textContent).toContain('Lo que se oye en el audio')
     const acceptButton = [...document.querySelectorAll('button')].find(button => button.textContent?.includes('La locución es correcta'))!
     await act(async () => acceptButton.click())
     expect(vi.mocked(fetch)).toHaveBeenCalledWith('/api/jobs/job-1/review', expect.objectContaining({ method: 'POST' }))

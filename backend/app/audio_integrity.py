@@ -40,6 +40,13 @@ MAX_CLIPPED_RATIO = 0.002
 # 13-17; outside this band words are likely missing or the voice is stuck.
 MIN_CHARS_PER_SECOND = 6.0
 MAX_CHARS_PER_SECOND = 30.0
+# What a stored report was produced by (see AudioCache.get_integrity): any
+# change to the analysis or to a limit gives a new signature, so reports made
+# by an older analysis are never taken for the current one. Raise the number
+# when the analysis itself changes.
+ANALYSIS_VERSION = "1:" + ",".join(str(value) for value in (
+    PCM_RATE, SILENCE_DBFS, MAX_LEADING_SILENCE, MAX_TRAILING_SILENCE, MAX_INTERNAL_SILENCE, MAX_CLIPPED_RATIO,
+    MIN_CHARS_PER_SECOND, MAX_CHARS_PER_SECOND))
 
 
 def _frame(data: bytes, offset: int) -> dict | None:

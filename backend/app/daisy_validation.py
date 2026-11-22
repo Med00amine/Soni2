@@ -19,10 +19,15 @@ def validate_daisy_package(package: Path) -> None:
     opf_path = opf_files[0]
     opf = ET.parse(opf_path).getroot()
     by_id = {item.get("id", ""): item.get("href", "") for item in opf.findall(f"{OPF}manifest/{OPF}item")}
-    names = {key: by_id.get(key, "") for key in ("dtbook", "ncx", "resource", "full-audiobook")}
+    names = {key: by_id.get(key, "") for key in ("dtbook", "ncx", "resource")}
     missing = [key for key, href in names.items() if not href or not (package / href).is_file()]
     if missing:
         raise ValueError(f"Faltan archivos requeridos del paquete DAISY: {', '.join(missing)}")
+    if "full-audiobook" in by_id:
+        # Nothing in a DAISY book plays the complete audiobook, so Z39.86 does
+        # not allow it in the manifest (ZedVal opf_mnfDTBmembers): it travels
+        # beside the package.
+        raise ValueError("El audiolibro completo no forma parte del libro DAISY: no puede estar en su manifiesto.")
     for path in package.rglob("*.mp3"):
         if path.stat().st_size == 0:
             raise ValueError(f"El archivo de audio está vacío: {path.relative_to(package)}")

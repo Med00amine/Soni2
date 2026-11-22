@@ -1,0 +1,1063 @@
+{
+  "package": "D:\\Downloads\\Cuentos de la Selva\\DAISY 3",
+  "structural": "failed: El audiolibro completo no forma parte del libro DAISY: no puede estar en su manifiesto.",
+  "dtd": {
+    "status": "passed",
+    "method": "dtd_z3986_2005",
+    "files": [
+      {
+        "file": "Cuentos_de_la_Selva.ncx",
+        "dtd": "ncx-2005-1.dtd",
+        "valid": true
+      },
+      {
+        "file": "Cuentos_de_la_Selva.opf",
+        "dtd": "oebpkg12.dtd",
+        "valid": true
+      },
+      {
+        "file": "Cuentos_de_la_Selva.res",
+        "dtd": "resource-2005-1.dtd",
+        "valid": true
+      },
+      {
+        "file": "Cuentos_de_la_Selva.xml",
+        "dtd": "dtbook-2005-3.dtd",
+        "valid": true
+      },
+      {
+        "file": "smil/chapter-0001.smil",
+        "dtd": "dtbsmil-2005-2.dtd",
+        "valid": true
+      },
+      {
+        "file": "smil/chapter-0002.smil",
+        "dtd": "dtbsmil-2005-2.dtd",
+        "valid": true
+      },
+      {
+        "file": "smil/chapter-0003.smil",
+        "dtd": "dtbsmil-2005-2.dtd",
+        "valid": true
+      },
+      {
+        "file": "smil/chapter-0004.smil",
+        "dtd": "dtbsmil-2005-2.dtd",
+        "valid": true
+      },
+      {
+        "file": "smil/chapter-0005.smil",
+        "dtd": "dtbsmil-2005-2.dtd",
+        "valid": true
+      },
+      {
+        "file": "smil/chapter-0006.smil",
+        "dtd": "dtbsmil-2005-2.dtd",
+        "valid": true
+      },
+      {
+        "file": "smil/chapter-0007.smil",
+        "dtd": "dtbsmil-2005-2.dtd",
+        "valid": true
+      },
+      {
+        "file": "smil/chapter-0008.smil",
+        "dtd": "dtbsmil-2005-2.dtd",
+        "valid": true
+      },
+      {
+        "file": "smil/chapter-0009.smil",
+        "dtd": "dtbsmil-2005-2.dtd",
+        "valid": true
+      },
+      {
+        "file": "smil/chapter-0010.smil",
+        "dtd": "dtbsmil-2005-2.dtd",
+        "valid": true
+      },
+      {
+        "file": "smil/chapter-0011.smil",
+        "dtd": "dtbsmil-2005-2.dtd",
+        "valid": true
+      },
+      {
+        "file": "smil/chapter-0012.smil",
+        "dtd": "dtbsmil-2005-2.dtd",
+        "valid": true
+      }
+    ],
+    "errors": []
+  },
+  "timing": {
+    "status": "failed",
+    "failed": [
+      "timing_contiguity",
+      "timing_totals",
+      "timing_audio_format"
+    ],
+    "checks": {
+      "timing_xml": "passed",
+      "timing_clips": "passed",
+      "timing_contiguity": "failed",
+      "timing_totals": "failed",
+      "timing_audio_format": "failed",
+      "timing_transitions": "passed"
+    }
+  },
+  "zedval_rules": {
+    "status": "failed",
+    "requirements_failed": [
+      "opf_DcDatePresent",
+      "opf_DcPubPresent",
+      "opf_mnfDTBmembers",
+      "resource_skipStructResEntry",
+      "smil_clipEndBeforeEOF",
+      "smil_metaAudioDtbTotElaAccurate"
+    ],
+    "checks": {
+      "zedval_timing": "failed",
+      "zedval_metadata": "failed",
+      "zedval_manifest": "failed",
+      "zedval_navigation": "warning",
+      "zedval_documents": "failed"
+    }
+  },
+  "checks": [
+    {
+      "id": "timing_xml",
+      "label": "XML bien formado",
+      "status": "passed",
+      "detail": "16 documentos XML, todos bien formados",
+      "problems": []
+    },
+    {
+      "id": "timing_clips",
+      "label": "Fragmentos de audio SMIL",
+      "status": "passed",
+      "detail": "658 fragmentos en 12 archivos SMIL; cada uno con su audio y su texto, y dentro de su audio",
+      "problems": [],
+      "clips": 658
+    },
+    {
+      "id": "timing_contiguity",
+      "label": "Fragmentos contiguos",
+      "status": "failed",
+      "detail": "12 archivos de audio; 648 huecos, solapes o tramos sin cubrir",
+      "problems": [
+        {
+          "smil": "smil/chapter-0001.smil",
+          "audio": "../audio/chapter-001.mp3",
+          "par": "par-0002",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0001.smil",
+          "audio": "../audio/chapter-001.mp3",
+          "par": "par-0003",
+          "problem": "hueco de 0.700 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0002.smil",
+          "audio": "../audio/chapter-002.mp3",
+          "par": "par-0005",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0002.smil",
+          "audio": "../audio/chapter-002.mp3",
+          "par": "par-0006",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0003.smil",
+          "audio": "../audio/chapter-003.mp3",
+          "par": "par-0008",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0003.smil",
+          "audio": "../audio/chapter-003.mp3",
+          "par": "par-0009",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0003.smil",
+          "audio": "../audio/chapter-003.mp3",
+          "par": "par-0010",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0003.smil",
+          "audio": "../audio/chapter-003.mp3",
+          "par": "par-0011",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0003.smil",
+          "audio": "../audio/chapter-003.mp3",
+          "par": "par-0012",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0003.smil",
+          "audio": "../audio/chapter-003.mp3",
+          "par": "par-0013",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0003.smil",
+          "audio": "../audio/chapter-003.mp3",
+          "par": "par-0014",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0003.smil",
+          "audio": "../audio/chapter-003.mp3",
+          "par": "par-0015",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0003.smil",
+          "audio": "../audio/chapter-003.mp3",
+          "par": "par-0016",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0003.smil",
+          "audio": "../audio/chapter-003.mp3",
+          "par": "par-0017",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0004.smil",
+          "audio": "../audio/chapter-004.mp3",
+          "par": "par-0019",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0004.smil",
+          "audio": "../audio/chapter-004.mp3",
+          "par": "par-0020",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0004.smil",
+          "audio": "../audio/chapter-004.mp3",
+          "par": "par-0021",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0004.smil",
+          "audio": "../audio/chapter-004.mp3",
+          "par": "par-0022",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0004.smil",
+          "audio": "../audio/chapter-004.mp3",
+          "par": "par-0023",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0004.smil",
+          "audio": "../audio/chapter-004.mp3",
+          "par": "par-0024",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0004.smil",
+          "audio": "../audio/chapter-004.mp3",
+          "par": "par-0025",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0004.smil",
+          "audio": "../audio/chapter-004.mp3",
+          "par": "par-0026",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0004.smil",
+          "audio": "../audio/chapter-004.mp3",
+          "par": "par-0027",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0004.smil",
+          "audio": "../audio/chapter-004.mp3",
+          "par": "par-0028",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0004.smil",
+          "audio": "../audio/chapter-004.mp3",
+          "par": "par-0029",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0004.smil",
+          "audio": "../audio/chapter-004.mp3",
+          "par": "par-0030",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0004.smil",
+          "audio": "../audio/chapter-004.mp3",
+          "par": "par-0031",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0004.smil",
+          "audio": "../audio/chapter-004.mp3",
+          "par": "par-0032",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0004.smil",
+          "audio": "../audio/chapter-004.mp3",
+          "par": "par-0033",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        },
+        {
+          "smil": "smil/chapter-0004.smil",
+          "audio": "../audio/chapter-004.mp3",
+          "par": "par-0034",
+          "problem": "hueco de 1.000 s antes de este fragmento"
+        }
+      ]
+    },
+    {
+      "id": "timing_totals",
+      "label": "Tiempos del libro (totalElapsedTime, dur, totalTime)",
+      "status": "failed",
+      "detail": "12 archivos SMIL, 7477.560 s en total; 12 tiempos no cuadran",
+      "problems": [
+        {
+          "smil": "smil/chapter-0002.smil",
+          "problem": "dtb:totalElapsedTime 69.486 s; lo anterior suma 67.759 s"
+        },
+        {
+          "smil": "smil/chapter-0003.smil",
+          "problem": "dtb:totalElapsedTime 86.491 s; lo anterior suma 82.738 s"
+        },
+        {
+          "smil": "smil/chapter-0004.smil",
+          "problem": "dtb:totalElapsedTime 131.553 s; lo anterior suma 117.772 s"
+        },
+        {
+          "smil": "smil/chapter-0005.smil",
+          "problem": "dtb:totalElapsedTime 956.082 s; lo anterior suma 877.274 s"
+        },
+        {
+          "smil": "smil/chapter-0006.smil",
+          "problem": "dtb:totalElapsedTime 2425.496 s; lo anterior suma 2236.657 s"
+        },
+        {
+          "smil": "smil/chapter-0007.smil",
+          "problem": "dtb:totalElapsedTime 3410.495 s; lo anterior suma 3166.628 s"
+        },
+        {
+          "smil": "smil/chapter-0008.smil",
+          "problem": "dtb:totalElapsedTime 4355.631 s; lo anterior suma 4013.732 s"
+        },
+        {
+          "smil": "smil/chapter-0009.smil",
+          "problem": "dtb:totalElapsedTime 5184.836 s; lo anterior suma 4775.910 s"
+        },
+        {
+          "smil": "smil/chapter-0010.smil",
+          "problem": "dtb:totalElapsedTime 6534.504 s; lo anterior suma 5997.855 s"
+        },
+        {
+          "smil": "smil/chapter-0011.smil",
+          "problem": "dtb:totalElapsedTime 7236.676 s; lo anterior suma 6652.001 s"
+        },
+        {
+          "smil": "smil/chapter-0012.smil",
+          "problem": "dtb:totalElapsedTime 7880.098 s; lo anterior suma 7243.398 s"
+        },
+        {
+          "problem": "dtb:totalTime 8144.666 s; los archivos SMIL suman 7477.560 s"
+        }
+      ],
+      "total_seconds": 7477.56,
+      "declared_total": "2:15:44.666"
+    },
+    {
+      "id": "timing_audio_format",
+      "label": "Formato del audio",
+      "status": "failed",
+      "detail": "12 archivos MP3; 12 problemas",
+      "problems": [
+        {
+          "file": "audio/chapter-001.mp3",
+          "problem": "velocidad variable (VBR) sin cabecera de duración; estimada por su primera trama dura 56.7 s y en realidad 69.5 s"
+        },
+        {
+          "file": "audio/chapter-002.mp3",
+          "problem": "velocidad variable (VBR) sin cabecera de duración; estimada por su primera trama dura 13.1 s y en realidad 17.0 s"
+        },
+        {
+          "file": "audio/chapter-003.mp3",
+          "problem": "velocidad variable (VBR) sin cabecera de duración; estimada por su primera trama dura 28.8 s y en realidad 45.1 s"
+        },
+        {
+          "file": "audio/chapter-004.mp3",
+          "problem": "velocidad variable (VBR) sin cabecera de duración; estimada por su primera trama dura 590.2 s y en realidad 824.5 s"
+        },
+        {
+          "file": "audio/chapter-005.mp3",
+          "problem": "velocidad variable (VBR) sin cabecera de duración; estimada por su primera trama dura 1060.1 s y en realidad 1469.4 s"
+        },
+        {
+          "file": "audio/chapter-006.mp3",
+          "problem": "velocidad variable (VBR) sin cabecera de duración; estimada por su primera trama dura 728.5 s y en realidad 985.0 s"
+        },
+        {
+          "file": "audio/chapter-007.mp3",
+          "problem": "velocidad variable (VBR) sin cabecera de duración; estimada por su primera trama dura 668.1 s y en realidad 945.1 s"
+        },
+        {
+          "file": "audio/chapter-008.mp3",
+          "problem": "velocidad variable (VBR) sin cabecera de duración; estimada por su primera trama dura 601.6 s y en realidad 829.2 s"
+        },
+        {
+          "file": "audio/chapter-009.mp3",
+          "problem": "velocidad variable (VBR) sin cabecera de duración; estimada por su primera trama dura 970.6 s y en realidad 1349.7 s"
+        },
+        {
+          "file": "audio/chapter-010.mp3",
+          "problem": "velocidad variable (VBR) sin cabecera de duración; estimada por su primera trama dura 512.4 s y en realidad 702.2 s"
+        },
+        {
+          "file": "audio/chapter-011.mp3",
+          "problem": "velocidad variable (VBR) sin cabecera de duración; estimada por su primera trama dura 470.7 s y en realidad 643.4 s"
+        },
+        {
+          "file": "audio/chapter-012.mp3",
+          "problem": "velocidad variable (VBR) sin cabecera de duración; estimada por su primera trama dura 191.8 s y en realidad 242.9 s"
+        }
+      ],
+      "files": [
+        {
+          "file": "audio/chapter-001.mp3",
+          "bitrates_kbps": [
+            32,
+            40,
+            48,
+            56,
+            64,
+            80,
+            96,
+            112,
+            128,
+            160,
+            192,
+            224,
+            256
+          ],
+          "sample_rates": [
+            44100
+          ],
+          "channels": [
+            2
+          ],
+          "duration": 69.486
+        },
+        {
+          "file": "audio/chapter-002.mp3",
+          "bitrates_kbps": [
+            32,
+            40,
+            64,
+            80,
+            96,
+            112,
+            128,
+            160,
+            192,
+            224,
+            256
+          ],
+          "sample_rates": [
+            44100
+          ],
+          "channels": [
+            2
+          ],
+          "duration": 17.006
+        },
+        {
+          "file": "audio/chapter-003.mp3",
+          "bitrates_kbps": [
+            32,
+            40,
+            48,
+            56,
+            64,
+            80,
+            96,
+            112,
+            128,
+            160,
+            192,
+            224,
+            256
+          ],
+          "sample_rates": [
+            44100
+          ],
+          "channels": [
+            2
+          ],
+          "duration": 45.061
+        },
+        {
+          "file": "audio/chapter-004.mp3",
+          "bitrates_kbps": [
+            32,
+            40,
+            48,
+            56,
+            64,
+            80,
+            96,
+            112,
+            128,
+            160,
+            192,
+            224,
+            256
+          ],
+          "sample_rates": [
+            44100
+          ],
+          "channels": [
+            2
+          ],
+          "duration": 824.529
+        },
+        {
+          "file": "audio/chapter-005.mp3",
+          "bitrates_kbps": [
+            32,
+            40,
+            48,
+            56,
+            64,
+            80,
+            96,
+            112,
+            128,
+            160,
+            192,
+            224,
+            256
+          ],
+          "sample_rates": [
+            44100
+          ],
+          "channels": [
+            2
+          ],
+          "duration": 1469.414
+        },
+        {
+          "file": "audio/chapter-006.mp3",
+          "bitrates_kbps": [
+            32,
+            40,
+            48,
+            56,
+            64,
+            80,
+            96,
+            112,
+            128,
+            160,
+            192,
+            224,
+            256
+          ],
+          "sample_rates": [
+            44100
+          ],
+          "channels": [
+            2
+          ],
+          "duration": 984.999
+        },
+        {
+          "file": "audio/chapter-007.mp3",
+          "bitrates_kbps": [
+            32,
+            40,
+            48,
+            56,
+            64,
+            80,
+            96,
+            112,
+            128,
+            160,
+            192,
+            224,
+            256
+          ],
+          "sample_rates": [
+            44100
+          ],
+          "channels": [
+            2
+          ],
+          "duration": 945.136
+        },
+        {
+          "file": "audio/chapter-008.mp3",
+          "bitrates_kbps": [
+            32,
+            40,
+            48,
+            56,
+            64,
+            80,
+            96,
+            112,
+            128,
+            160,
+            192,
+            224,
+            256
+          ],
+          "sample_rates": [
+            44100
+          ],
+          "channels": [
+            2
+          ],
+          "duration": 829.205
+        },
+        {
+          "file": "audio/chapter-009.mp3",
+          "bitrates_kbps": [
+            32,
+            40,
+            48,
+            56,
+            64,
+            80,
+            96,
+            112,
+            128,
+            160,
+            192,
+            224,
+            256
+          ],
+          "sample_rates": [
+            44100
+          ],
+          "channels": [
+            2
+          ],
+          "duration": 1349.669
+        },
+        {
+          "file": "audio/chapter-010.mp3",
+          "bitrates_kbps": [
+            32,
+            40,
+            48,
+            56,
+            64,
+            80,
+            96,
+            112,
+            128,
+            160,
+            192,
+            224,
+            256
+          ],
+          "sample_rates": [
+            44100
+          ],
+          "channels": [
+            2
+          ],
+          "duration": 702.171
+        },
+        {
+          "file": "audio/chapter-011.mp3",
+          "bitrates_kbps": [
+            32,
+            40,
+            48,
+            56,
+            64,
+            80,
+            96,
+            112,
+            128,
+            160,
+            192,
+            224,
+            256
+          ],
+          "sample_rates": [
+            44100
+          ],
+          "channels": [
+            2
+          ],
+          "duration": 643.422
+        },
+        {
+          "file": "audio/chapter-012.mp3",
+          "bitrates_kbps": [
+            32,
+            40,
+            48,
+            56,
+            64,
+            80,
+            96,
+            112,
+            128,
+            160,
+            192,
+            224,
+            256
+          ],
+          "sample_rates": [
+            44100
+          ],
+          "channels": [
+            2
+          ],
+          "duration": 242.887
+        }
+      ]
+    },
+    {
+      "id": "timing_transitions",
+      "label": "Transiciones entre capítulos y audiolibro completo",
+      "status": "passed",
+      "detail": "cada archivo SMIL tiene su entrada, en orden; el audiolibro completo dura lo que sus partes",
+      "problems": []
+    },
+    {
+      "id": "zedval_timing",
+      "label": "Tiempos y fragmentos (reglas de ZedVal)",
+      "status": "failed",
+      "detail": "171 incumplimientos de requisitos: opf_xMetaTotTimeAccurate, smil_clipEndBeforeEOF, smil_metaAudioDtbTotElaAccurate",
+      "problems": [
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0001.smil",
+          "detail": "clipEnd 0:01:09.459 pasa del final de audio/chapter-001.mp3 (56702 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0002.smil",
+          "detail": "clipEnd 0:00:16.979 pasa del final de audio/chapter-002.mp3 (13126 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_metaAudioDtbTotElaAccurate",
+          "file": "smil/chapter-0002.smil",
+          "detail": "dtb:totalElapsedTime 0:01:09.486; los SMIL anteriores suman 67759 ms",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0003.smil",
+          "detail": "clipEnd 0:00:28.805 pasa del final de audio/chapter-003.mp3 (28783 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0003.smil",
+          "detail": "clipEnd 0:00:33.559 pasa del final de audio/chapter-003.mp3 (28783 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0003.smil",
+          "detail": "clipEnd 0:00:38.653 pasa del final de audio/chapter-003.mp3 (28783 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0003.smil",
+          "detail": "clipEnd 0:00:42.911 pasa del final de audio/chapter-003.mp3 (28783 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0003.smil",
+          "detail": "clipEnd 0:00:45.034 pasa del final de audio/chapter-003.mp3 (28783 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_metaAudioDtbTotElaAccurate",
+          "file": "smil/chapter-0003.smil",
+          "detail": "dtb:totalElapsedTime 0:01:26.491; los SMIL anteriores suman 82738 ms",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0004.smil",
+          "detail": "clipEnd 0:09:56.002 pasa del final de audio/chapter-004.mp3 (589672 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0004.smil",
+          "detail": "clipEnd 0:10:19.068 pasa del final de audio/chapter-004.mp3 (589672 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0004.smil",
+          "detail": "clipEnd 0:10:23.195 pasa del final de audio/chapter-004.mp3 (589672 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0004.smil",
+          "detail": "clipEnd 0:10:30.823 pasa del final de audio/chapter-004.mp3 (589672 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0004.smil",
+          "detail": "clipEnd 0:10:48.639 pasa del final de audio/chapter-004.mp3 (589672 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0004.smil",
+          "detail": "clipEnd 0:10:53.628 pasa del final de audio/chapter-004.mp3 (589672 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0004.smil",
+          "detail": "clipEnd 0:10:58.644 pasa del final de audio/chapter-004.mp3 (589672 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0004.smil",
+          "detail": "clipEnd 0:11:03.738 pasa del final de audio/chapter-004.mp3 (589672 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0004.smil",
+          "detail": "clipEnd 0:11:10.660 pasa del final de audio/chapter-004.mp3 (589672 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0004.smil",
+          "detail": "clipEnd 0:11:18.183 pasa del final de audio/chapter-004.mp3 (589672 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0004.smil",
+          "detail": "clipEnd 0:11:26.333 pasa del final de audio/chapter-004.mp3 (589672 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0004.smil",
+          "detail": "clipEnd 0:11:41.353 pasa del final de audio/chapter-004.mp3 (589672 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0004.smil",
+          "detail": "clipEnd 0:11:50.313 pasa del final de audio/chapter-004.mp3 (589672 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0004.smil",
+          "detail": "clipEnd 0:11:53.970 pasa del final de audio/chapter-004.mp3 (589672 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0004.smil",
+          "detail": "clipEnd 0:12:00.135 pasa del final de audio/chapter-004.mp3 (589672 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0004.smil",
+          "detail": "clipEnd 0:12:04.942 pasa del final de audio/chapter-004.mp3 (589672 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0004.smil",
+          "detail": "clipEnd 0:12:36.838 pasa del final de audio/chapter-004.mp3 (589672 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0004.smil",
+          "detail": "clipEnd 0:12:50.160 pasa del final de audio/chapter-004.mp3 (589672 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0004.smil",
+          "detail": "clipEnd 0:13:00.426 pasa del final de audio/chapter-004.mp3 (589672 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0004.smil",
+          "detail": "clipEnd 0:13:12.233 pasa del final de audio/chapter-004.mp3 (589672 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0004.smil",
+          "detail": "clipEnd 0:13:32.347 pasa del final de audio/chapter-004.mp3 (589672 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0004.smil",
+          "detail": "clipEnd 0:13:39.531 pasa del final de audio/chapter-004.mp3 (589672 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0004.smil",
+          "detail": "clipEnd 0:13:44.502 pasa del final de audio/chapter-004.mp3 (589672 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_metaAudioDtbTotElaAccurate",
+          "file": "smil/chapter-0004.smil",
+          "detail": "dtb:totalElapsedTime 0:02:11.553; los SMIL anteriores suman 117772 ms",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0005.smil",
+          "detail": "clipEnd 0:18:02.453 pasa del final de audio/chapter-005.mp3 (1059217 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0005.smil",
+          "detail": "clipEnd 0:18:17.552 pasa del final de audio/chapter-005.mp3 (1059217 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0005.smil",
+          "detail": "clipEnd 0:18:27.949 pasa del final de audio/chapter-005.mp3 (1059217 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0005.smil",
+          "detail": "clipEnd 0:18:38.476 pasa del final de audio/chapter-005.mp3 (1059217 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0005.smil",
+          "detail": "clipEnd 0:18:48.350 pasa del final de audio/chapter-005.mp3 (1059217 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0005.smil",
+          "detail": "clipEnd 0:18:52.895 pasa del final de audio/chapter-005.mp3 (1059217 ms según su primera trama)",
+          "level": "requirement"
+        },
+        {
+          "test": "smil_clipEndBeforeEOF",
+          "file": "smil/chapter-0005.smil",
+          "detail": "clipEnd 0:18:58.746 pasa del final de audio/chapter-005.mp3 (1059217 ms según su primera trama)",
+          "level": "requirement"
+        }
+      ],
+      "total_ms": 7477560,
+      "audio_files": 12
+    },
+    {
+      "id": "zedval_metadata",
+      "label": "Metadatos del paquete (reglas de ZedVal)",
+      "status": "failed",
+      "detail": "2 incumplimientos de requisitos: opf_DcDatePresent, opf_DcPubPresent",
+      "problems": [
+        {
+          "test": "opf_DcPubPresent",
+          "file": "Cuentos_de_la_Selva.opf",
+          "detail": "falta dc:Publisher",
+          "level": "requirement"
+        },
+        {
+          "test": "opf_DcDatePresent",
+          "file": "Cuentos_de_la_Selva.opf",
+          "detail": "falta dc:Date",
+          "level": "requirement"
+        }
+      ]
+    },
+    {
+      "id": "zedval_manifest",
+      "label": "Manifiesto, spine y miembros del libro (reglas de ZedVal)",
+      "status": "failed",
+      "detail": "1 incumplimientos de requisitos: opf_mnfDTBmembers",
+      "problems": [
+        {
+          "test": "opf_mnfDTBmembers",
+          "file": "Cuentos_de_la_Selva.opf",
+          "detail": "Cuentos_de_la_Selva.mp3 está en el manifiesto y nada del libro lo usa",
+          "level": "requirement"
+        }
+      ]
+    },
+    {
+      "id": "zedval_navigation",
+      "label": "Navegación NCX: páginas, playOrder y estructuras saltables (reglas de ZedVal)",
+      "status": "warning",
+      "detail": "1 recomendaciones sin seguir: ncx_metaDtbGeneratorPresence",
+      "problems": [
+        {
+          "test": "ncx_metaDtbGeneratorPresence",
+          "file": "Cuentos_de_la_Selva.ncx",
+          "detail": "falta dtb:generator",
+          "level": "recommendation"
+        }
+      ],
+      "pages": 63
+    },
+    {
+      "id": "zedval_documents",
+      "label": "DTBook, SMIL y recursos (reglas de ZedVal)",
+      "status": "failed",
+      "detail": "1 incumplimientos de requisitos: resource_skipStructResEntry",
+      "problems": [
+        {
+          "test": "resource_skipStructResEntry",
+          "file": "Cuentos_de_la_Selva.res",
+          "detail": "sin entrada para la estructura saltable «pagenum» (PAGE_NUMBER)",
+          "level": "requirement"
+        }
+      ]
+    }
+  ]
+}

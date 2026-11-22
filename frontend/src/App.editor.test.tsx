@@ -172,8 +172,10 @@ beforeEach(() => {
   finalAudio = false
   vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} }))
   const media = window.HTMLMediaElement.prototype
-  Object.defineProperty(media, 'play', { configurable: true, value() { this.dispatchEvent(new Event('play')); return Promise.resolve() } })
-  Object.defineProperty(media, 'pause', { configurable: true, value() { this.dispatchEvent(new Event('pause')) } })
+  type Playing = { _playing?: boolean }
+  Object.defineProperty(media, 'play', { configurable: true, value() { (this as Playing)._playing = true; this.dispatchEvent(new Event('play')); return Promise.resolve() } })
+  Object.defineProperty(media, 'pause', { configurable: true, value() { (this as Playing)._playing = false; this.dispatchEvent(new Event('pause')) } })
+  Object.defineProperty(media, 'paused', { configurable: true, get() { return !(this as Playing)._playing } })
   Object.defineProperty(media, 'load', { configurable: true, value() {} })
   Object.defineProperty(media, 'currentTime', { configurable: true,
     get() { return (this as unknown as { _time?: number })._time ?? 0 },
@@ -318,6 +320,41 @@ describe('listening and reviewing a produced book', () => {
     await act(async () => { audio.dispatchEvent(new Event('timeupdate')) })
     expect(document.querySelector('#ed-unit-3-0')?.getAttribute('aria-current')).toBe('true')
     expect(document.querySelector('.ed-time')?.textContent).toContain('0:00,4')
+  })
+
+  it('stops playing when the text is opened for editing, and the structure still opens chapters', async () => {
+    finalAudio = true
+    await produce()
+    await act(async () => { document.querySelector<HTMLElement>('#ed-tree-3')!.click() })
+    await act(async () => { button('Escuchar la frase 2')!.click() })
+    const audio = document.querySelector<HTMLAudioElement>('.audiobook-editor audio')!
+    expect(audio.paused).toBe(false)
+    expect(document.querySelector('.ed-play')?.getAttribute('aria-label')).toBe('Pausar')
+    await act(async () => { button('Editar el texto')!.click() })
+    await flush()
+    expect(audio.paused).toBe(true)
+    expect(document.querySelector('.ed-play')?.getAttribute('aria-pressed')).toBe('false')
+    // The audio's clock no longer pulls the selection back to the section it played.
+    await act(async () => { audio.dispatchEvent(new Event('timeupdate')) })
+    await act(async () => { document.querySelector<HTMLElement>('#ed-tree-5')!.click() })
+    expect(document.querySelector('#ed-section-title')?.textContent).toBe('Capítulo 2. La tormenta')
+    expect(document.querySelector('#panel-review')?.textContent).not.toContain('Todavía no hay audio del libro completo')
+  })
+
+  it('pauses at once: a shortcut pressed right after the pause does not start the audio again', async () => {
+    finalAudio = true
+    await produce()
+    await act(async () => { document.querySelector<HTMLElement>('#ed-tree-3')!.click() })
+    await act(async () => { button('Escuchar la frase 2')!.click() })
+    const audio = document.querySelector<HTMLAudioElement>('.audiobook-editor audio')!
+    // The browser's pause event comes later than the click; the next key must not wait for it.
+    Object.defineProperty(audio, 'pause', { configurable: true, value() { (this as { _playing?: boolean })._playing = false } })
+    await act(async () => { document.querySelector<HTMLButtonElement>('.ed-play')!.click() })
+    await act(async () => {
+      document.querySelector('.audiobook-editor')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true }))
+    })
+    expect(audio.paused).toBe(true)
+    expect(document.querySelector('#ed-section-title')?.textContent).toBe('El inventario')
   })
 
   it('plays each phrase on its own before the section is assembled', async () => {
