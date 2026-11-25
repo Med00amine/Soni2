@@ -522,7 +522,10 @@ def build(selected: list, provenance: list[tuple[dict, list[dict]]], metadata: d
     lines = [pair, resolved.edition_line, resolved.publisher_line,
              f"ISBN {plan.isbn}" if plan.isbn else "",
              f"{plan.production_line} {resolved.production_date}".strip()]
-    file2 = Section("once-bibliographic", KIND_BIBLIOGRAPHIC, 1, plan.bibliographic_heading, False,
+    # ONCE's rule: headings, the text and titles are level 1, everything else
+    # level 2. The bibliographic data is a level 2 inside file 1, as in ONCE's
+    # own books (texto_0369940: "Datos bibliográficos." is an h2 under the title).
+    file2 = Section("once-bibliographic", KIND_BIBLIOGRAPHIC, 2, plan.bibliographic_heading, False,
                     [plan.file2_page] if plan.file2_page else [],
                     [Paragraph(line, "bibliographic") for line in lines if line.strip()])
     file3 = Section("once-index", KIND_INDEX, 1, plan.index_heading, False,

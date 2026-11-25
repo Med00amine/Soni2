@@ -97,9 +97,12 @@ disagree.
 `build_daisy_package(..., layout=...)` writes the structure; without a layout
 it writes exactly what it wrote before.
 
-* Files 1–3 are `level1` sections in the DTBook **front matter** (classes
-  `once-title`, `once-bibliographic`, `once-index`); chapters are `level1` in
-  the body; subchapters are `level2` inside their chapter, with `h2`.
+* Files 1–3 sit in the DTBook **front matter** (classes `once-title`,
+  `once-bibliographic`, `once-index`). Since 2026-11-25 the bibliographic
+  data is a `level2` (`h2`) inside file 1's `level1`, as in ONCE's own books:
+  headings, the text and titles are level 1, everything else level 2.
+  Chapters are `level1` in the body; subchapters are `level2` inside their
+  chapter, with `h2`.
 * One SMIL file and one MP3 per section (`audio/chapter-NNN.mp3`):
   ARCHIVO N of the planilla is `chapter-00N`.
 * **Silent page markers**: `pagenum` with a SMIL `par` that has text and no

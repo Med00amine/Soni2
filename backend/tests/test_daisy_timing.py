@@ -201,7 +201,9 @@ def test_variable_bitrate_and_missing_edges_are_reported(tmp_path) -> None:
     audio = [_tone(tmp_path, f"v{index}", 1.0 + index) for index in range(2)]
     package = build_daisy_package("Viejo", ["Uno.", "Dos."], audio, tmp_path / "old",
                                   chapters=[("Uno", ["Uno.", "Dos."])], use_ffmpeg=False)
-    checks = {check["id"]: check for check in daisy_timing.verify(package, **_targets())}
+    # Edge silence asked for (as ONCE's recorded books had it) and not there is reported.
+    targets = {**_targets(), "leading": 1.0, "trailing": 1.2}
+    checks = {check["id"]: check for check in daisy_timing.verify(package, **targets)}
     assert checks["timing_audio_format"]["status"] == "failed"
     assert "VBR" in checks["timing_audio_format"]["problems"][0]["problem"]
     assert checks["timing_edges"]["status"] == "failed"
@@ -315,10 +317,11 @@ def test_a_production_job_delivers_a_package_that_passes_every_timing_check(audi
     assert timing and set(timing.values()) == {"passed"}, json.dumps(chain, ensure_ascii=False, indent=1)
     validation = json.loads((job_dir / "daisy-validation.json").read_text(encoding="utf-8"))
     assert validation["timing"] == timing
-    # The working chapter files are the delivered ones: finished, CBR, with their edges.
+    # The working chapter files are the delivered ones: finished, CBR, and by
+    # default starting with the voice (no second of silence before it).
     for path in sorted((job_dir / "chapter-audio").glob("chapter-*.mp3")):
         edges = audio_master.edge_silence(path.read_bytes())
-        assert edges.leading >= 0.97 and edges.trailing >= 1.17, (path.name, edges)
+        assert edges.leading < 0.25, (path.name, edges)
     # The ZIP holds the same package; audit it from the archive as ONCE would receive it.
     from tools.audit_package import audit
     import zipfile

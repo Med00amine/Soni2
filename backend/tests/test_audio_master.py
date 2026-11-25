@@ -141,7 +141,9 @@ def test_a_chapter_is_trimmed_paced_and_levelled_in_one_step(ragged) -> None:
 
 
 def test_a_book_puts_a_longer_pause_between_chapters(ragged) -> None:
-    options = audio_master.MasteringOptions(paragraph_gap_ms=300, chapter_gap_ms=1200)
+    # With the edge silence of ONCE's recorded books (none by default).
+    edges = {"leading_silence_ms": 1000, "trailing_silence_ms": 1200}
+    options = audio_master.MasteringOptions(paragraph_gap_ms=300, chapter_gap_ms=1200, **edges)
     chapters = [audio_master.master_chapter(ragged, options) for _ in range(2)]
     book = audio_master.master_book([chapter.audio for chapter in chapters], options)
     assert book.mastered, book.detail
@@ -154,11 +156,24 @@ def test_a_book_puts_a_longer_pause_between_chapters(ragged) -> None:
     pause = (chapter_length - chapters[0].clips[-1][1]) + chapters[1].clips[0][0]
     assert pause >= 1.2
 
-    longer = audio_master.MasteringOptions(paragraph_gap_ms=300, chapter_gap_ms=3000)
+    longer = audio_master.MasteringOptions(paragraph_gap_ms=300, chapter_gap_ms=3000, **edges)
     spaced = audio_master.master_book([chapter.audio for chapter in chapters], longer)
     # A pause longer than both edges together is made up with digital silence.
     second_start = spaced.clips[1][0]
     assert second_start - chapter_length == pytest.approx(3.0 - sum(longer.edges), abs=0.06)
+
+
+def test_without_edge_silence_the_book_puts_the_whole_chapter_pause_between_chapters(ragged) -> None:
+    options = audio_master.MasteringOptions(paragraph_gap_ms=300, chapter_gap_ms=900)
+    assert options.edges == (0.0, 0.0)
+    chapters = [audio_master.master_chapter(ragged, options) for _ in range(2)]
+    # Each chapter file starts with its voice: no second before it.
+    assert chapters[0].clips[0][0] < 0.25
+    book = audio_master.master_book([chapter.audio for chapter in chapters], options)
+    assert book.mastered, book.detail
+    chapter_length = audio_master.duration_seconds(chapters[0].audio) or 0
+    # The pause between chapters is made of digital silence between the files.
+    assert book.clips[1][0] - chapter_length == pytest.approx(0.9, abs=0.06)
 
 
 def test_mastering_can_be_turned_off_without_losing_the_audio(ragged) -> None:

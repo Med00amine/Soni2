@@ -184,6 +184,45 @@ def test_an_image_only_page_without_ocr_blocks_the_book(monkeypatch) -> None:
     assert [page["status"] for page in report["pages"]] == ["text", "image_only"]
 
 
+def test_an_image_cover_of_a_pdf_with_text_is_the_cover_not_missing_content(monkeypatch) -> None:
+    """Found on «Cuentos de la Selva» (2026-11-25): its page 1 is the cover, a picture."""
+    monkeypatch.setattr(ocr, "available", lambda language="spa": False)
+    pdf = fitz.open()
+    _image_page(pdf, "Horacio Quiroga. Cuentos de la Selva.")
+    _text_page(pdf, [(100, "La primera página de texto tiene texto suficiente para leerla bien.")])
+    _text_page(pdf, [(100, "La segunda página de texto también tiene texto suficiente para leerla.")])
+    structure = extract_book_structure("libro.pdf", pdf.tobytes())
+    report = structure.extraction.as_dict()
+    assert report["status"] != "blocked"
+    assert not any(issue["code"] in {"ocr_required", "photo_insert_candidate"} for issue in report["issues"])
+    assert any(issue["code"] == "pdf_cover" and issue["location"] == "página 1" for issue in report["issues"])
+    assert [page["status"] for page in report["pages"]] == ["cover", "text", "text"]
+
+
+def test_with_ocr_the_cover_words_are_reported_not_narrated(monkeypatch) -> None:
+    monkeypatch.setattr(ocr, "available", lambda language="spa": True)
+    monkeypatch.setattr(ocr, "ocr_pdf_page", lambda page, number, **_: ocr.OcrPage(
+        number, ["Horacio Quiroga", "Cuentos de la Selva"], mean_confidence=95.0, words=6))
+    pdf = fitz.open()
+    _image_page(pdf, "Horacio Quiroga. Cuentos de la Selva.")
+    _text_page(pdf, [(100, "La primera página de texto tiene texto suficiente para leerla bien.")])
+    structure = extract_book_structure("libro.pdf", pdf.tobytes())
+    report = structure.extraction.as_dict()
+    assert "Horacio Quiroga" not in _all_text(structure)
+    assert any(item["kind"] == "cover" and "Cuentos de la Selva" in item["text"] for item in report["dropped"])
+
+
+def test_a_scanned_book_has_no_cover_and_its_first_page_still_needs_ocr(monkeypatch) -> None:
+    monkeypatch.setattr(ocr, "available", lambda language="spa": False)
+    pdf = fitz.open()
+    _image_page(pdf, "Capítulo 1. Había una vez un loro.")
+    _image_page(pdf, "Y el loro hablaba con todos.")
+    structure = extract_book_structure("libro.pdf", pdf.tobytes())
+    report = structure.extraction.as_dict()
+    assert report["status"] == "blocked"
+    assert any(issue["code"] == "ocr_required" and issue["location"] == "página 1" for issue in report["issues"])
+
+
 def test_an_image_only_page_is_read_by_ocr_and_its_doubts_reported(monkeypatch) -> None:
     monkeypatch.setattr(ocr, "available", lambda language="spa": True)
     monkeypatch.setattr(ocr, "ocr_pdf_page", lambda page, number, **_: ocr.OcrPage(

@@ -1049,6 +1049,23 @@ def _page_profile(page, number: int) -> dict:
     return {"page": number, "chars": chars, "image_ratio": round(ratio, 3), "status": status, "_text": text}
 
 
+def _pdf_cover(profiles: list[dict]) -> int | None:
+    """The PDF's cover: its first page when that page is only a picture.
+
+    An EPUB's cover is never narrated (``_COVER_NAMES``); a PDF says nothing
+    about which page is its cover, so the first page counts as one only when
+    it is an image without a text layer in a PDF whose other pages mostly do
+    have one. A scanned book, all of whose pages are images, has no cover by
+    this rule: its first page may be text, and goes to OCR as before. The
+    title and author the cover shows are read in ONCE's file 1.
+    """
+    if not profiles or profiles[0]["page"] != 1 or profiles[0]["status"] != "image_only":
+        return None
+    rest = profiles[1:]
+    with_text = sum(1 for profile in rest if profile["status"] in {"text", "mixed"})
+    return 1 if rest and with_text * 2 >= len(rest) else None
+
+
 def _from_pdf(content: bytes, result: BookStructure, fallback_text: str, pages: str | None,
               report: ExtractionReport, raw: list[str]) -> None:
     with fitz.open(stream=content, filetype="pdf") as pdf:
@@ -1058,7 +1075,11 @@ def _from_pdf(content: bytes, result: BookStructure, fallback_text: str, pages: 
         result.author = (metadata.get("author") or "").strip()
         first, last = span or (1, pdf.page_count)
         profiles = [_page_profile(pdf[number - 1], number) for number in range(first, last + 1)]
-        result.photo_inserts = photo_inserts.detect_pdf(pdf, profiles)
+        cover = _pdf_cover(profiles)
+        # A cover is not a photo insert either.
+        result.photo_inserts = [insert for insert in photo_inserts.detect_pdf(pdf, profiles)
+                                if not (cover and insert.location.get("pdf_pages")
+                                        and list(insert.location["pdf_pages"]) == [cover, cover])]
         insert_pages: set[int] = set()
         for insert in result.photo_inserts:
             first_page, last_page = insert.location["pdf_pages"]
@@ -1084,6 +1105,19 @@ def _from_pdf(content: bytes, result: BookStructure, fallback_text: str, pages: 
                 if caption:
                     report.drop("photo_caption", caption, "Pie de una fotografía del encarte: se lee con su "
                                 "fotografía al final del audiolibro.", f"página {number}")
+                continue
+            if number == cover:
+                # What OCR reads on it, when it can, is kept in the report: nothing is hidden.
+                words = ""
+                if ocr_ready:
+                    page_result = ocr.ocr_pdf_page(pdf[number - 1], number)
+                    words = " ".join(" ".join(page_result.paragraphs).split())
+                profile["status"], profile["method"] = "cover", "cover"
+                reason = "Cubierta del PDF (una imagen); no se narra: el título y el autor se leen en el archivo 1."
+                report.issue(INFO, "pdf_cover", f"La página {number} es la cubierta (una imagen sin texto, en un "
+                             "PDF que sí tiene texto): no se narra, como la cubierta de un EPUB.",
+                             location=f"página {number}", text=words)
+                report.drop("cover", words, reason, f"página {number}")
                 continue
             if status == "image_only":
                 if ocr_ready:

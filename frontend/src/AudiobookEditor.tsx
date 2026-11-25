@@ -705,7 +705,8 @@ export default function AudiobookEditor(props: AudiobookEditorProps) {
     ? offsets(section)[section.units.length - 1] + (section.units[section.units.length - 1].duration ?? 0) : 0)
   const currentPlaying = playing && playing.section === sectionIndex ? playing.unit : -1
   const anyAudio = flat.some(entry => entry.unit.hasAudio)
-  const subchapterCount = sections.filter(item => item.level === 2).length
+  // The bibliographic data is a level 2 inside file 1, not a subchapter.
+  const subchapterCount = sections.filter(item => item.level === 2 && !INITIAL_KINDS.has(item.kind)).length
   const noteCount = sections.reduce((sum, item) => sum + notes(item), 0)
 
   if (loading && !model) {

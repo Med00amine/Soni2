@@ -595,8 +595,8 @@ class MasteringOptions:
     listener who cannot see the structure still hears it, and inside each
     paragraph a pause after every sentence and a shorter one at commas.
 
-    ``leading_silence_ms`` and ``trailing_silence_ms`` are the digital silence
-    ONCE asks for at the start and the end of every audio file, and
+    ``leading_silence_ms`` and ``trailing_silence_ms`` are digital silence
+    added at the start and the end of every audio file (none by default), and
     ``bitrate_kbps`` the constant bitrate every delivered MP3 is encoded at.
     """
 
@@ -605,8 +605,8 @@ class MasteringOptions:
     paragraph_gap_ms: int = 1000
     chapter_gap_ms: int = 2000
     pauses: PauseOptions = field(default_factory=PauseOptions)
-    leading_silence_ms: int = 1000
-    trailing_silence_ms: int = 1200
+    leading_silence_ms: int = 0
+    trailing_silence_ms: int = 0
     bitrate_kbps: int = 128
 
     @property

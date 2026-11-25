@@ -7,6 +7,46 @@ Statuses: **PASS** implemented and verified · **PARTIAL** implemented, not
 fully verified · **BLOCKED** needs information or infrastructure we do not
 have · **DEFERRED** postponed by ONCE.
 
+## 00. The supervisor's review of 2026-11-25
+
+The supervisor reviewed the 20 Nov *Cuentos de la Selva* (job `7294d7ca`) and
+decided: leave sentence sync for later, ignore metadata until ONCE sends the
+book's data, put everything on level 1 except the bibliographic data (level
+2), drop the inserted second of silence, and run Pipeline 2's validator.
+
+| Point | Cause found | Change (every book, not only this one) |
+|---|---|---|
+| NCX label at 0.974 s, SMIL heading at 0.000 s, in all 12 files | The label held only the speech inside the clip; the clip began with the 1 s of edge silence we inserted (measured: every 20 Nov MP3 starts with 1.026 s of silence) | `AUDIO_LEADING_SILENCE_MS` / `AUDIO_TRAILING_SILENCE_MS` default to 0; the NCX label plays exactly the heading's SMIL clip, as in ONCE's `texto_0369940` |
+| NCX depth 1 | The bibliographic file was a `level1` | `once_structure.build` makes it level 2; the exporter nests it as `level2`/`h2` inside file 1, and its navPoint inside file 1's (`dtb:depth` 2) |
+| Page 1 "Bloqueado" (OCR) | Page 1 of the PDF is the cover, a picture; title and author are already read in file 1 | A PDF whose first page is only an image, in a PDF that has a text layer, is its cover: not narrated, reported (`pdf_cover`), as an EPUB's cover always was. A scanned book still goes to OCR |
+| Pipeline 2 never run | Pipeline 2 has no DAISY 3 validator script; its checks are `nimas-fileset-validator`, `dtbook-validator`, and reading the book (`daisy3-to-epub3`) | `tools/pipeline2_validate.py` runs the three on a ZIP through a local Pipeline 2 engine |
+
+With no edge silence, the complete audiobook puts `AUDIO_CHAPTER_GAP_MS` of
+digital silence between chapters; the completeness check now allows for it,
+as the timing check already did.
+
+**DAISY Pipeline 2 v1.15.5, run on 2026-11-25** on the rebuilt ZIP and, for
+comparison, on ONCE's `texto_0369940` (made by Pipeline 2):
+
+| Check | Cuentos | ONCE's book |
+|---|---|---|
+| `dtbook-validator` | SUCCESS, 0 errors | SUCCESS |
+| `daisy3-to-epub3`, `validation=report` | SUCCESS | SUCCESS |
+| `nimas-fileset-validator` | FAIL | FAIL, same NIMAS rules |
+
+The NIMAS profile (US textbooks) wants `dc:Format` "NIMAS 1.1", a PDF in the
+manifest, education-level metadata and a spine of DTBooks; ONCE's own book
+fails all of them too, and "The meta element must be empty" ×8 alike. Ours
+alone also lacks `dc:Rights`, `dc:Source` and `dc:Subject`: the metadata the
+supervisor deferred until ONCE sends the book's data. The engine runs on
+Windows from the Linux zip (no CLI there): start its web service in local
+mode, then `python -m tools.pipeline2_validate <zip> --out <folder>`.
+
+Rebuilt from the cache (658 units reused, 0 narrated, 0 credits): same 658
+texts in the same order, 66 pages, every check passed, release gate PASSED.
+First sound of each MP3: 1.026 s before, 0.05 s after (the encoder's own
+delay). Total time 2:10:56.320 → 2:10:30.301.
+
 ## 0. ONCE's reply of 2026-11-18 (stylesheet, indentation, pages, timing)
 
 ONCE answered our questions about the stylesheet, indentation, pages and
@@ -294,7 +334,7 @@ unchanged. The editor shows labels for the new roles.
 
 * `git switch -c before-once 13741e5`: the code before this work, the same
   code EC2 runs until it is deployed.
-* Or set `AUDIO_LEADING_SILENCE_MS=0` and `AUDIO_TRAILING_SILENCE_MS=0` and
-  `SPEECH_CONTEXTS=off`, which removes the edge silence and the context
-  rules. Constant bitrate, contiguous clips and SMIL times stay: they are
-  the timing fix.
+* Or set `SPEECH_CONTEXTS=off`, which removes the context rules. The edge
+  silence is off by default since 2026-11-25 (§00); `AUDIO_LEADING_SILENCE_MS`
+  and `AUDIO_TRAILING_SILENCE_MS` bring it back. Constant bitrate,
+  contiguous clips and SMIL times stay: they are the timing fix.

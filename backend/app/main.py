@@ -111,11 +111,15 @@ class Settings(BaseSettings):
     audio_comma_pause_ms: int = 300
     audio_pause_detect_db: float = -40.0
     audio_pause_min_silence_ms: int = 100
-    # ONCE: digital silence at the start and at the end of every delivered
-    # audio file (chapters, initial files and the complete audiobook). Only
-    # what a file is missing is added, so producing again never doubles it.
-    audio_leading_silence_ms: int = 1000
-    audio_trailing_silence_ms: int = 1200
+    # Digital silence at the start and at the end of every delivered audio
+    # file (chapters, initial files and the complete audiobook). Only what a
+    # file is missing is added, so producing again never doubles it. None by
+    # default since 2026-11-25: the supervisor found that the inserted second,
+    # a habit of ONCE's recorded books, put every chapter's first words about
+    # a second after its SMIL clip begins (ONCE's own synthesized books start
+    # their files with the voice). Set both to bring it back.
+    audio_leading_silence_ms: int = 0
+    audio_trailing_silence_ms: int = 0
     # Every delivered MP3 is encoded at this constant bitrate: Z39.86-2005
     # players only have to support constant bitrate, and a variable-bitrate
     # file without a length header has no duration a validator can trust.
@@ -363,7 +367,7 @@ def timing_targets() -> dict:
 
 # Raise when the way packages are built changes, so a package built before is
 # not handed out again as if it were the current build of the same text.
-PACKAGE_BUILD_VERSION = "2026-11-19-z3986"
+PACKAGE_BUILD_VERSION = "2026-11-25-ncx-labels-levels"
 
 # Every build of the same book gets the same dtb:uid (see dtb_identifier).
 DTB_UID_NAMESPACE = uuid.UUID("5f0c1d6e-7a3b-4c2e-9d41-2b8e6f0a9c13")

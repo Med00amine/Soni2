@@ -203,7 +203,7 @@ def test_the_demo_book_has_the_models_eight_files() -> None:
     built = _structure(MODEL)
     assert [(section.kind, section.level, section.title) for section in built.sections] == [
         ("once_title", 1, "El faro de la isla Almendra, De Antonio Pérez"),
-        ("once_bibliographic", 1, "DATOS BIBLIOGRÁFICOS"),
+        ("once_bibliographic", 2, "DATOS BIBLIOGRÁFICOS"),
         ("once_index", 1, "Índice."),
         ("chapter", 1, "Capítulo 1. La llegada"),
         ("subchapter", 2, "El inventario"),
@@ -371,8 +371,12 @@ def test_initial_files_are_front_matter_and_subchapters_nest(tmp_path) -> None:
     package = _package(_structure(MODEL), tmp_path)
     dtbook = ET.parse(next(package.glob("*.xml"))).getroot()
     front = dtbook.find(f"{DTBOOK}book/{DTBOOK}frontmatter")
-    assert [level.get("class") for level in front.findall(f"{DTBOOK}level1")] == [
-        "once-title", "once-bibliographic", "once-index"]
+    assert [level.get("class") for level in front.findall(f"{DTBOOK}level1")] == ["once-title", "once-index"]
+    # ONCE: everything is level 1 but the bibliographic data, a level 2 inside the title file.
+    title = front.find(f"{DTBOOK}level1")
+    [bibliographic] = title.findall(f"{DTBOOK}level2")
+    assert bibliographic.get("class") == "once-bibliographic"
+    assert bibliographic.find(f"{DTBOOK}h2").text == "DATOS BIBLIOGRÁFICOS"
     body = dtbook.find(f"{DTBOOK}book/{DTBOOK}bodymatter")
     chapters = body.findall(f"{DTBOOK}level1")
     assert [level.find(f"{DTBOOK}h1").text for level in chapters] == [
@@ -384,6 +388,33 @@ def test_initial_files_are_front_matter_and_subchapters_nest(tmp_path) -> None:
     assert not [path for path in (package / "audio").rglob("*") if path.is_dir()]
     opf = (next(package.glob("*.opf"))).read_text(encoding="utf-8")
     assert 'scheme="ABSYS"' not in opf  # the model has no ABSYS number
+
+
+def test_the_ncx_nests_the_bibliographic_data_in_the_title_and_labels_play_the_smil_clip(tmp_path) -> None:
+    package = _package(_structure(MODEL), tmp_path)
+    ncx = ET.parse(next(package.glob("*.ncx"))).getroot()
+    nav_map = ncx.find(f"{NCX}navMap")
+    top = nav_map.findall(f"{NCX}navPoint")
+    assert [point.get("class") for point in top] == [
+        "once-title", "once-index", "chapter", "chapter", "chapter"]
+    assert [point.get("class") for point in top[0].findall(f"{NCX}navPoint")] == ["once-bibliographic"]
+    depth = next(meta.get("content") for meta in ncx.iter(f"{NCX}meta") if meta.get("name") == "dtb:depth")
+    assert depth == "2"
+    # Each label says its heading with exactly the clip the SMIL plays for it,
+    # as in DAISY Pipeline's books: no second timeline for a reviewer to compare.
+    checked = 0
+    for point in nav_map.iter(f"{NCX}navPoint"):
+        audio = point.find(f"{NCX}navLabel/{NCX}audio")
+        if audio is None:
+            continue
+        smil_name, _, par_id = point.find(f"{NCX}content").get("src").partition("#")
+        smil = ET.parse(package / smil_name).getroot()
+        par = next(node for node in smil.iter(f"{SMIL}par") if node.get("id") == par_id)
+        clip = par.find(f"{SMIL}audio")
+        assert (audio.get("clipBegin"), audio.get("clipEnd")) == (clip.get("clipBegin"), clip.get("clipEnd"))
+        assert audio.get("src").rpartition("/")[2] == clip.get("src").rpartition("/")[2]
+        checked += 1
+    assert checked >= 5
 
 
 def test_page_numbers_are_silent_skippable_markers(tmp_path) -> None:
@@ -529,7 +560,7 @@ def test_the_job_structure_gives_the_editor_files_units_pages_and_final_audio(of
     asyncio.run(main.run_production_job(job_id))
     structure = client.get(f"/api/jobs/{job_id}/structure").json()
     assert [(section["file_number"], section["kind"], section["level"]) for section in structure["sections"]] == [
-        (1, "once_title", 1), (2, "once_bibliographic", 1), (3, "once_index", 1), (4, "chapter", 1),
+        (1, "once_title", 1), (2, "once_bibliographic", 2), (3, "once_index", 1), (4, "chapter", 1),
         (5, "subchapter", 2), (6, "chapter", 1), (7, "subchapter", 2), (8, "chapter", 1)]
     assert [section["page_start"] for section in structure["sections"]] == ["1", "2", "3", "4", "4", "5", "6", "7"]
     assert structure["pages"] == 7

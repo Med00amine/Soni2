@@ -126,8 +126,14 @@ def _package_files(package: Path) -> tuple[Path, ET.Element, Path, ET.Element]:
     return opf_path, opf, package / by_id["dtbook"], ET.parse(package / by_id["dtbook"]).getroot()
 
 
-def units_to_package(units: list[dict], package: Path, book_audio: Path | None = None) -> list[dict]:
-    """Checks 3-5 on a built package directory; ``book_audio`` is the complete audiobook beside it."""
+def units_to_package(units: list[dict], package: Path, book_audio: Path | None = None,
+                     book_gap: float = 0.0) -> list[dict]:
+    """Checks 3-5 on a built package directory; ``book_audio`` is the complete audiobook beside it.
+
+    ``book_gap`` is the silence the complete audiobook puts between two of its
+    files, beyond their own edges (``audio_master.join_book``): it is in that
+    file and in no SMIL time.
+    """
     checks: list[dict] = []
     _opf_path, opf, dtbook_path, dtbook = _package_files(package)
     # A page number is a silent marker, not something narrated: it is checked
@@ -238,7 +244,8 @@ def units_to_package(units: list[dict], package: Path, book_audio: Path | None =
     total = _seconds(total_meta or "")
     if book_audio is not None and book_audio.is_file() and total is not None:
         actual = mp3_duration(book_audio.read_bytes())
-        if abs(actual - total) > max(1.0, actual * 0.01):
+        gaps = book_gap * max(0, len(durations) - 1)
+        if abs(actual - gaps - total) > max(1.0, actual * 0.01):
             nav_problems.append(f"dtb:totalTime {total:.1f}s y el audio completo dura {actual:.1f}s")
         chapter_total = sum(durations.values())
         if actual + 1.0 < chapter_total * 0.98:
@@ -271,8 +278,13 @@ def verify(chapters: list[dict], units: list[dict], job_dir: Path, package: Path
     """
     checks = [source_to_units(chapters, units, corrected_ids), units_to_audio(units, job_dir)]
     if package is not None:
+        targets = timing or {}
+        book_gap = 0.0
+        if targets.get("chapter_gap") is not None and targets.get("leading") is not None \
+                and targets.get("trailing") is not None:
+            book_gap = max(0.0, targets["chapter_gap"] - targets["leading"] - targets["trailing"])
         try:
-            checks.extend(units_to_package(units, package, book_audio or (timing or {}).get("book_audio")))
+            checks.extend(units_to_package(units, package, book_audio or targets.get("book_audio"), book_gap))
         except (ET.ParseError, StopIteration, KeyError, OSError) as exc:
             checks.append(_check("package_readable", "Paquete legible", "failed", f"No se pudo leer el paquete: {exc}"))
         from app import daisy_timing, zedval_rules

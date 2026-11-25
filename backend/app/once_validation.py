@@ -228,10 +228,12 @@ def _hierarchy(built: _Package, planned: list[dict]) -> dict:
                   if meta.get("name") == "dtb:depth"), "")
     if depth != str(max(nav_levels, default=1)):
         problems.append(f"dtb:depth es {depth} y la navegación tiene {max(nav_levels, default=1)} niveles")
-    return _check("once_hierarchy", "Estructura ONCE: niveles (archivos iniciales y capítulos 1, subcapítulos 2)",
-                  "failed" if problems else "passed",
-                  "; ".join(problems) or f"{len(built.sections)} archivos, "
-                  f"{sum(1 for section in built.sections if section['level'] == 2)} subcapítulos en el nivel 2",
+    subchapters = sum(1 for section in built.sections if section["level"] == 2 and section["matter"] == "bodymatter")
+    initial_level2 = sum(1 for section in built.sections if section["level"] == 2 and section["matter"] == "frontmatter")
+    return _check("once_hierarchy", "Estructura ONCE: niveles (título, índice y capítulos 1; datos bibliográficos "
+                  "y subcapítulos 2)", "failed" if problems else "passed",
+                  "; ".join(problems) or f"{len(built.sections)} archivos, {subchapters} subcapítulos en el nivel 2"
+                  + (" y los datos bibliográficos en el nivel 2 del archivo 1" if initial_level2 else ""),
                   problems=problems)
 
 

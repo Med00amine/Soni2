@@ -887,13 +887,14 @@ def build_daisy_package(
         return reference
 
     def label_clip(index: int) -> tuple[str, int, int]:
-        """Where segment ``index`` is spoken: its speech, inside its SMIL clip (for the NCX)."""
-        audio_path, tiled_begin, tiled_end = smil_clips[index]
-        _path, speech_begin, speech_end = segment_clips[index]
-        begin = max(tiled_begin, int(round(speech_begin * 1000)))
-        end = min(tiled_end, int(round(speech_end * 1000)))
-        if end <= begin:
-            begin, end = tiled_begin, tiled_end
+        """The audio of segment ``index`` for the NCX: exactly its SMIL clip.
+
+        A label that said only the speech inside the clip started and ended at
+        other times than the heading it names, which a reviewer comparing the
+        NCX with the SMIL reads as a timing error. DAISY Pipeline's books, ONCE's
+        own included, give the label the very clip the SMIL plays.
+        """
+        audio_path, begin, end = smil_clips[index]
         return paths.audio_href(audio_path), begin, end
 
     if layout is not None:
@@ -1131,11 +1132,15 @@ def _write_structured_text(
             else:
                 previous_note = None
     current_chapter: ET.Element | None = None
+    current_initial = False
     levels: list[ET.Element] = []
     for number, ((chapter_title, chapter_paragraphs), entry) in enumerate(zip(chapters, layout), start=1):
         kind = entry.get("kind") or "chapter"
         initial = kind in INITIAL_SECTION_KINDS
-        nested = entry.get("level") == 2 and current_chapter is not None and not initial
+        # A level 2 nests in the level 1 before it, on its own side of the
+        # book: the bibliographic data inside file 1 in the front matter, a
+        # subchapter inside its chapter; never a chapter inside an initial file.
+        nested = entry.get("level") == 2 and current_chapter is not None and initial == current_initial
         parent = current_chapter if nested else (frontmatter if initial else bodymatter)
         level_name, heading_name = ("level2", "h2") if nested else ("level1", "h1")
         section_id = f"chapter-{number}"
@@ -1143,7 +1148,7 @@ def _write_structured_text(
                               {"id": section_id, "class": SECTION_CLASSES.get(kind, "chapter")})
         levels.append(level)
         if not nested:
-            current_chapter = None if initial else level
+            current_chapter, current_initial = level, initial
         smil_name = f"chapter-{number:04d}.smil"
         smil_names.append(smil_name)
         smil = ET.Element(_q(SMIL_NS, "smil"), {_q(XML_NS, "lang"): "es-ES"})

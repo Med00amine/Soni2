@@ -1,6 +1,8 @@
-"""ONCE: one second of digital silence before every audio file, more than one after.
+"""Digital silence at the edges of every audio file, when it is asked for.
 
-Measured on the decoded waveform (silence detection and RMS of the edge
+None by default since 2026-11-25 (the inserted second put each chapter's first
+words a second after its SMIL clip began); ``EDGES`` is the setting ONCE's
+recorded books used, one second before and more than one after. Measured on the decoded waveform (silence detection and RMS of the edge
 windows), never taken from what the code meant to do. Also covered: the audio
 format is kept (sample rate, channels), the bitrate is constant, nothing
 clips, no silence is added between sentences, and finishing a file twice adds
@@ -20,6 +22,11 @@ from app.daisy_export import build_daisy_package, mp3_duration
 pytestmark = pytest.mark.skipif(not audio_master.available(), reason="needs ffmpeg")
 
 SILENT_DB = -60.0
+
+
+def EDGES(**changes) -> audio_master.MasteringOptions:
+    """Mastering with the edge silence of ONCE's recorded books: 1 s before, 1.2 s after."""
+    return audio_master.MasteringOptions(**{"leading_silence_ms": 1000, "trailing_silence_ms": 1200, **changes})
 
 
 def _tone(tmp_path: Path, name: str, *, seconds: float = 1.0, lead: float = 0.4, tail: float = 0.5,
@@ -48,9 +55,17 @@ def _assert_edges(audio: bytes, lead: float, tail: float) -> None:
     assert end is not None and end <= SILENT_DB, end
 
 
+def test_no_edge_silence_is_added_by_default() -> None:
+    assert audio_master.MasteringOptions().edges == (0.0, 0.0)
+    from app import main
+
+    assert (main.Settings.model_fields["audio_leading_silence_ms"].default,
+            main.Settings.model_fields["audio_trailing_silence_ms"].default) == (0, 0)
+
+
 def test_a_finished_file_starts_with_one_second_and_ends_with_more(tmp_path) -> None:
     clip = _tone(tmp_path, "clip", lead=0.0, tail=0.0)
-    options = audio_master.MasteringOptions()
+    options = EDGES()
     assert options.edges == (1.0, 1.2)
     finished = audio_master.finish_file(clip, options)
     assert finished.finished, finished.detail
@@ -78,7 +93,7 @@ def test_the_silence_values_are_settings(tmp_path) -> None:
 
 def test_finishing_twice_adds_nothing_the_second_time(tmp_path) -> None:
     clip = _tone(tmp_path, "clip", lead=0.0, tail=0.0)
-    options = audio_master.MasteringOptions()
+    options = EDGES()
     once = audio_master.finish_file(clip, options)
     twice = audio_master.finish_file(once.audio, options)
     # Already in the delivery format with its silence: returned byte for byte.
@@ -89,7 +104,7 @@ def test_finishing_twice_adds_nothing_the_second_time(tmp_path) -> None:
 def test_silence_already_there_is_topped_up_not_stacked(tmp_path) -> None:
     # A clip that already starts with 0.4 s and ends with 0.5 s of silence.
     clip = _tone(tmp_path, "padded", lead=0.4, tail=0.5)
-    finished = audio_master.finish_file(clip, audio_master.MasteringOptions())
+    finished = audio_master.finish_file(clip, EDGES())
     assert finished.lead_added == pytest.approx(0.6, abs=0.06)
     assert finished.tail_added == pytest.approx(0.7, abs=0.06)
     edges = audio_master.edge_silence(finished.audio)
@@ -118,7 +133,7 @@ def test_nothing_clips(tmp_path) -> None:
 
 def test_no_silence_is_added_between_sentences(tmp_path) -> None:
     passages = [_tone(tmp_path, f"p{index}") for index in range(3)]
-    options = audio_master.MasteringOptions(paragraph_gap_ms=1000)
+    options = EDGES(paragraph_gap_ms=1000)
     chapter = audio_master.master_chapter(passages, options)
     assert chapter.mastered, chapter.detail
     # Between paragraphs: the paragraph pause, not the file-edge silence too.
@@ -132,7 +147,7 @@ def test_the_chapters_and_the_complete_audiobook_are_handled_alike(tmp_path) -> 
     chapters = [("Uno", ["Uno.", "Dos."]), ("Dos", ["Tres.", "Cuatro."])]
     # The complete audiobook is delivered beside the package (it is no file of the DAISY book).
     package = build_daisy_package("Libro", ["Uno.", "Dos.", "Tres.", "Cuatro."], passages, tmp_path / "pkg",
-                                  chapters=chapters, mastering=audio_master.MasteringOptions(),
+                                  chapters=chapters, mastering=EDGES(),
                                   book_audio_path=tmp_path / "Libro.mp3")
     chapter_files = sorted((package / "audio").glob("chapter-*.mp3"))
     assert len(chapter_files) == 2
@@ -145,7 +160,7 @@ def test_the_chapters_and_the_complete_audiobook_are_handled_alike(tmp_path) -> 
 
 def test_a_package_built_again_from_finished_chapters_adds_no_silence(tmp_path) -> None:
     passages = [_tone(tmp_path, f"p{index}") for index in range(2)]
-    options = audio_master.MasteringOptions()
+    options = EDGES()
     chapter = audio_master.master_chapter(passages, options)
     package = build_daisy_package("Libro", ["Uno.", "Dos."], passages, tmp_path / "pkg",
                                   chapters=[("Uno", ["Uno.", "Dos."])], chapter_audio=[chapter.audio],
